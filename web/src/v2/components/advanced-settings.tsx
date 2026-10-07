@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { APIClient } from "../../api/client";
-import type { ThreadDetailView } from "../../api/types";
+import type { ThreadDetailView, WorkspaceView } from "../../api/types";
 import { DesktopSkillPreviewDialog } from "../../components/desktop-skill-preview";
 import { SafeWebReadinessPanel } from "../../components/safe-web-readiness";
 import { AboutSettings, ExtensionSettings, WebSkillInstall, persistDensity, readDensity,
@@ -11,14 +11,17 @@ import { v2QueryKeys } from "../query-keys";
 import { useConnectionStore } from "../../state/connection";
 import "./advanced-settings.css";
 
-export function V2ExtensionSettings({ client, threadID }: { client: APIClient; threadID: string }) {
+export function V2ExtensionSettings({ client, threadID, workspaces = [], onOpenTask }: {
+  client: APIClient; threadID: string; workspaces?: WorkspaceView[]; onOpenTask?: (workspaceID?: string) => void;
+}) {
+  const [workspaceID, setWorkspaceID] = useState("");
   const thread = useQuery({
     queryKey: v2QueryKeys.thread(threadID),
     queryFn: ({ signal }) => client.get<ThreadDetailView>(`/threads/${encodeURIComponent(threadID)}`, {}, signal),
     enabled: Boolean(threadID),
   });
   const runID = (thread.data?.active_run ?? thread.data?.last_run)?.id;
-  if (threadID && (thread.isPending || thread.isError || !runID)) return <>
+  if (threadID && (thread.isPending || thread.isError || (!runID && !thread.data?.thread.workspace_id))) return <>
     <h1>扩展与代码智能</h1>
     {thread.isPending ? <p role="status">正在读取当前任务的扩展范围…</p> : <p role="alert">
       无法确定当前任务的扩展范围。<button className="v2-setting-link" onClick={() => void thread.refetch()}
@@ -27,7 +30,15 @@ export function V2ExtensionSettings({ client, threadID }: { client: APIClient; t
   return <div className="v2-shared-settings">
     <p className="v2-settings-lead">{threadID ? `当前任务：${thread.data?.thread.title}。代码智能状态按其工作区读取。`
       : "未选择任务，显示已登记的扩展与代码智能状态。"}扩展的实际范围见各条记录；关闭操作作用于该扩展或安装，不只是隐藏当前任务中的显示。</p>
-    <ExtensionSettings client={client} key={runID ?? "global"} selectedRunID={runID ?? ""} />
+    {!threadID && <label className="extension-scope-picker">接入工作区
+      <select aria-label="接入工作区" value={workspaceID} onChange={(event) => setWorkspaceID(event.target.value)}>
+        <option value="">全部已登记状态（选择工作区以接入）</option>
+        {workspaces.map((workspace) => <option key={workspace.id} value={workspace.id}>{workspace.name}</option>)}
+      </select>
+      {onOpenTask && <button className="settings-action" onClick={() => onOpenTask(workspaceID || undefined)} type="button">打开新任务输入区</button>}
+    </label>}
+    <ExtensionSettings client={client} key={`${runID ?? "global"}/${workspaceID}`} onOpenTask={onOpenTask}
+      selectedRunID={runID ?? ""} selectedWorkspaceID={threadID ? thread.data?.thread.workspace_id : workspaceID} />
   </div>;
 }
 

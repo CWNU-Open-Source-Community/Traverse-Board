@@ -29,12 +29,21 @@ type ExtensionController interface {
 }
 
 type ExtensionInventoryView struct {
-	ProtocolVersion string                            `json:"protocol_version"`
-	RunID           string                            `json:"run_id,omitempty"`
-	WorkspaceID     string                            `json:"workspace_id,omitempty"`
-	MCPServers      []ExtensionMCPServerView          `json:"mcp_servers"`
-	MCPCalls        []ExtensionMCPCallAuditView       `json:"mcp_calls"`
-	Plugins         []ExtensionPluginInstallationView `json:"plugins"`
+	ProtocolVersion string                               `json:"protocol_version"`
+	RunID           string                               `json:"run_id,omitempty"`
+	WorkspaceID     string                               `json:"workspace_id,omitempty"`
+	MCPServers      []ExtensionMCPServerView             `json:"mcp_servers"`
+	MCPCalls        []ExtensionMCPCallAuditView          `json:"mcp_calls"`
+	Plugins         []ExtensionPluginInstallationView    `json:"plugins"`
+	Onboarding      *ExtensionOnboardingCapabilitiesView `json:"onboarding,omitempty"`
+}
+
+// These process-local capabilities describe available operator entry points.
+// They never grant extension execution authority or imply a successful call.
+type ExtensionOnboardingCapabilitiesView struct {
+	MCPRegistration  bool `json:"mcp_registration"`
+	PluginImport     bool `json:"plugin_import"`
+	LSPConfiguration bool `json:"lsp_configuration"`
 }
 
 type ExtensionSourceView struct {
@@ -204,16 +213,38 @@ func (a *API) extensionInventory(request *http.Request) (any, *Page, error) {
 		return nil, nil, apperror.New(apperror.CodeNotFound,
 			"extension inventory is unavailable")
 	}
-	if err := validateSingleQueryValues(request.URL.Query(), "run_id"); err != nil {
+	if err := validateSingleQueryValues(request.URL.Query(), "run_id", "workspace_id"); err != nil {
 		return nil, nil, err
 	}
-	runID, _ := singleQueryValue(request.URL.Query(), "run_id")
-	value, err := a.extensionController.Inventory(request.Context(), runID)
+	runID, runSpecified := singleQueryValue(request.URL.Query(), "run_id")
+	workspaceID, workspaceSpecified := singleQueryValue(request.URL.Query(), "workspace_id")
+	if (runSpecified && runID == "") || (workspaceSpecified && workspaceID == "") {
+		return nil, nil, apperror.New(apperror.CodeInvalidArgument,
+			"run_id and workspace_id must each appear at most once with a value")
+	}
+	for _, identity := range []string{runID, workspaceID} {
+		if identity != "" {
+			if err := validatePathIdentity(identity); err != nil {
+				return nil, nil, err
+			}
+		}
+	}
+	var value application.ExtensionInventory
+	var err error
+	if scoped, ok := a.extensionController.(ExtensionScopedInventoryController); ok {
+		value, err = scoped.InventoryForScope(request.Context(), runID, workspaceID)
+	} else if workspaceID != "" {
+		return nil, nil, apperror.New(apperror.CodeUnavailable,
+			"workspace-scoped extension inventory is unavailable; select a Run or update the backend")
+	} else {
+		value, err = a.extensionController.Inventory(request.Context(), runID)
+	}
 	if err != nil {
 		return nil, nil, err
 	}
 	result := ExtensionInventoryView{ProtocolVersion: value.ProtocolVersion,
 		RunID: value.RunID, WorkspaceID: value.WorkspaceID,
+		Onboarding: a.extensionOnboardingCapabilities(),
 		MCPServers: make([]ExtensionMCPServerView, 0, len(value.MCPServers)),
 		MCPCalls:   make([]ExtensionMCPCallAuditView, 0, len(value.MCPCalls)),
 		Plugins:    make([]ExtensionPluginInstallationView, 0, len(value.Plugins))}
@@ -227,6 +258,15 @@ func (a *API) extensionInventory(request *http.Request) (any, *Page, error) {
 		result.Plugins = append(result.Plugins, ProjectPluginInstallation(installation))
 	}
 	return result, nil, nil
+}
+
+func (a *API) extensionOnboardingCapabilities() *ExtensionOnboardingCapabilitiesView {
+	_, onboarding := a.extensionController.(ExtensionOnboardingController)
+	return &ExtensionOnboardingCapabilitiesView{
+		MCPRegistration:  a.extensionControlEnabled && onboarding,
+		PluginImport:     a.extensionControlEnabled && onboarding,
+		LSPConfiguration: a.extensionControlEnabled && a.codeIntelController != nil,
+	}
 }
 
 func (a *API) serveExtensionMutation(writer http.ResponseWriter, request *http.Request,

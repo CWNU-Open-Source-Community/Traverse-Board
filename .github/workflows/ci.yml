@@ -689,7 +689,8 @@ jobs:
               CYBERAGENT_UI_EVIDENCE_SMOKE = "1"
               GITHUB_ACTIONS = "true"
               GIT_CONFIG_COUNT = "1"
-              GIT_CONFIG_GLOBAL = "NUL"
+              # Git for Windows 2.56/UCRT requires lowercase nul here.
+              GIT_CONFIG_GLOBAL = "nul"
               GIT_CONFIG_KEY_0 = "safe.directory"
               GIT_CONFIG_NOSYSTEM = "1"
               GIT_CONFIG_VALUE_0 = $env:GITHUB_WORKSPACE

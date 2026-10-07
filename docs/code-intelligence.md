@@ -128,9 +128,21 @@ GET /api/v1/code-intel
 GET /api/v1/code-intel?workspace_id=<registered-workspace-id>
 ```
 
-响应只投影 source label/hash、语言、health、Server version、capabilities、model-visible tools、generation、capability fingerprint、有界错误和资格布尔值。它从不返回 executable、argv、环境变量、凭证、原始 Server 日志或 Workspace 内容。`GET /api/v1/capabilities` 的 `code_intel_enabled` 只说明当前进程加载了显式配置，不是模型调用授权。
+响应只投影 source label/hash、语言、health、Server version、capabilities、model-visible tools、generation、capability fingerprint、有界错误、资格布尔值与待审查/已审查配置元数据。它从不返回 executable、argv、环境变量、凭证、原始 Server 日志或 Workspace 内容。`GET /api/v1/capabilities` 的 `code_intel_enabled` 只说明当前进程提供 Go 运行时；空配置、已审查配置与实际查询成功仍是不同状态，也不授予模型调用权限。
 
-Desktop 设置页使用同一 API 显示 Server 和资格状态，不增加原生进程旁路。模型工具仍由每轮 Supervisor 使用当前 Run 和 Workspace 重新生成。
+Web/Desktop 设置页使用同一 API 显示 Server 和资格状态。未显式指定配置文件的进程还可在设置页完成首次配置：
+
+```text
+POST /api/v1/code-intel/configurations
+POST /api/v1/code-intel/configurations/{server_id}/review
+POST /api/v1/code-intel/configurations/{server_id}/test
+```
+
+这三个入口需要 Control Bearer 和现有扩展控制开关。先登记已安装程序的描述符和 SHA-256，Go 保存当前进程内的待审查草稿；按指纹明确审查后，才以现有 `code-intel-config.v1` 格式保存到应用 home 的 `code-intel.json`。默认 Web/Desktop 下次启动加载这个文件。保存不启动服务器，后续测试操作才初始化所选服务器并执行一次只读文件符号或工作区符号查询，返回有界结果、来源与截断状态。
+
+若通过参数或环境选择了显式配置，设置页保留状态读取但不提供配置写入；继续编辑所选文件并使用原 CLI 流程，或不指定该文件重启后使用设置管理。`extensions` inventory 的 `onboarding.lsp_configuration` 表示当前进程是否支持设置管理，旧后端缺少此字段时不开放操作。失败保留输入；可执行文件不可用或哈希变化需修正后重新登记、审查。待审查草稿不跨进程恢复。
+
+模型工具仍由每轮 Supervisor 使用当前 Run 和 Workspace 重新生成，复用同一个 Go manager 和原有权限检查。操作者测试不会给模型新增能力或写入权限。
 
 传入 `workspace_id` 时，Server inventory 与资格均只返回该精确 Workspace；未选择 Run 时 Desktop 才显示进程级全局 inventory。
 

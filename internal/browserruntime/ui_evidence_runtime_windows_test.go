@@ -327,12 +327,16 @@ func installedStableEdge(t *testing.T) BrowserExecutableIdentity {
 
 func uiEvidenceSmokeSourceBinding(t *testing.T) (string, string, bool) {
 	t.Helper()
-	rootRaw, err := exec.Command("git", "rev-parse", "--show-toplevel").Output()
+	rootCommand := exec.Command("git", "rev-parse", "--show-toplevel")
+	rootCommand.Stderr = os.Stderr
+	rootRaw, err := rootCommand.Output()
 	if err != nil {
 		t.Fatalf("resolve UI evidence source root: %v", err)
 	}
 	root := strings.TrimSpace(string(rootRaw))
-	commitRaw, err := exec.Command("git", "-C", root, "rev-parse", "HEAD").Output()
+	commitCommand := exec.Command("git", "-C", root, "rev-parse", "HEAD")
+	commitCommand.Stderr = os.Stderr
+	commitRaw, err := commitCommand.Output()
 	if err != nil {
 		t.Fatalf("resolve UI evidence source commit: %v", err)
 	}
@@ -341,8 +345,10 @@ func uiEvidenceSmokeSourceBinding(t *testing.T) (string, string, bool) {
 	if err != nil || len(decoded) != 20 {
 		t.Fatalf("invalid UI evidence source commit %q", commit)
 	}
-	statusRaw, err := exec.Command("git", "-C", root, "status", "--porcelain=v1",
-		"--untracked-files=all").Output()
+	statusCommand := exec.Command("git", "-C", root, "status", "--porcelain=v1",
+		"--untracked-files=all")
+	statusCommand.Stderr = os.Stderr
+	statusRaw, err := statusCommand.Output()
 	if err != nil {
 		t.Fatalf("inspect UI evidence source status: %v", err)
 	}

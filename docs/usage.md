@@ -187,6 +187,17 @@ seven tools unavailable and the Supervisor does not advertise them.
 
 ### Read-only LSP code intelligence
 
+Web and Desktop **Settings → Extensions** can stage a language-server configuration
+for a registered Workspace. Supply the installed executable's absolute path and
+SHA-256, language/file suffix mappings and any required arguments. Review the
+staged fingerprint explicitly, then use the separate test action with a
+Workspace-relative source file or symbol query. A saved configuration does not
+mean that initialization or a query succeeded. Reviewed settings are saved in
+the application's managed `code-intel.json` and loaded on the next startup;
+explicit CLI/environment configuration continues to take precedence and makes
+settings configuration read-only. Edit that selected file using the existing CLI
+flow, or restart without an explicit configuration to manage it from settings.
+
 Select an absolute operator-reviewed `code-intel-config.v1` file with
 `CYBERAGENT_CODE_INTEL_CONFIG`, `cyberagent code-intel ... --config`,
 `api serve --code-intel-config`, or Desktop `--code-intel-config`. A status read does
@@ -1931,6 +1942,31 @@ runtime enable switch or installs a service. Full CLI, HTTP, Desktop, repair-aut
 misfire, DST, and crash-recovery details are in
 [Scheduled Jobs and Structured Diagnostics](scheduled-jobs-diagnostics.md) and
 [ADR 0121](adr/0121-durable-scheduled-monitoring-and-structured-diagnostics.md).
+
+## First-time MCP Client and Plugin setup
+
+In Web/Desktop **Settings → Extensions**, select a registered Workspace (or the
+current task's Run) before registering a manual MCP client. Supply its stable
+identity, stdio executable/arguments or fixed HTTPS endpoint, declared capability
+types and scope. Registration is inert. Approve discovery, rediscover the server,
+inspect its advertised tools/resources/prompts, then approve that exact capability
+fingerprint. To exercise a tool, open the drafted request in the task composer and
+submit it through the normal permission and approval flow. Settings shows the
+resulting call status and bounded audit metadata for the selected Run; discovery
+alone is not a successful invocation.
+
+Plugin import accepts an existing supported ZIP of at most 4 MiB. The browser
+computes its SHA-256 and the backend verifies it before staging. Review source,
+signature state and requested capabilities, explicitly confirm an untrusted
+package where required, then enable the selected contributions. Imported or
+enabled does not mean that a contribution has executed. The existing `plugin`
+and `mcp client` CLI flows remain available, including URL/Git acquisition where
+supported. Form errors retain the input so the operator can correct and retry it.
+
+Unavailable onboarding controls mean that this backend lacks the corresponding
+control capability or control authentication. Unregistered servers need setup,
+staged entries need review, and discovery/probe failures require checking the
+reported executable, transport, hash or protocol error before retrying.
 
 ## MCP Server
 

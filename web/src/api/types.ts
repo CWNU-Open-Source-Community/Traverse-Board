@@ -170,6 +170,16 @@ export type DoctorSnapshotView = components["schemas"]["DoctorSnapshot"];
 export type DebugQueryResultView = components["schemas"]["DebugQueryResult"];
 export type DiagnosticBundleView = components["schemas"]["DiagnosticBundle"];
 export type ExtensionInventoryView = components["schemas"]["ExtensionInventoryView"];
+export type ExtensionMCPRegistrationRequestView = components["schemas"]["ExtensionMCPRegistrationRequestView"];
+export type ExtensionMCPRegistrationView = components["schemas"]["ExtensionMCPRegistrationView"];
+export type ExtensionPluginImportRequestView = components["schemas"]["ExtensionPluginImportRequestView"];
+export type ExtensionPluginImportView = components["schemas"]["ExtensionPluginImportView"];
+export type ExtensionMCPCallAuditView = components["schemas"]["ExtensionMCPCallAuditView"];
+export type CodeIntelConfigurationRequestView = components["schemas"]["CodeIntelConfigurationRequestView"];
+export type CodeIntelConfigurationView = components["schemas"]["CodeIntelConfigurationView"];
+export type CodeIntelConfigurationReviewRequestView = components["schemas"]["CodeIntelConfigurationReviewRequestView"];
+export type CodeIntelConfigurationTestRequestView = components["schemas"]["CodeIntelConfigurationTestRequestView"];
+export type CodeIntelConfigurationTestView = components["schemas"]["CodeIntelConfigurationTestView"];
 export type ExtensionMCPServerView = components["schemas"]["ExtensionMCPServerView"];
 export type ExtensionMCPReviewRequestView =
   components["schemas"]["ExtensionMCPReviewRequestView"];

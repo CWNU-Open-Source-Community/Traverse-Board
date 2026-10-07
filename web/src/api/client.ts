@@ -66,6 +66,15 @@ import type {
   HostCommandProposalView,
   ErrorEnvelope,
   ExtensionInventoryView,
+  ExtensionMCPRegistrationRequestView,
+  ExtensionMCPRegistrationView,
+  ExtensionPluginImportRequestView,
+  ExtensionPluginImportView,
+  CodeIntelConfigurationRequestView,
+  CodeIntelConfigurationView,
+  CodeIntelConfigurationReviewRequestView,
+  CodeIntelConfigurationTestRequestView,
+  CodeIntelConfigurationTestView,
   ExtensionMCPReviewRequestView,
   ExtensionMCPServerView,
   ExtensionPluginInstallationView,
@@ -6032,12 +6041,25 @@ function containsForbiddenCodeIntelField(value: unknown): boolean {
 }
 
 function parseCodeIntelInventory(value: unknown): CodeIntelInventoryView {
-  if (!hasExactKeys(value, ["enabled", "protocol_version", "qualifications", "servers"]) ||
+  if (!isRecord(value) || !hasOnlyKeys(value, ["enabled", "protocol_version", "qualifications", "servers", "configurations"]) ||
+    ["enabled", "protocol_version", "qualifications", "servers"].some((key) => !Object.hasOwn(value, key)) ||
     value.protocol_version !== "code-intel-lsp.v1" || typeof value.enabled !== "boolean" ||
     containsForbiddenCodeIntelField(value) || !Array.isArray(value.servers) ||
     value.servers.length > 32 || !Array.isArray(value.qualifications) ||
     value.qualifications.length > 32) {
     throw new APIRequestError("Code intelligence inventory is invalid", "INVALID_RESPONSE", 502);
+  }
+  if (value.configurations !== undefined) {
+    if (!Array.isArray(value.configurations) || value.configurations.length > 64) {
+      throw new APIRequestError("Code intelligence configurations are invalid", "INVALID_RESPONSE", 502);
+    }
+    const identities = new Set<string>();
+    for (const item of value.configurations) {
+      const configuration = parseCodeIntelConfiguration(item);
+      const identity = `${configuration.workspace_id}/${configuration.server_id}/${configuration.review_state}/${configuration.descriptor_fingerprint}`;
+      if (identities.has(identity)) throw new APIRequestError("Code intelligence configurations repeat a server", "INVALID_RESPONSE", 502);
+      identities.add(identity);
+    }
   }
   const serverIdentities = new Set<string>();
   for (const server of value.servers) {
@@ -6132,6 +6154,73 @@ function parseCodeIntelInventory(value: unknown): CodeIntelInventoryView {
   return value as unknown as CodeIntelInventoryView;
 }
 
+function parseCodeIntelConfiguration(value: unknown): CodeIntelConfigurationView {
+  const required = ["protocol_version", "server_id", "server_name", "workspace_id", "scope", "languages",
+    "executable_sha256", "descriptor_fingerprint", "review_state", "source_kind", "source_label", "source_sha256"];
+  if (!isRecord(value) || !hasOnlyKeys(value, [...required, "reviewed_by", "reviewed_at"]) ||
+    required.some((key) => !Object.hasOwn(value, key)) || containsForbiddenCodeIntelField(value) ||
+    value.protocol_version !== "code-intel-configuration.v1" || !strictCodeIntelIdentity(value.server_id) ||
+    !strictCodeIntelIdentity(value.workspace_id) || !boundedText(value.server_name, 256) || value.scope !== "workspace" ||
+    !isSHA256(value.executable_sha256) || !isSHA256(value.descriptor_fingerprint) || !isSHA256(value.source_sha256) ||
+    value.source_kind !== "operator_config" || !boundedText(value.source_label, 256) ||
+    !["pending_review", "reviewed"].includes(String(value.review_state)) ||
+    !Array.isArray(value.languages) || value.languages.length === 0 || value.languages.length > 16 ||
+    value.languages.some((language) => !hasExactKeys(language, ["id", "extensions"]) ||
+      !strictCodeIntelIdentity(language.id) || !boundedStringArray(language.extensions, 32, 32) ||
+      language.extensions.length === 0 || language.extensions.some((extension) => !/^\.[a-z0-9_.+-]+$/u.test(extension))) ||
+    (value.reviewed_by !== undefined && !boundedText(value.reviewed_by, 256)) ||
+    (value.reviewed_at !== undefined && !validDate(value.reviewed_at)) ||
+    (value.review_state === "reviewed" && (!boundedText(value.reviewed_by, 256) || !validDate(value.reviewed_at)))) {
+    throw new APIRequestError("Code intelligence configuration projection is invalid", "INVALID_RESPONSE", 502);
+  }
+  return value as unknown as CodeIntelConfigurationView;
+}
+
+function parseCodeIntelConfigurationTest(value: unknown, serverID: string,
+  request: CodeIntelConfigurationTestRequestView): CodeIntelConfigurationTestView {
+  if (!hasExactKeys(value, ["protocol_version", "configuration", "server", "result"]) ||
+    value.protocol_version !== "code-intel-configuration.v1" || containsForbiddenCodeIntelField(value)) {
+    throw new APIRequestError("Code intelligence test response is invalid", "INVALID_RESPONSE", 502);
+  }
+  const configuration = parseCodeIntelConfiguration(value.configuration);
+  const server = parseCodeIntelInventory({ enabled: true, protocol_version: "code-intel-lsp.v1", servers: [value.server], qualifications: [] }).servers[0];
+  const result = value.result;
+  const required = ["protocol_version", "tool", "state", "evidence_level", "workspace_id", "server_id",
+    "server_generation", "capability_fingerprint", "query_fingerprint", "items", "page", "warnings"];
+  const invalid = () => new APIRequestError("Code intelligence test evidence is invalid", "INVALID_RESPONSE", 502);
+  if (!isRecord(result) || !hasOnlyKeys(result, [...required, "document_path", "document_sha256"]) ||
+    required.some((key) => !Object.hasOwn(result, key)) || result.protocol_version !== "code-intel-lsp.v1" ||
+    result.tool !== request.tool || !["current", "partial"].includes(String(result.state)) ||
+    result.evidence_level !== "semantic_language_server" || result.workspace_id !== request.workspace_id ||
+    result.server_id !== serverID || configuration.server_id !== serverID || server.server_id !== serverID ||
+    configuration.workspace_id !== request.workspace_id || server.workspace_id !== request.workspace_id ||
+    configuration.review_state !== "reviewed" || configuration.descriptor_fingerprint !== request.expected_descriptor_fingerprint ||
+    server.descriptor_fingerprint !== configuration.descriptor_fingerprint ||
+    result.server_generation !== server.generation || result.capability_fingerprint !== server.capability_fingerprint ||
+    !isSHA256(result.server_generation) || !isSHA256(result.capability_fingerprint) || !isSHA256(result.query_fingerprint) ||
+    !boundedStringArray(result.warnings, 32, 2048) || !Array.isArray(result.items) || result.items.length > 200 ||
+    !hasExactKeys(result.page, ["limit", "returned", "total", "truncated"]) ||
+    !safePositiveInteger(result.page.limit) || result.page.limit > 200 || result.page.returned !== result.items.length ||
+    !safeBoundedCount(result.page.total, 200) || result.page.total < result.items.length || typeof result.page.truncated !== "boolean" ||
+    (result.state === "current" && (result.warnings.length !== 0 || result.page.truncated)) ||
+    (request.tool === "code_document_symbols" && (result.document_path !== request.path || !isSHA256(result.document_sha256))) ||
+    (request.tool === "code_workspace_symbols" && (result.document_path !== undefined || result.document_sha256 !== undefined))) throw invalid();
+  for (const item of result.items) {
+    if (!isRecord(item) || !hasOnlyKeys(item, ["kind", "name", "path", "range"]) || !boundedText(item.kind, 128) ||
+      (item.name !== undefined && !boundedText(item.name, 4096)) ||
+      (item.path !== undefined && (!validWorkspaceRelativePath(item.path) || item.path === "."))) throw invalid();
+    if (item.range !== undefined) {
+      if (!hasExactKeys(item.range, ["start", "end"]) ||
+        ![item.range.start, item.range.end].every((position) => hasExactKeys(position, ["line", "character"]) &&
+          safeBoundedCount(position.line, 10_000_000) && safeBoundedCount(position.character, 10_000_000))) throw invalid();
+      const start = item.range.start as { line: number; character: number };
+      const end = item.range.end as { line: number; character: number };
+      if (end.line < start.line || (end.line === start.line && end.character < start.character)) throw invalid();
+    }
+  }
+  return { protocol_version: "code-intel-configuration.v1", configuration, server, result } as CodeIntelConfigurationTestView;
+}
+
 function parseExtensionInventory(value: unknown, hiddenLocalSource = false): ExtensionInventoryView {
   if (!isRecord(value) || value.protocol_version !== "extension-inventory.v1" ||
     containsForbiddenExtensionField(value) ||
@@ -6141,6 +6230,11 @@ function parseExtensionInventory(value: unknown, hiddenLocalSource = false): Ext
     (value.run_id !== undefined && !boundedIdentity(value.run_id)) ||
     (value.workspace_id !== undefined && !boundedIdentity(value.workspace_id))) {
     throw new APIRequestError("Extension inventory response is invalid", "INVALID_RESPONSE", 502);
+  }
+  if (value.onboarding !== undefined && (!hasExactKeys(value.onboarding,
+    ["mcp_registration", "plugin_import", "lsp_configuration"]) ||
+    Object.values(value.onboarding).some((flag) => typeof flag !== "boolean"))) {
+    throw new APIRequestError("Extension onboarding capabilities are invalid", "INVALID_RESPONSE", 502);
   }
   for (const item of value.mcp_servers) {
     if (!isRecord(item) || item.protocol_version !== "mcp-client-server.v1" ||
@@ -6165,8 +6259,10 @@ function parseExtensionInventory(value: unknown, hiddenLocalSource = false): Ext
       !boundedIdentity(item.workspace_id) || !boundedIdentity(item.server_id) ||
       !boundedText(item.tool_name, 256) || !isSHA256(item.capability_fingerprint) ||
       !isSHA256(item.arguments_sha256) || !safeBoundedCount(item.result_bytes, 128 * 1_024) ||
+      !["completed", "denied", "failed", "cancelled", "timed_out"].includes(String(item.status)) ||
+      (item.error_code !== undefined && !boundedText(item.error_code, 128)) ||
       typeof item.truncated !== "boolean" || !validDate(item.started_at) ||
-      !validDate(item.completed_at)) {
+      !validDate(item.completed_at) || Date.parse(item.completed_at) < Date.parse(item.started_at)) {
       throw new APIRequestError("MCP call audit projection is invalid", "INVALID_RESPONSE", 502);
     }
   }
@@ -6217,6 +6313,49 @@ function validExtensionMCPTarget(item: Record<string, unknown>): boolean {
 function parseExtensionPlugin(value: unknown): ExtensionPluginInstallationView {
   return parseExtensionInventory({ protocol_version: "extension-inventory.v1",
     mcp_servers: [], mcp_calls: [], plugins: [value] }).plugins[0];
+}
+
+function validCanonicalBase64(value: unknown, maximumBytes: number): value is string {
+  if (typeof value !== "string" || value.length === 0 ||
+    value.length > Math.ceil(maximumBytes / 3) * 4) return false;
+  try {
+    const decoded = atob(value);
+    // A grouped-repeat regex can exhaust the browser's stack on valid uploads.
+    // The round-trip also rejects whitespace, missing padding and trailing bits.
+    return decoded.length <= maximumBytes && btoa(decoded) === value;
+  } catch { return false; }
+}
+
+function parseMCPRegistration(value: unknown,
+  request: ExtensionMCPRegistrationRequestView): ExtensionMCPRegistrationView {
+  if (!hasExactKeys(value, ["protocol_version", "server", "replayed", "next_step"]) ||
+    value.protocol_version !== "extension-onboarding.v1" || typeof value.replayed !== "boolean" ||
+    !["approve_discovery", "refresh", "enable_capabilities", "request_execution", "inspect_state"].includes(String(value.next_step))) {
+    throw new APIRequestError("MCP registration response is invalid", "INVALID_RESPONSE", 502);
+  }
+  const server = parseExtensionMCPServer(value.server);
+  if (server.id !== request.descriptor.id || server.workspace_id !== request.descriptor.workspace_id ||
+    server.scope !== request.descriptor.scope || (server.run_id ?? "") !== (request.descriptor.run_id ?? "") ||
+    (!value.replayed && (server.state !== "staged" || server.generation !== 1))) {
+    throw new APIRequestError("MCP registration binding is invalid", "INVALID_RESPONSE", 502);
+  }
+  return { ...value, server } as ExtensionMCPRegistrationView;
+}
+
+function parsePluginImport(value: unknown,
+  request: ExtensionPluginImportRequestView): ExtensionPluginImportView {
+  if (!hasExactKeys(value, ["protocol_version", "installation", "replayed", "next_step"]) ||
+    value.protocol_version !== "extension-onboarding.v1" || typeof value.replayed !== "boolean" ||
+    !["approve", "enable", "select_contributions", "inspect_state"].includes(String(value.next_step))) {
+    throw new APIRequestError("Plugin import response is invalid", "INVALID_RESPONSE", 502);
+  }
+  const installation = parseExtensionPlugin(value.installation);
+  if (installation.archive_sha256 !== request.archive_sha256 ||
+    (!value.replayed && (installation.state !== "staged" || installation.generation !== 1 ||
+      installation.enabled_capabilities.length !== 0))) {
+    throw new APIRequestError("Plugin import binding is invalid", "INVALID_RESPONSE", 502);
+  }
+  return { ...value, installation } as ExtensionPluginImportView;
 }
 
 // Shared HTTP/Desktop decoder for the actual Plugin lifecycle response.
@@ -6741,13 +6880,93 @@ export class APIClient {
     ));
   }
 
-  async extensionInventory(runID = "", signal?: AbortSignal): Promise<ExtensionInventoryView> {
+  async extensionInventory(runID = "", signal?: AbortSignal, workspaceID = ""): Promise<ExtensionInventoryView> {
     if (runID !== "" && (!boundedIdentity(runID) || runID.trim() !== runID)) {
       throw new Error("A normalized Run identity is required");
     }
-    return parseExtensionInventory(await this.get<unknown>(
-      "/extensions", { run_id: runID || undefined }, signal,
+    if (workspaceID !== "" && (!boundedIdentity(workspaceID) || workspaceID.trim() !== workspaceID)) {
+      throw new Error("A normalized Workspace identity is required");
+    }
+    const inventory = parseExtensionInventory(await this.get<unknown>(
+      "/extensions", { run_id: runID || undefined, workspace_id: workspaceID || undefined }, signal,
     ));
+    if ((runID && inventory.run_id !== runID) || (workspaceID && inventory.workspace_id !== workspaceID) ||
+      (runID && inventory.mcp_calls.some((call) => call.run_id !== runID)) ||
+      (!runID && inventory.mcp_calls.length > 0) ||
+      (workspaceID && inventory.mcp_servers.some((server) => server.workspace_id !== workspaceID))) {
+      throw new APIRequestError("Extension inventory scope does not match the request", "INVALID_RESPONSE", 502);
+    }
+    return inventory;
+  }
+
+  async registerMCPServer(body: ExtensionMCPRegistrationRequestView,
+    signal?: AbortSignal): Promise<ExtensionMCPRegistrationView> {
+    const descriptor = body.descriptor;
+    if (!this.hasExtensionControl || body.version !== "extension-control.v1" ||
+      !isRecord(descriptor) || descriptor.protocol_version !== "mcp-client.v1" ||
+      !boundedIdentity(descriptor.id) || !boundedIdentity(descriptor.workspace_id) ||
+      !boundedText(descriptor.name, 256) || !boundedText(descriptor.target, 4_096) ||
+      !["stdio", "streamable_http"].includes(String(descriptor.transport)) ||
+      !["workspace", "run"].includes(String(descriptor.scope)) ||
+      (descriptor.scope === "run" && !boundedIdentity(descriptor.run_id)) ||
+      (descriptor.scope === "workspace" && descriptor.run_id !== undefined && descriptor.run_id !== "") ||
+      !boundedStringArray(descriptor.declared_capabilities, 3, 32) ||
+      !safePositiveInteger(descriptor.call_timeout_ms) || descriptor.call_timeout_ms < 100 ||
+      descriptor.call_timeout_ms > 300_000 || !safePositiveInteger(descriptor.max_result_bytes) ||
+      descriptor.max_result_bytes > 131_072) {
+      throw new Error("A bounded MCP descriptor and extension control are required");
+    }
+    return parseMCPRegistration(await this.sendControlRequest<unknown>("/extensions/mcp", body, signal), body);
+  }
+
+  async importPluginPackage(body: ExtensionPluginImportRequestView,
+    signal?: AbortSignal): Promise<ExtensionPluginImportView> {
+    if (!this.hasExtensionControl || body.version !== "extension-control.v1" ||
+      !isSHA256(body.archive_sha256) || !validCanonicalBase64(body.archive_base64, 4 * 1_024 * 1_024)) {
+      throw new Error("A bounded Plugin ZIP and exact SHA-256 are required");
+    }
+    return parsePluginImport(await this.sendControlRequest<unknown>("/extensions/plugins/import", body, signal), body);
+  }
+
+  async stageCodeIntelConfiguration(body: CodeIntelConfigurationRequestView,
+    signal?: AbortSignal): Promise<CodeIntelConfigurationView> {
+    if (!this.hasExtensionControl || body.version !== "code-intel-configuration.v1" ||
+      !strictCodeIntelIdentity(body.server_id) || !strictCodeIntelIdentity(body.workspace_id) ||
+      !isSHA256(body.executable_sha256) || !boundedText(body.executable, 4096) ||
+      !boundedStringArray(body.arguments, 64, 4096) || !safePositiveInteger(body.request_timeout_ms)) {
+      throw new Error("A pinned language-server descriptor and extension control are required");
+    }
+    const configuration = parseCodeIntelConfiguration(await this.sendControlRequest<unknown>("/code-intel/configurations", body, signal));
+    if (configuration.server_id !== body.server_id || configuration.workspace_id !== body.workspace_id ||
+      configuration.executable_sha256 !== body.executable_sha256) {
+      throw new APIRequestError("Code intelligence configuration binding is invalid", "INVALID_RESPONSE", 502);
+    }
+    return configuration;
+  }
+
+  async reviewCodeIntelConfiguration(serverID: string, body: CodeIntelConfigurationReviewRequestView,
+    signal?: AbortSignal): Promise<CodeIntelConfigurationView> {
+    if (!this.hasExtensionControl || !strictCodeIntelIdentity(serverID) ||
+      body.version !== "code-intel-configuration.v1" || !strictCodeIntelIdentity(body.workspace_id) ||
+      !isSHA256(body.expected_descriptor_fingerprint)) throw new Error("An exact language-server review is required");
+    const configuration = parseCodeIntelConfiguration(await this.sendControlRequest<unknown>(
+      `/code-intel/configurations/${encodeURIComponent(serverID)}/review`, body, signal));
+    if (configuration.server_id !== serverID || configuration.workspace_id !== body.workspace_id ||
+      configuration.review_state !== "reviewed") {
+      throw new APIRequestError("Code intelligence review binding is invalid", "INVALID_RESPONSE", 502);
+    }
+    return configuration;
+  }
+
+  async testCodeIntelConfiguration(serverID: string, body: CodeIntelConfigurationTestRequestView,
+    signal?: AbortSignal): Promise<CodeIntelConfigurationTestView> {
+    if (!this.hasExtensionControl || !strictCodeIntelIdentity(serverID) ||
+      body.version !== "code-intel-configuration.v1" || !strictCodeIntelIdentity(body.workspace_id) ||
+      !isSHA256(body.expected_descriptor_fingerprint) || !["code_document_symbols", "code_workspace_symbols"].includes(body.tool) ||
+      (body.tool === "code_document_symbols" && (!validWorkspaceRelativePath(body.path) || body.path === ".")) ||
+      (body.query !== undefined && body.query !== "" && !boundedText(body.query, 4096))) throw new Error("An exact readonly language-server test is required");
+    return parseCodeIntelConfigurationTest(await this.sendControlRequest<unknown>(
+      `/code-intel/configurations/${encodeURIComponent(serverID)}/test`, body, signal), serverID, body);
   }
 
   async reviewMCPServer(serverID: string, body: ExtensionMCPReviewRequestView,

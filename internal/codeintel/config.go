@@ -59,6 +59,25 @@ func LoadConfig(path string) (Config, string, error) {
 		return Config{}, "", errors.New("code-intel config changed while it was read")
 	}
 
+	return decodeConfig(raw, filepath.Base(clean))
+}
+
+// PrepareConfig applies the same strict operator-file contract before an
+// explicitly reviewed configuration is atomically published by the host.
+func PrepareConfig(config Config, label string) ([]byte, Config, string, error) {
+	config.Servers = append([]ServerDescriptor(nil), config.Servers...)
+	for index := range config.Servers {
+		config.Servers[index].Source = Source{}
+	}
+	raw, err := json.MarshalIndent(config, "", "  ")
+	if err != nil || len(raw) > MaxConfigBytes {
+		return nil, Config{}, "", errors.New("code-intel configuration is not bounded JSON")
+	}
+	prepared, digest, err := decodeConfig(raw, label)
+	return raw, prepared, digest, err
+}
+
+func decodeConfig(raw []byte, label string) (Config, string, error) {
 	var config Config
 	decoder := json.NewDecoder(bytes.NewReader(raw))
 	decoder.DisallowUnknownFields()
@@ -74,7 +93,6 @@ func LoadConfig(path string) (Config, string, error) {
 	}
 	digest := sha256.Sum256(raw)
 	configDigest := hex.EncodeToString(digest[:])
-	label := filepath.Base(clean)
 	if !validDisplayText(label, 256, false) || !redactionInvariant(label) {
 		return Config{}, "", errors.New(
 			"code-intel config filename is unsafe for metadata projection")

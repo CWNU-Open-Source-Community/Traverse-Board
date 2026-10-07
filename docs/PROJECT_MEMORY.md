@@ -1,5 +1,12 @@
 # Prayu Project Memory
 
+> 2026-10-07 extension onboarding checkpoint (#276): shared Web/Desktop settings
+> stage manual MCP descriptors, import pinned Plugin ZIPs and stage/review LSP
+> configuration through Go-owned services. Backend capability flags, source/scope,
+> explicit review and actual call evidence remain distinct. LSP uses a stable
+> manager and the existing reviewed configuration format; MCP calls retain the
+> normal task and approval path. See [ADR 0168](adr/0168-extension-first-onboarding.md).
+
 > 2026-10-07 task-list checkpoint (#272): title search filters the complete matching
 > task set before stable creation-keyset pagination. A bounded Go-owned execution
 > observation travels with each list item; uncertain ownership/read failures stay

@@ -6,6 +6,8 @@ import type { CodeIntelQualificationView, CodeIntelServerView, ExtensionMCPServe
   ExtensionPluginInstallationView, HealthView } from "../api/types";
 import { useLocale } from "../lib/locale";
 import { PrayuBrand } from "./prayu-brand";
+import { MCPRegistrationForm, MCPReviewControls, PluginImportForm, PluginReviewControls } from "./extension-onboarding";
+import { LSPConfigurationCard, LSPConfigurationForm } from "./lsp-onboarding";
 
 export { readDensity, persistDensity, type Density } from "../lib/ui-density";
 
@@ -98,17 +100,20 @@ type ExtensionAction =
   | { kind: "disable-mcp"; server: ExtensionMCPServerView }
   | { kind: "disable-plugin"; installation: ExtensionPluginInstallationView };
 
-export function ExtensionSettings({ client, selectedRunID }: {
+export function ExtensionSettings({ client, selectedRunID, selectedWorkspaceID = "", onOpenTask }: {
   client: APIClient;
   selectedRunID: string;
+  selectedWorkspaceID?: string;
+  onOpenTask?: (workspaceID?: string) => void;
 }) {
   const { t } = useLocale();
   const queryClient = useQueryClient();
   const inventory = useQuery({
-    queryKey: ["extensions", selectedRunID],
-    queryFn: ({ signal }) => client.extensionInventory(selectedRunID, signal),
+    queryKey: ["extensions", selectedRunID, selectedWorkspaceID],
+    queryFn: ({ signal }) => selectedWorkspaceID ? client.extensionInventory(selectedRunID, signal, selectedWorkspaceID)
+      : client.extensionInventory(selectedRunID, signal),
   });
-  const codeIntelWorkspaceID = selectedRunID ? (inventory.data?.workspace_id ?? "") : "";
+  const codeIntelWorkspaceID = selectedWorkspaceID || (selectedRunID ? (inventory.data?.workspace_id ?? "") : "");
   const codeIntel = useQuery({
     queryKey: ["code-intel", codeIntelWorkspaceID],
     queryFn: ({ signal }) => client.codeIntelInventory(codeIntelWorkspaceID, signal),
@@ -137,16 +142,22 @@ export function ExtensionSettings({ client, selectedRunID }: {
   const qualificationOnly = codeIntel.data?.qualifications.filter((qualification) =>
     !codeIntel.data.servers.some((server) => server.workspace_id === qualification.workspace_id &&
       server.server_id === qualification.server_id)) ?? [];
-  const codeIntelCount = (codeIntel.data?.servers.length ?? 0) + qualificationOnly.length;
+  const codeIntelCount = new Set([
+    ...(codeIntel.data?.servers ?? []).map((item) => `${item.workspace_id}/${item.server_id}`),
+    ...(codeIntel.data?.qualifications ?? []).map((item) => `${item.workspace_id}/${item.server_id}`),
+    ...(codeIntel.data?.configurations ?? []).map((item) => `${item.workspace_id}/${item.server_id}`),
+  ]).size;
+  const configurationWorkspaceID = selectedWorkspaceID || (selectedRunID ? inventory.data?.workspace_id ?? "" : "");
+  const onboarding = inventory.data?.onboarding;
   return <section className="settings-page-section extension-settings">
     <header className="extension-heading">
       <div>
         <h1>{t("Code Intel、MCP 与 Plugin", "Code Intel, MCP and Plugins")}</h1>
-        <p>{t("查看语言服务器与扩展的真实运行状态和固定能力指纹。不会显示语言服务器命令、环境或凭据。",
-          "Inspect live language-server and extension state with pinned capability fingerprints. Language-server commands, environment, and credentials are never shown.")}</p>
+        <p>{t("先接入，再明确审查。来源、范围、运行就绪与实际调用分别显示；服务返回状态元数据，不回传语言服务器启动参数或凭据。",
+          "Connect first, then review explicitly. Source, scope, readiness, and actual calls are shown separately. Service metadata does not echo language-server launch arguments or credentials.")}</p>
       </div>
       <button className="settings-action" disabled={inventory.isFetching || codeIntel.isFetching}
-        onClick={() => { void inventory.refetch(); void codeIntel.refetch(); }} type="button">
+        onClick={() => { void inventory.refetch(); if (!selectedRunID || codeIntelWorkspaceID) void codeIntel.refetch(); }} type="button">
         <RefreshCw aria-hidden="true"
           className={inventory.isFetching || codeIntel.isFetching ? "spin" : ""} size={15} />
         {t("刷新", "Refresh")}
@@ -158,7 +169,13 @@ export function ExtensionSettings({ client, selectedRunID }: {
       action.error.message : t("扩展操作失败", "Extension action failed")}</p>}
     {codeIntel.error && <p className="inline-warning">{codeIntel.error instanceof Error ?
       codeIntel.error.message : t("语言服务器状态读取失败", "Failed to read language-server state")}</p>}
+    {(inventory.isLoading || codeIntel.isLoading) && <p role="status">{t("正在读取扩展状态与接入能力…", "Loading extension state and onboarding capabilities…")}</p>}
     <ExtensionCollection title="Code Intel / LSP" count={codeIntelCount}>
+      <LSPConfigurationForm capabilityKnown={Boolean(inventory.data)} client={client} enabled={Boolean(client.hasExtensionControl && onboarding?.lsp_configuration)}
+        workspaceID={configurationWorkspaceID} />
+      {codeIntel.data?.configurations?.map((configuration) => <LSPConfigurationCard client={client}
+        enabled={Boolean(client.hasExtensionControl && onboarding?.lsp_configuration)}
+        configuration={configuration} key={`${configuration.workspace_id}/${configuration.server_id}/${configuration.descriptor_fingerprint}/${configuration.review_state}`} />)}
       {codeIntel.data?.servers.map((server) => <CodeIntelServerCard
         key={`${server.workspace_id}/${server.server_id}`} server={server}
         qualification={codeIntel.data.qualifications.find((item) =>
@@ -166,19 +183,37 @@ export function ExtensionSettings({ client, selectedRunID }: {
       {qualificationOnly.map((qualification) => <CodeIntelQualificationCard
         key={`${qualification.workspace_id}/${qualification.server_id}/qualification`}
         qualification={qualification} />)}
-      {codeIntel.data && codeIntel.data.servers.length === 0 &&
-        <ExtensionEmpty>{t("尚未配置经审查的本地语言服务器。",
-          "No reviewed local language server is configured.")}</ExtensionEmpty>}
+      {codeIntel.data && codeIntelCount === 0 && !codeIntel.data.configurations?.length &&
+        <ExtensionEmpty>{t("尚未配置本地语言服务器。展开上方接入表单，先登记再审查；已配置不等于实际查询成功。",
+          "No local language server configured. Open the form above to register and review one; configuration does not prove query success.")}</ExtensionEmpty>}
     </ExtensionCollection>
     <ExtensionCollection title="MCP Client" count={inventory.data?.mcp_servers.length ?? 0}>
+      <MCPRegistrationForm capabilityKnown={Boolean(inventory.data)} client={client} enabled={Boolean(client.hasExtensionControl && onboarding?.mcp_registration)}
+        runID={selectedRunID} workspaceID={configurationWorkspaceID} />
       {inventory.data?.mcp_servers.map((server) => <MCPServerCard action={action}
-        client={client} key={server.id} server={server} />)}
+        client={client} key={server.id} onOpenTask={onOpenTask} server={server} />)}
       {inventory.data && inventory.data.mcp_servers.length === 0 &&
         <ExtensionEmpty>{selectedRunID ?
           t("当前 Run / Workspace 没有 MCP Server。", "No MCP server is scoped to this Run / Workspace.") :
-          t("选择一个 Run 以查看其 MCP Server。", "Select a Run to inspect its MCP servers.")}</ExtensionEmpty>}
+          t("此范围尚未登记 MCP Server。先选择工作区并登记，再单独审查。", "No MCP server registered in this scope. Select a workspace, register, then review it.")}</ExtensionEmpty>}
+    </ExtensionCollection>
+    <ExtensionCollection title={t("MCP 实际调用记录", "Actual MCP calls")} count={inventory.data?.mcp_calls.length ?? 0}>
+      <div className="extension-call-list">
+        {inventory.data?.mcp_calls.map((call) => <article key={call.id}>
+          <strong>{call.server_id} · {call.tool_name}</strong>
+          <p>{t("调用状态", "Call status")}: {call.status}{call.error_code ? ` · ${call.error_code}` : ""}</p>
+          <p>Run: {call.run_id} · {t("完成时间", "Completed")}: {call.completed_at}</p>
+          <p>{t("结果大小", "Result size")}: {call.result_bytes} bytes · {call.truncated ? t("已截断", "Truncated") : t("未截断", "Not truncated")}</p>
+          <Fingerprint label={t("本次能力指纹", "Call capability fingerprint")} value={call.capability_fingerprint} />
+          <p>{t("这里只显示审计元数据；具体返回内容请在任务消息和证据中读取。", "Audit metadata only; inspect returned content in task messages and evidence.")}</p>
+        </article>)}
+        {inventory.data && inventory.data.mcp_calls.length === 0 && <ExtensionEmpty>{selectedRunID
+          ? t("当前任务尚无已记录的 MCP 实际调用。已登记、发现或启用均不代表调用成功。", "No actual MCP calls recorded for this task. Registration, discovery, and enabling do not prove invocation success.")
+          : t("选择任务后读取该执行的实际调用记录。工作区登记状态不包含调用结果。", "Select a task to inspect actual calls for its Run. Workspace registration state has no invocation results.")}</ExtensionEmpty>}
+      </div>
     </ExtensionCollection>
     <ExtensionCollection title="Plugin" count={inventory.data?.plugins.length ?? 0}>
+      <PluginImportForm capabilityKnown={Boolean(inventory.data)} client={client} enabled={Boolean(client.hasExtensionControl && onboarding?.plugin_import)} />
       {inventory.data?.plugins.map((installation) => <PluginCard action={action}
         client={client} installation={installation} key={installation.id} />)}
       {inventory.data && inventory.data.plugins.length === 0 &&
@@ -262,10 +297,11 @@ function ExtensionCollection({ title, count, children }: {
   </section>;
 }
 
-function MCPServerCard({ action, client, server }: {
+function MCPServerCard({ action, client, server, onOpenTask }: {
   action: { isPending: boolean; mutate: (value: ExtensionAction) => void };
   client: APIClient;
   server: ExtensionMCPServerView;
+  onOpenTask?: (workspaceID?: string) => void;
 }) {
   const { t } = useLocale();
   const refreshable = ["discovery_approved", "capabilities_pending", "enabled",
@@ -286,8 +322,13 @@ function MCPServerCard({ action, client, server }: {
       <div><dt>{t("来源", "Source")}</dt><dd>{server.source.kind}</dd></div>
     </dl>
     <p className="extension-target" title={target}>{target}</p>
+    <p className="extension-target" title={server.source.uri}>{server.source.uri}</p>
+    <p>{t("所属工作区", "Workspace")}: {server.workspace_id}{server.run_id ? ` · Run: ${server.run_id}` : ""}</p>
+    <Fingerprint label={t("描述符指纹", "Descriptor fingerprint")} value={server.descriptor_fingerprint} />
     <Fingerprint label={t("能力指纹", "Capability fingerprint")}
-      value={server.capabilities.fingerprint || server.descriptor_fingerprint} />
+      value={server.capabilities.fingerprint || ""} />
+    <MCPReviewControls client={client} key={`${server.state}/${server.descriptor_fingerprint}/${server.capabilities.fingerprint}`}
+      onOpenTask={onOpenTask} server={server} />
     <div className="extension-actions">
       <button className="settings-action" disabled={!client.hasExtensionControl ||
         !refreshable || action.isPending}
@@ -329,6 +370,8 @@ function PluginCard({ action, client, installation }: {
     <p className="extension-target" title={installation.source.uri}>{installation.source.uri}</p>
     <Fingerprint label={t("包指纹", "Package fingerprint")}
       value={installation.package_fingerprint} />
+    <p>{t("范围", "Scope")}: {t("本机安装；任务按已启用贡献加载", "Local installation; tasks load enabled contributions")}</p>
+    <PluginReviewControls client={client} installation={installation} key={`${installation.state}/${installation.generation}`} />
     <div className="extension-actions">
       <button className="settings-action danger" disabled={!client.hasExtensionControl ||
         !disableable || action.isPending}

@@ -26,6 +26,7 @@ type Manager struct {
 	bootID      string
 	runtimeHome string
 	closing     bool
+	quarantined bool
 }
 
 type client struct {
@@ -54,6 +55,14 @@ func NewManager(descriptors []ServerDescriptor) (*Manager, error) {
 	if len(descriptors) == 0 || len(descriptors) > MaxServers {
 		return nil, errors.New("code-intel manager requires one to 32 reviewed servers")
 	}
+	return newManager(descriptors)
+}
+
+// NewEmptyManager reserves one stable Go-owned runtime for explicit operator
+// configuration. An empty manager starts no process and contributes no tools.
+func NewEmptyManager() (*Manager, error) { return newManager(nil) }
+
+func newManager(descriptors []ServerDescriptor) (*Manager, error) {
 	bootRaw := make([]byte, 32)
 	if _, err := rand.Read(bootRaw); err != nil {
 		return nil, fmt.Errorf("create code-intel boot generation: %w", err)
@@ -80,6 +89,105 @@ func NewManager(descriptors []ServerDescriptor) (*Manager, error) {
 		manager.records[key] = configuredSnapshot(descriptor)
 	}
 	return manager, nil
+}
+
+// Descriptors is for the process-owned configuration service. Public adapters
+// must project metadata rather than exposing launch arguments or host paths.
+func (m *Manager) Descriptors() []ServerDescriptor {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	result := make([]ServerDescriptor, 0, len(m.descriptors))
+	for _, descriptor := range m.descriptors {
+		raw, _ := json.Marshal(descriptor)
+		var copyValue ServerDescriptor
+		_ = json.Unmarshal(raw, &copyValue)
+		result = append(result, copyValue)
+	}
+	sort.Slice(result, func(i, j int) bool {
+		return serverKey(result[i].WorkspaceID, result[i].ID) < serverKey(result[j].WorkspaceID, result[j].ID)
+	})
+	return result
+}
+
+// ReplaceConfiguration serializes configuration publication with process
+// ownership. Publication failure leaves current descriptors and running clients
+// intact. After publication, old clients are closed and reaped before descriptor
+// replacement. Incomplete cleanup quarantines the runtime; the saved review can
+// be recovered on restart, but this process cannot start or query either set.
+// It never initializes the replacement configuration.
+func (m *Manager) ReplaceConfiguration(ctx context.Context, descriptors []ServerDescriptor,
+	persist func() error,
+) error {
+	if len(descriptors) == 0 || len(descriptors) > MaxServers || persist == nil {
+		return apperror.New(apperror.CodeInvalidArgument, "reviewed code-intel configuration is invalid")
+	}
+	seen := make(map[string]bool)
+	for _, descriptor := range descriptors {
+		if err := descriptor.Validate(); err != nil || seen[serverKey(descriptor.WorkspaceID, descriptor.ID)] {
+			return apperror.New(apperror.CodeInvalidArgument, "reviewed code-intel descriptors are invalid")
+		}
+		seen[serverKey(descriptor.WorkspaceID, descriptor.ID)] = true
+	}
+	if ctx == nil {
+		return apperror.New(apperror.CodeInvalidArgument, "code-intel configuration requires a context")
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if m.quarantined {
+		return apperror.New(apperror.CodeFailedPrecondition, "previous owned LSP cleanup is incomplete; restart to recover the saved review")
+	}
+	if m.closing {
+		return apperror.New(apperror.CodeFailedPrecondition, "code-intel manager is shutting down")
+	}
+	if err := persist(); err != nil {
+		return err
+	}
+	for key, current := range m.clients {
+		cleanupCtx, cancel := context.WithTimeout(context.Background(), MaximumShutdownGracePeriod)
+		_ = current.close(cleanupCtx)
+		cancel()
+		reapCtx, reapCancel := context.WithTimeout(context.Background(), MaximumShutdownGracePeriod)
+		err := current.transport.process.Wait(reapCtx)
+		reapCancel()
+		if err != nil {
+			m.quarantined = true
+			for recordKey, descriptor := range m.descriptors {
+				record := configuredSnapshot(descriptor)
+				record.Health = HealthUnavailable
+				record.LastError = "previous owned LSP cleanup is incomplete; restart to recover the saved review"
+				m.records[recordKey] = record
+			}
+			return apperror.New(apperror.CodeUnavailable, "previous language server cleanup is incomplete")
+		}
+		delete(m.clients, key)
+		record := m.records[key]
+		record.Health = HealthStopped
+		m.records[key] = record
+	}
+	m.descriptors = make(map[string]ServerDescriptor, len(descriptors))
+	m.records = make(map[string]CapabilitySnapshot, len(descriptors))
+	for _, descriptor := range descriptors {
+		key := serverKey(descriptor.WorkspaceID, descriptor.ID)
+		m.descriptors[key] = descriptor
+		m.records[key] = configuredSnapshot(descriptor)
+	}
+	return nil
+}
+
+// InitializeServer starts only the reviewed server explicitly selected by the
+// operator. It does not initialize other configured servers in the Workspace.
+func (m *Manager) InitializeServer(ctx context.Context, workspaceID, root, serverID string) (CapabilitySnapshot, error) {
+	current, err := m.ensureClient(ctx, serverKey(workspaceID, serverID), root)
+	if err != nil {
+		return CapabilitySnapshot{}, err
+	}
+	return cloneSnapshot(current.snapshot), nil
 }
 
 func NewManagerFromConfig(path string) (*Manager, string, error) {
@@ -113,6 +221,7 @@ func (m *Manager) Qualify(ctx context.Context, workspaceID, root string) []Quali
 		return []Qualification{}
 	}
 	m.mu.Lock()
+	quarantined := m.quarantined
 	descriptors := make([]ServerDescriptor, 0)
 	for _, descriptor := range m.descriptors {
 		if descriptor.WorkspaceID == workspaceID {
@@ -129,6 +238,11 @@ func (m *Manager) Qualify(ctx context.Context, workspaceID, root string) []Quali
 			Reviewed:     descriptor.ReviewedBy != "" && !descriptor.ReviewedAt.IsZero(),
 			ProcessOwned: true, MinimalEnvironment: true, NetworkAccessGranted: false,
 			CredentialsGranted: false, ShellProfileLoaded: false}
+		if quarantined {
+			qualification.Reason = "previous owned LSP cleanup is incomplete; restart to recover the saved review"
+			result = append(result, qualification)
+			continue
+		}
 		if _, err := captureWorkspaceBinding(ctx, root, workspaceID); err != nil {
 			qualification.Reason, _ = sanitizeText(err.Error(), 2048, false)
 			result = append(result, qualification)
@@ -216,6 +330,15 @@ func (m *Manager) ensureClient(ctx context.Context, key, root string) (*client, 
 	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if ctx == nil {
+		return nil, apperror.New(apperror.CodeInvalidArgument, "code-intel initialization requires a context")
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if m.quarantined {
+		return nil, apperror.New(apperror.CodeFailedPrecondition, "previous owned LSP cleanup is incomplete; restart to recover the saved review")
+	}
 	if m.closing {
 		return nil, apperror.New(apperror.CodeFailedPrecondition,
 			"code-intel manager is shutting down")
@@ -451,6 +574,9 @@ func (m *Manager) watchClient(key string, current *client) {
 		return
 	}
 	delete(m.clients, key)
+	if m.quarantined {
+		return
+	}
 	current.mu.Lock()
 	stopping := current.stopping
 	current.mu.Unlock()

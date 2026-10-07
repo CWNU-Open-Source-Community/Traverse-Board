@@ -233,6 +233,17 @@ func (a *App) apiServeCommand(ctx context.Context, args []string) (resultErr err
 	if err != nil {
 		return err
 	}
+	var codeIntelControl httpapi.CodeIntelController
+	if strings.TrimSpace(a.codeIntelConfigPath) == "" {
+		service, err := application.OpenCodeIntelControlService(a.store, a.codeIntel,
+			filepath.Join(a.home, "code-intel.json"))
+		if err != nil {
+			return apperror.Wrap(apperror.CodeFailedPrecondition,
+				"load managed code-intel configuration", err)
+		}
+		a.codeIntel = service.Manager()
+		codeIntelControl = service
+	}
 	hookEngine := a.newLifecycleHookEngine()
 	workspaceCheckpoints, err := application.NewWorkspaceCheckpointService(a.store,
 		permissionCapabilities)
@@ -652,6 +663,7 @@ func (a *App) apiServeCommand(ctx context.Context, args []string) (resultErr err
 		BatchDeliveryController:             batchDelivery,
 		ExtensionController:                 extensionControl,
 		CodeIntelSource:                     a.codeIntel,
+		CodeIntelController:                 codeIntelControl,
 		DockerSandboxController:             dockerSandbox,
 		ModelRegistry:                       a.models,
 		AppVersion:                          Version,

@@ -22,6 +22,7 @@ type CodeIntelInventoryView struct {
 	Enabled         bool                         `json:"enabled"`
 	Servers         []CodeIntelServerView        `json:"servers"`
 	Qualifications  []CodeIntelQualificationView `json:"qualifications"`
+	Configurations  []CodeIntelConfigurationView `json:"configurations"`
 }
 
 type CodeIntelCapabilitiesView struct {
@@ -93,7 +94,16 @@ func (a *API) codeIntelInventory(request *http.Request) (any, *Page, error) {
 	}
 	result := CodeIntelInventoryView{ProtocolVersion: codeintel.ProtocolVersion,
 		Enabled: a.codeIntelSource != nil, Servers: []CodeIntelServerView{},
-		Qualifications: []CodeIntelQualificationView{}}
+		Qualifications: []CodeIntelQualificationView{}, Configurations: []CodeIntelConfigurationView{}}
+	if a.codeIntelController != nil {
+		configurations, err := a.codeIntelController.Configurations(request.Context(), workspaceID)
+		if err != nil {
+			return nil, nil, err
+		}
+		for _, configuration := range configurations {
+			result.Configurations = append(result.Configurations, codeIntelConfigurationView(configuration))
+		}
+	}
 	if a.codeIntelSource == nil {
 		return result, nil, nil
 	}
