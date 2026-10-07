@@ -281,9 +281,10 @@ function V2WorkbenchContent({ client }: { client: APIClient }) {
       { limit: 100, status: "active", ...(appliedThreadSearch ? { q: appliedThreadSearch } : {}) }, pageParam, signal),
     initialPageParam: "", getNextPageParam: (last) => last.page.next_cursor || undefined,
     enabled: !searchPending && !searchTooLong,
-    // One bounded list refresh keeps row states current without per-task reads.
-    // Searching never loads older pages until the user requests them.
-    refetchInterval: sidebarVisible && surface === "conversation" && !searchPending ? 15_000 : false,
+    // Infinite queries refetch every cached page. Poll only a single page;
+    // history still refreshes explicitly and through the existing invalidations.
+    refetchInterval: (query) => sidebarVisible && surface === "conversation" && !searchPending &&
+      (query.state.data?.pages.length ?? 1) === 1 ? 15_000 : false,
   });
   const workspaces = useMemo(() => [...new Map([...importedWorkspaces,
     ...(workspacesQuery.data?.pages.flatMap(({ items }) => items) ?? [])]

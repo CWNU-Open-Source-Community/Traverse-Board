@@ -284,6 +284,95 @@ describe("V2 task title search", () => {
     expect(queryClient.getQueryState(archived)?.isInvalidated).toBe(false);
   });
 
+  it.each(["", "task"])("pauses polling across five history pages for query %j while preserving explicit refreshes", async (title) => {
+    vi.useFakeTimers();
+    let execution_state: ThreadView["execution_state"] = "running";
+    const tasks = [current, ...Array.from({ length: 4 }, (_, index) => ({
+      ...current, id: `history-${index + 1}`, title: `History task ${index + 1}`,
+    }))];
+    const { client, queryClient, listCalls } = start((_query, cursor) => {
+      const index = cursor ? Number(cursor.slice("history-".length)) : 0;
+      return page([{ ...tasks[index], execution_state }], index < tasks.length - 1 ? `history-${index + 1}` : "");
+    });
+    await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+    fireEvent.change(screen.getByRole("textbox", { name: "当前任务草稿" }), { target: { value: "历史浏览中的草稿" } });
+    if (title) {
+      fireEvent.click(screen.getByRole("button", { name: "搜索" }));
+      fireEvent.change(screen.getByRole("searchbox", { name: "搜索对话" }), { target: { value: title } });
+      await act(async () => { await vi.advanceTimersByTimeAsync(251); });
+      await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+    }
+    for (let index = 1; index < tasks.length; index++) {
+      fireEvent.click(screen.getByRole("button", { name: title ? "加载更多匹配对话" : "加载更早对话" }));
+      await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+      expect(screen.getByRole("button", { name: tasks[index].title })).toBeInTheDocument();
+    }
+    const loadedCalls = listCalls().length;
+    expect(loadedCalls).toBe(tasks.length + (title ? 1 : 0));
+    execution_state = "completed";
+    await act(async () => { await vi.advanceTimersByTimeAsync(45_000); });
+    expect(listCalls()).toHaveLength(loadedCalls);
+    expect(screen.getByRole("button", { name: current.title })).toHaveAccessibleDescription("执行中");
+
+    fireEvent.click(screen.getByRole("button", { name: "刷新对话列表" }));
+    await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+    const cursors = ["", "history-1", "history-2", "history-3", "history-4"];
+    expect(listCalls().slice(loadedCalls).map((call) => call[2])).toEqual(cursors);
+    for (const task of tasks) {
+      expect(screen.getByRole("button", { name: task.title })).toHaveAccessibleDescription("已完成");
+    }
+    execution_state = "paused";
+    await act(async () => {
+      await queryClient.invalidateQueries({ queryKey: v2QueryKeys.threads("active") });
+      await vi.advanceTimersByTimeAsync(1);
+    });
+    expect(listCalls().slice(loadedCalls + tasks.length).map((call) => call[2])).toEqual(cursors);
+    for (const task of tasks) {
+      expect(screen.getByRole("button", { name: task.title })).toHaveAccessibleDescription("已暂停");
+    }
+    await act(async () => { await vi.advanceTimersByTimeAsync(45_000); });
+    expect(listCalls()).toHaveLength(loadedCalls + tasks.length * 2);
+    expect(client.get).not.toHaveBeenCalled();
+    expect(screen.getByRole("textbox", { name: "当前任务草稿" })).toHaveValue("历史浏览中的草稿");
+    expect(screen.getByTestId("search-current-task")).toHaveTextContent(current.id);
+    expect(window.location.hash).toBe(`#/threads/${current.id}`);
+  });
+
+  it("resumes single-page search polling and pauses again when restoring cached history", async () => {
+    vi.useFakeTimers();
+    let execution_state: ThreadView["execution_state"] = "running";
+    const older = { ...current, id: "older-history", title: "Older history" };
+    const match = { ...current, id: "single-match", title: "Single needle" };
+    const { client, listCalls } = start((query, cursor) => query.q
+      ? page([{ ...match, execution_state }])
+      : page([{ ...(cursor ? older : current), execution_state }], cursor ? "" : "older-page"));
+    await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+    fireEvent.click(screen.getByRole("button", { name: "加载更早对话" }));
+    await act(async () => { await vi.advanceTimersByTimeAsync(45_001); });
+    expect(listCalls()).toHaveLength(2);
+
+    fireEvent.click(screen.getByRole("button", { name: "搜索" }));
+    fireEvent.change(screen.getByRole("searchbox", { name: "搜索对话" }), { target: { value: "needle" } });
+    await act(async () => { await vi.advanceTimersByTimeAsync(251); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+    expect(listCalls()).toHaveLength(3);
+    expect(screen.getByRole("button", { name: match.title })).toHaveAccessibleDescription("执行中");
+    execution_state = "completed";
+    await act(async () => { await vi.advanceTimersByTimeAsync(15_000); });
+    expect(listCalls()).toHaveLength(4);
+    expect(listCalls().at(-1)?.slice(0, 3)).toEqual(["/threads", { limit: 100, status: "active", q: "needle" }, ""]);
+    expect(screen.getByRole("button", { name: match.title })).toHaveAccessibleDescription("已完成");
+
+    fireEvent.click(screen.getByRole("button", { name: "清除对话搜索" }));
+    await act(async () => { await vi.advanceTimersByTimeAsync(1); });
+    expect(listCalls().slice(4).map((call) => call[2])).toEqual(["", "older-page"]);
+    expect(screen.getByRole("button", { name: older.title })).toBeInTheDocument();
+    await act(async () => { await vi.advanceTimersByTimeAsync(45_000); });
+    expect(listCalls()).toHaveLength(6);
+    expect(client.get).not.toHaveBeenCalled();
+    expect(screen.getByTestId("search-current-task")).toHaveTextContent(current.id);
+  });
+
   it("refreshes all visible rows with one list request and stops periodic reads when the sidebar is hidden", async () => {
     vi.useFakeTimers();
     let execution_state: ThreadView["execution_state"] = "running";
