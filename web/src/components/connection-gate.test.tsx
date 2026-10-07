@@ -97,7 +97,11 @@ describe("ConnectionGate", () => {
     expect(useConnectionStore.getState().batchDeliveryHostValidationEnabled).toBe(false);
   });
 
-  it.each([false, true])("carries Desktop batch authority through bootstrap without exposing its token: %s", async (control) => {
+  it.each([
+    { control: false, githubReview: false },
+    { control: true, githubReview: false },
+    { control: true, githubReview: true },
+  ])("carries Desktop batch and GitHub authority through bootstrap: control=$control, GitHub=$githubReview", async ({ control, githubReview }) => {
     vi.resetModules();
     const { ConnectionGate } = await import("./connection-gate");
     const { useConnectionStore } = await import("../state/connection");
@@ -160,7 +164,7 @@ describe("ConnectionGate", () => {
       embedded_analyzer_execution_enabled: false,
 	  workspace_checkpoint_control_enabled: false,
 	  git_advanced_control_enabled: false,
-	  github_review_control_enabled: false,
+	  github_review_control_enabled: githubReview,
 	  batch_delivery_control_enabled: control,
 	  batch_delivery_host_validation_enabled: control,
       user_terminal_enabled: false,
@@ -192,10 +196,12 @@ describe("ConnectionGate", () => {
       .toBe(control ? "desktop-control-token-0123456789abcdef" : "");
     expect(useConnectionStore.getState().workspaceImportEnabled).toBe(false);
     expect(useConnectionStore.getState().threadExecutionReadEnabled).toBe(false);
+    expect(useConnectionStore.getState().githubReviewControlEnabled).toBe(githubReview);
     const client = createV2Client(useConnectionStore.getState());
     expect(client.baseURL).toBe("/api/v1");
     expect(client.hasBatchDeliveryControl).toBe(control);
     expect(client.hasBatchDeliveryHostValidation).toBe(control);
+    expect(client.hasGitHubReviewControl).toBe(githubReview);
     expect(screen.queryByText("desktop-read-token-0123456789abcdef")).not.toBeInTheDocument();
     expect(screen.queryByText("desktop-control-token-0123456789abcdef")).not.toBeInTheDocument();
     expect(bootstrap).toHaveBeenCalledTimes(1);

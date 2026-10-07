@@ -23,7 +23,7 @@ async function metadata(file: File, workspace = workspaceID): Promise<WorkspaceF
 }
 function fixture() {
   return { baseURL: "/api/v1", hasThreadControl: true, hasModelControl: true,
-    availableModelRoutes: vi.fn(async () => ({ routes: [{ provider_id: "fixture", model: "vision", default_for_routes: ["code"],
+    availableModelRoutes: vi.fn(async () => ({ routes: [{ provider_id: "fixture", model: "vision", selectable: true, default_for_routes: ["code"],
       vision_capability: { state: "supported", source: "operator_declared" } }] })),
     uploadWorkspaceFile: vi.fn(async (workspace: string, file: File, _operationKey: string) => metadata(file, workspace)),
     inspectWorkspaceFileUpload: vi.fn(), downloadWorkspaceFile: vi.fn(),

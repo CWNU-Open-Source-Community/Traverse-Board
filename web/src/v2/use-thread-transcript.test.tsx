@@ -127,13 +127,14 @@ it("replaces a same-identity projection and preserves its actual source and auth
   const view = renderHook(() => useV2ThreadTranscript(fixture.client, "thread-a"), { wrapper: fixture.wrapper });
   await waitFor(() => expect(view.result.current.items).toHaveLength(100));
   await act(async () => { await view.result.current.fetchNextPage(); });
+  await waitFor(() => expect(view.result.current.items).toHaveLength(200));
   const unchanged = view.result.current.items.find((entry) => entry.sequence === 189);
   fixture.update(190, { status: "cancelled", stage: "blocked", instruction_authorized: false, promoted_to_message_id: "replacement-190" });
   await act(async () => { await view.result.current.refetch(); });
-  expect(view.result.current.items.find((entry) => entry.sequence === 190)).toMatchObject({
+  await waitFor(() => expect(view.result.current.items.find((entry) => entry.sequence === 190)).toMatchObject({
     id: "event-190", canonical_id: "canonical-190", source_ref: "queued-190", source: "operator", kind: "operator_input",
     status: "cancelled", instruction_authorized: false, durable: true, provisional: false, promoted_to_message_id: "replacement-190",
-  });
+  }));
   expect(view.result.current.items.find((entry) => entry.sequence === 189)).toBe(unchanged);
   expect(view.result.current.items).toHaveLength(200);
   view.unmount(); fixture.queries.clear();

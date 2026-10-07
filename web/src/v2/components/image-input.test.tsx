@@ -4,9 +4,11 @@ import { webcrypto } from "node:crypto";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 import { APIRequestError, type APIClient } from "../../api/client";
+import type { AvailableModelRouteView } from "../../api/types";
 import type { WorkspaceImageAttachment } from "../../api/image-attachments";
 import { V2Composer } from "./composer";
 import { v2ImageReferenceKey } from "./image-input";
+import type { V2PendingModelRoute } from "./model-route-control";
 import { V2RecoveryProvider, useV2RecoveryStore } from "../recovery-storage";
 import { recoveryImagesKey, recoveryTurnKey, settleRecoveryTurn, validRecoveryTurn } from "../recovery-session";
 import type { V2TurnInput } from "../use-thread-turn";
@@ -15,7 +17,7 @@ const image: WorkspaceImageAttachment = { id: "image-original", workspace_id: "w
   mime_type: "image/png", byte_size: 128, width: 64, height: 64, name: "布局.png" };
 const nextImage = { ...image, id: "image-later", sha256: "b".repeat(64), name: "后续.png" };
 const fixture = (state = "supported") => ({ baseURL: "/api/v1", hasThreadControl: true, hasModelControl: true,
-  availableModelRoutes: vi.fn(async () => ({ routes: [{ provider_id: "fixture", model: "vision", default_for_routes: ["code"],
+  availableModelRoutes: vi.fn(async () => ({ routes: [{ provider_id: "fixture", model: "vision", selectable: true, default_for_routes: ["code"],
     vision_capability: { state, source: "operator_declared" } }] })),
   downloadWorkspaceImage: vi.fn(async () => new Blob(["png"], { type: "image/png" })),
   uploadWorkspaceImage: vi.fn(async () => image),
@@ -32,11 +34,11 @@ beforeEach(() => {
 });
 afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 
-function mount(client: APIClient, initial: WorkspaceImageAttachment[] = [], submit = vi.fn(async () => {})) {
+function mount(client: APIClient, initial: WorkspaceImageAttachment[] = [], submit = vi.fn(async () => {}), pendingModelRoute?: V2PendingModelRoute) {
   const queries = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
   queries.setQueryData(v2ImageReferenceKey(image.workspace_id, ""), initial);
   const view = render(<QueryClientProvider client={queries}><V2Composer client={client} workspaceID={image.workspace_id}
-    workspaces={[]} threadID="" onWorkspaceChange={() => {}} onSubmit={submit} /></QueryClientProvider>);
+    workspaces={[]} threadID="" pendingModelRoute={pendingModelRoute} onWorkspaceChange={() => {}} onSubmit={submit} /></QueryClientProvider>);
   return { ...view, queries, submit };
 }
 
@@ -52,6 +54,53 @@ it("sends an image-only message with the exact original reference and keeps late
   await act(async () => finish());
   expect(screen.getByRole("textbox", { name: "开始新对话" })).toHaveValue("新的要求");
   expect(page.queries.getQueryData(v2ImageReferenceKey(image.workspace_id, ""))).toEqual([nextImage]);
+});
+
+const visionRoute: AvailableModelRouteView = { provider_id: "ready-provider", provider_name: "Ready Provider", model: "vision",
+  definition_revision: 1, enabled: true, credential_status: "configured", qualification_status: "available",
+  harness_ready: true, selectable: true, unavailable_reason: "", default_for_routes: [],
+  vision_capability: { state: "supported", source: "operator_declared" } };
+const textRoute: AvailableModelRouteView = { ...visionRoute, provider_id: "text-provider", model: "text",
+  vision_capability: { state: "unsupported", source: "operator_declared" } };
+
+it.each([
+  { name: "a custom vision route without a named default", routes: [visionRoute], allowed: true },
+  { name: "an unavailable text default and a ready vision fallback", routes: [
+    { ...textRoute, enabled: false, selectable: false, unavailable_reason: "provider_disabled" as const, default_for_routes: ["code"] }, visionRoute,
+  ], allowed: true },
+  { name: "an unavailable vision default and a ready text fallback", routes: [
+    { ...visionRoute, enabled: false, selectable: false, unavailable_reason: "provider_disabled" as const, default_for_routes: ["code"] }, textRoute,
+  ], allowed: false },
+  { name: "a selectable named default after another ready route", routes: [
+    textRoute, { ...visionRoute, default_for_routes: ["code"] },
+  ], allowed: true },
+])("checks image sending against the creation model for $name", async ({ routes, allowed }) => {
+  const client = fixture();
+  vi.mocked(client.availableModelRoutes).mockResolvedValue({ protocol_version: "model_route_catalog.v1", generation: 1, routes });
+  const page = mount(client, [image]);
+  await screen.findByText(allowed ? /将发送原始图片/ : /当前模型不支持图片/);
+  const send = screen.getByRole("button", { name: "发送消息" });
+  if (allowed) {
+    expect(send).toBeEnabled();
+    fireEvent.click(send);
+    expect(page.submit).toHaveBeenCalledWith("", [], [image]);
+  } else {
+    expect(send).toBeDisabled();
+    fireEvent.click(send);
+    expect(page.submit).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "移除图片 布局.png" })).toBeInTheDocument();
+  }
+});
+
+it.each(["text", "missing"])("keeps the explicit %s model identity instead of using a vision fallback", async (model) => {
+  const client = fixture();
+  vi.mocked(client.availableModelRoutes).mockResolvedValue({ protocol_version: "model_route_catalog.v1", generation: 1,
+    routes: [{ ...visionRoute, default_for_routes: ["code"] }, textRoute] });
+  const page = mount(client, [image], vi.fn(async () => {}), { provider: textRoute.provider_id, model });
+  await screen.findByText(model === "text" ? /当前模型不支持图片/ : /当前模型尚未声明图片能力/);
+  expect(screen.getByRole("button", { name: "发送消息" })).toBeDisabled();
+  expect(page.submit).not.toHaveBeenCalled();
+  expect(screen.getByRole("button", { name: "移除图片 布局.png" })).toBeInTheDocument();
 });
 
 it.each(["unknown", "unsupported"])("keeps %s model images visible and blocks silent text-only fallback", async (state) => {
