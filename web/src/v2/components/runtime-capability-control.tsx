@@ -83,7 +83,7 @@ export function V2RuntimeCapabilityControl() {
           return <article>
             <span><Bug aria-hidden="true" size={18} /></span>
             <div><strong>调试模式</strong><p>
-              继承完全访问（完整 CDP 子开关默认开启），并增加持久终端、后台进程和限时终端输入。
+              提供持久终端、后台进程和限时终端输入支持；实际使用还需在当前任务选择本地执行、Debug 交互并确认完全访问。
             </p></div>
             <button aria-label={action.label} disabled={action.disabled || mutation.isPending || restarting}
               onClick={beginActivation} type="button">

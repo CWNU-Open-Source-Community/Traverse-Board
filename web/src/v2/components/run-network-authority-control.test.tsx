@@ -2,20 +2,21 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { APIClient } from "../../api/client";
-import type { ProviderSearchReadinessView } from "../../api/types";
+import type { ProviderSearchReadinessView, RunDetailView } from "../../api/types";
 import { V2RunNetworkAuthorityControl } from "./run-network-authority-control";
 
 function renderControl(status: "created" | "paused" | "running" = "paused",
   variant: "menu" | "settings" = "settings",
   readiness: Partial<ProviderSearchReadinessView> = {},
-  permissionMode: "conservative" | "workspace_access" | "approval" | "full_access" | "debug" =
-  "conservative", onOpenModelSettings = vi.fn()) {
+  permissionMode: RunDetailView["execution_permission"]["mode"] = "ask",
+  onOpenModelSettings = vi.fn(),
+  networkScope = { network_mode: "allowlist", allowed_targets: ["search.example.org"] }) {
   const mode = {
     protocol_version: "run_mode.v1", policy_version: "mode_policy.v1",
     revision: 3, capability_grant: false, phase: "deliver", profile: "code",
     surface: "code", reason: "test", requested_by: "test",
     created_at: "2026-08-31T00:00:00Z",
-    scope: { network_mode: "allowlist", allowed_targets: ["search.example.org"] },
+    scope: networkScope,
   };
   const get = vi.fn().mockResolvedValue({ run: { status }, mode,
     execution_permission: { mode: permissionMode } });
@@ -70,9 +71,28 @@ describe("V2RunNetworkAuthorityControl", () => {
     expect(within(popover).getByText(/只追加明确的公网 HTTPS 主机/u)).toBeInTheDocument();
   });
 
-  it("shows safe public HTTPS instead of an empty exact allowlist in Full Access", async () => {
+  it.each(["ask", "auto", "full", "full_access", "debug"] as const)(
+    "keeps the exact URL scope visible for %s without inferring a broader grant", async (permissionMode) => {
     const user = userEvent.setup();
-    renderControl("running", "menu", {}, "full_access");
+    const controls = renderControl("paused", "menu", {}, permissionMode);
+
+    const trigger = screen.getByRole("button", { name: "网页访问状态" });
+    await waitFor(() => expect(trigger).toHaveTextContent("搜索配置就绪"));
+    await user.click(trigger);
+
+    const popover = screen.getByRole("dialog", { name: "当前执行网页访问" });
+    expect(within(popover).getByText("search.example.org")).toBeInTheDocument();
+    expect(within(popover).getByText("1 个主机")).toBeInTheDocument();
+    expect(within(popover).queryByText("公网 HTTPS")).not.toBeInTheDocument();
+    expect(within(popover).getByRole("textbox", { name: "追加允许的 HTTPS 主机" })).toBeEnabled();
+    expect(controls.expandRunNetworkAuthority).not.toHaveBeenCalled();
+  });
+
+  it("reads a saved broad network scope without treating it as a permission preference", async () => {
+    const user = userEvent.setup();
+    renderControl("running", "menu", {}, "ask", vi.fn(), {
+      network_mode: "allowlist", allowed_targets: ["public_https"],
+    });
 
     const trigger = screen.getByRole("button", { name: "网页访问状态" });
     await waitFor(() => expect(trigger).toHaveTextContent("搜索配置就绪"));
@@ -80,9 +100,20 @@ describe("V2RunNetworkAuthorityControl", () => {
 
     const popover = screen.getByRole("dialog", { name: "当前执行网页访问" });
     expect(within(popover).getByText("公网 HTTPS")).toBeInTheDocument();
-    expect(within(popover).getByText(/允许匿名访问任意公网 HTTPS/u)).toBeInTheDocument();
+    expect(within(popover).getByText(/当前执行保存的网络范围允许匿名访问公网 HTTPS/u)).toBeInTheDocument();
     expect(within(popover).queryByRole("textbox", { name: "追加允许的 HTTPS 主机" }))
       .not.toBeInTheDocument();
+  });
+
+  it("does not claim broad access or a disconnected provider when the URL scope is disabled", async () => {
+    const controls = renderControl("paused", "settings", {}, "full", vi.fn(), {
+      network_mode: "disabled", allowed_targets: [],
+    });
+    expect(await screen.findByText("未预先授权主机")).toBeInTheDocument();
+    expect(screen.getByText("供应商搜索 · 搜索配置就绪")).toBeInTheDocument();
+    expect(screen.queryByText("公网 HTTPS")).not.toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: "追加允许的 HTTPS 主机" })).toBeEnabled();
+    expect(controls.expandRunNetworkAuthority).not.toHaveBeenCalled();
   });
 
   it("explains and prefills the exact missing Provider target", async () => {
@@ -105,7 +136,7 @@ describe("V2RunNetworkAuthorityControl", () => {
     const user = userEvent.setup();
     const controls = renderControl("running", "menu", {
       search_policy: "web", required_target: "html.duckduckgo.com",
-    }, "full_access");
+    }, "full");
     const trigger = screen.getByRole("button", { name: "网页访问状态" });
     await waitFor(() => expect(trigger).toHaveTextContent("搜索配置就绪"));
     await user.click(trigger);

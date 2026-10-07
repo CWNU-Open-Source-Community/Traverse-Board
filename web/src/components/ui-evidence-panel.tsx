@@ -10,7 +10,7 @@ import {
   RefreshCw,
   ShieldAlert,
 } from "lucide-react";
-import type { APIClient } from "../api/client";
+import { APIRequestError, type APIClient } from "../api/client";
 import type {
   UIEvidenceArtifactMetadata,
   UIEvidenceAttempt,
@@ -149,7 +149,7 @@ export function UIEvidencePanel({ client, runID }: {
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setLocalError("");
-    if (!reviewed || requestJSON.trim() === "") return;
+    if (!client.hasUIEvidence || start.isPending || !reviewed || requestJSON.trim() === "") return;
     try {
       JSON.parse(requestJSON);
     } catch (caught) {
@@ -177,6 +177,9 @@ export function UIEvidencePanel({ client, runID }: {
 
   const current = bundle.data?.attempt;
   const mutationError = start.error || cancel.error;
+  const historyUnavailable = !client.hasUIEvidence && attempts.isError &&
+    attempts.error instanceof APIRequestError && attempts.error.status === 404 &&
+    attempts.error.code === "NOT_FOUND";
   return <div className="ui-evidence-panel">
     <header className="operator-list-header">
       <div><Camera aria-hidden="true" size={16} />
@@ -192,10 +195,37 @@ export function UIEvidencePanel({ client, runID }: {
         {t("页面内容与下载产物均不可信；它们不能启动进程、访问凭证或自动判定验证通过。只有精确的 passed 状态显示为通过，not_run 始终保持中性。",
           "Page content and downloads are untrusted. They cannot start processes, access credentials, or grant a verification pass. Only the exact passed state is successful; not_run remains neutral.")}</span>
     </div>
+    {!client.hasUIEvidence && <div className="inline-warning" role="note">
+      <p>{client.uiEvidenceUnavailableReason === "missing_control_credential"
+        ? t("当前连接缺少控制凭证；历史证据读取不要求控制凭证，启动和取消不可用。",
+          "This connection has no control credential. Reading historical evidence does not require one; start and cancel are unavailable.")
+        : client.uiEvidenceUnavailableReason === "ui_evidence_disabled"
+          ? t("当前进程未启用 UI 取证能力；需要独立的 --enable-ui-evidence 启动配置。",
+            "UI evidence is disabled in this process; it requires the independent --enable-ui-evidence startup flag.")
+          : client.uiEvidenceUnavailableReason === "run_execution_disabled"
+            ? t("当前进程未启用 Run 执行能力；UI 取证还需要 --enable-run-execution。",
+              "Run execution is disabled in this process; UI evidence also requires --enable-run-execution.")
+            : client.uiEvidenceUnavailableReason === "browser_cdp_control_disabled"
+              ? t("当前进程未启用浏览器 CDP 控制能力；UI 取证还需要 --enable-browser-cdp-control。",
+                "Browser CDP control is disabled in this process; UI evidence also requires --enable-browser-cdp-control.")
+              : t("当前连接未满足 UI 取证的独立控制条件，启动和取消不可用。",
+                "The independent UI evidence control requirements are not met; start and cancel are unavailable.")}</p>
+      <p>{t("现有执行入口是 Windows Desktop。连接须具备控制凭证，操作者须在桌面启动参数中显式配置以下独立开关：",
+        "Execution is available through Windows Desktop. The connection needs a control credential, and the operator must explicitly configure these independent Desktop startup flags:")}
+        {" "}<code>--enable-permission-control --enable-danger-full-access --enable-run-execution --enable-browser-cdp-control --enable-ui-evidence</code>
+        {t("。独立 CLI 仅支持读取和导出历史证据，不能启动或取消浏览器。",
+          ". The standalone CLI only reads and exports historical evidence; it cannot start or cancel a browser.")}
+      </p>
+    </div>}
 
     {attempts.isLoading && <LoadingState label={t("正在加载 UI 证据", "Loading UI evidence")} />}
-    {attempts.isError && <ErrorState error={attempts.error} />}
-    {attempts.data?.length === 0 && <EmptyState>{t("尚未创建 UI 验证 Attempt", "No UI evidence attempt has been created")}</EmptyState>}
+    {attempts.isError && (historyUnavailable
+      ? <p className="inline-warning" role="status">{t(
+        "当前后端无法提供所选执行的 UI 取证读取。请核对执行记录，或在支持 UI 取证的 Windows Desktop 中读取。历史状态未知，不能据此判断没有记录。",
+        "This backend cannot provide UI evidence reads for the selected Run. Check the Run, or read it through a Windows Desktop that supports UI evidence. Historical state is unknown; this does not establish that no records exist.",
+      )}</p>
+      : <ErrorState error={attempts.error} />)}
+    {attempts.isSuccess && attempts.data.length === 0 && <EmptyState>{t("尚未创建 UI 验证 Attempt", "No UI evidence attempt has been created")}</EmptyState>}
 
     {attempts.data && attempts.data.length > 0 && <div className="ui-evidence-layout">
       <section className="ui-evidence-attempts" aria-label={t("UI 证据 Attempts", "UI evidence attempts")}>
@@ -225,6 +255,8 @@ export function UIEvidencePanel({ client, runID }: {
         "模板面向本仓库的 Vite UI。提交前必须逐字段核对 Workspace 相对命令、loopback 端口、fixture、交互步骤、遮罩与失败策略。原始输入仅用于当前请求，不会写入证据清单。",
         "The template targets this repository's Vite UI. Before submission, review every Workspace-relative command, loopback port, fixture, interaction, mask, and failure rule. Raw typed input is used only for the current request and is not persisted in the evidence manifest.",
       )}</p>
+      <p>{t("所选 Run 还必须是 Code / Local / Deliver，具有当前 Full 进程激活、有效根执行租约及 restricted 浏览器 CDP 权限。启动开关本身不会授予这些条件。",
+        "The selected Run must also be Code / Local / Deliver with current Full process activation, an active root execution lease, and restricted browser CDP permission. Startup flags do not grant these conditions.")}</p>
       <button className="compact-command" disabled={!client.hasUIEvidence}
         onClick={() => {
           setRequestJSON(JSON.stringify(templateRequest(), null, 2));
@@ -249,10 +281,6 @@ export function UIEvidencePanel({ client, runID }: {
           {t("启动真实浏览器验证", "Start real-browser verification")}
         </button>
       </form>
-      {!client.hasUIEvidence && <p className="inline-warning">{t(
-        "当前连接为只读；启动和取消需要 UI evidence、Run execution、命令运行时与受限 CDP 控制能力。",
-        "This connection is read-only. Start and cancel require UI evidence, Run execution, command-runtime, and restricted-CDP control capabilities.",
-      )}</p>}
     </details>
     {(localError || mutationError) && <div className="inline-warning" role="alert">
       {localError || humanError(mutationError)}</div>}

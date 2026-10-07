@@ -53,10 +53,10 @@ describe("V2HighRiskActivationDialog", () => {
     const { container } = render(<V2HighRiskActivationDialog onCancel={onCancel}
       onConfirm={onConfirm} open profile="debug" />);
 
-    expect(screen.getByText("完全访问的全部能力")).toBeInTheDocument();
+    expect(screen.getByText("独立的任务权限")).toBeInTheDocument();
     expect(screen.getByText("持久终端和后台进程")).toBeInTheDocument();
     expect(screen.getByText("终端输入与调试控制")).toBeInTheDocument();
-    expect(screen.getByText(/完整 CDP 默认开启，可在权限页关闭/u)).toBeInTheDocument();
+    expect(screen.getByText(/完全访问仍需逐个任务明确确认/u)).toBeInTheDocument();
     expect(screen.getByText(/初始化持久终端、后台进程和限时终端输入运行时/u))
       .toBeInTheDocument();
     expect(screen.getByText(/重启不会改写任何任务的已保存权限/u)).toBeInTheDocument();

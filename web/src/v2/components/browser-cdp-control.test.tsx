@@ -34,7 +34,7 @@ function permission(mode: RunBrowserCDPPermissionView["mode"]): RunBrowserCDPPer
 }
 
 function renderControl({ initial = permission("restricted"), runID = "run-1",
-  mode = "full_access", executionRuntimeAvailable = true }: {
+  mode = "full", executionRuntimeAvailable = true }: {
   initial?: RunBrowserCDPPermissionView;
   runID?: string;
   mode?: ThreadExecutionPermissionView["mode"] | null;
@@ -116,12 +116,12 @@ describe("V2BrowserCDPControl", () => {
   });
 
   it("cannot be enabled below Full Access", async () => {
-    renderControl({ mode: "approval" });
+    renderControl({ mode: "ask" });
 
     const toggle = await screen.findByRole("switch", { name: "完整 CDP 控制" });
     expect(toggle).toBeDisabled();
     expect(toggle).toHaveAttribute("aria-checked", "false");
-    expect(screen.getByText(/高风险 CDP 仅完全访问或调试模式可开启/u)).toBeInTheDocument();
+    expect(screen.getByText(/高风险 CDP 需要在当前任务确认并激活完全访问/u)).toBeInTheDocument();
     expect(screen.getByText(/受限导航、DOM 与截图不受影响/u)).toBeInTheDocument();
   });
 
@@ -152,7 +152,7 @@ describe("V2BrowserCDPControl", () => {
     const user = userEvent.setup();
     const unavailable = renderControl({ executionRuntimeAvailable: false });
     const disabledToggle = await screen.findByRole("switch", { name: "完整 CDP 控制" });
-    await screen.findByText("先重新确认并激活当前任务的完全访问或调试权限。");
+    await screen.findByText("先重新确认并激活当前任务的完全访问权限。");
     expect(disabledToggle).toBeDisabled();
     expect(unavailable.postControl).not.toHaveBeenCalled();
 
