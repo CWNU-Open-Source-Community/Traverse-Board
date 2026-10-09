@@ -19,7 +19,7 @@ async function fileReceipt(file: File): Promise<WorkspaceFileAttachment> {
 }
 function mount(selectedWorkspaceID = workspaceID) {
   const client = { baseURL: "/api/v1", hasThreadControl: true, hasModelControl: true,
-    availableModelRoutes: vi.fn(async () => ({ routes: [{ provider_id: "fixture", model: "vision", default_for_routes: ["code"],
+    availableModelRoutes: vi.fn(async () => ({ routes: [{ provider_id: "fixture", model: "vision", selectable: true, default_for_routes: ["code"],
       vision_capability: { state: "supported", source: "operator_declared" } }] })),
     uploadWorkspaceImage: vi.fn(async () => imageReceipt),
     downloadWorkspaceImage: vi.fn(async () => new Blob(["verified fixture"], { type: "image/png" })),

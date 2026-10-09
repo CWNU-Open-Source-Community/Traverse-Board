@@ -6,6 +6,8 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { APIRequestError, type APIClient } from "../api/client";
 import type { ThreadView, WorkspaceView } from "../api/types";
 import { useConnectionStore } from "../state/connection";
+import { mcpServer } from "../test/extension-onboarding-fixtures";
+import { LocaleProvider } from "../lib/locale";
 import { V2Workbench } from "./app";
 import * as desktopBridge from "../lib/desktop-bridge";
 import { v2FileReferenceKey } from "./components/file-context";
@@ -240,6 +242,44 @@ describe("V2Workbench inspector navigation", () => {
     expect(queryClient.getQueryData(v2FileReferenceKey(workspace.id, ""))).toEqual(files);
     expectNoNavigationWrites(client);
   });
+
+  it.each([
+    { threadID: "", source: "inspector", button: "打开新任务输入区" },
+    { threadID: createdThread.id, source: "inspector", button: "打开任务输入区" },
+    { threadID: createdThread.id, source: "inspector/runs/historical-run", button: "打开任务输入区" },
+    { threadID: createdThread.id, source: "inspector/sessions/historical-session", button: "打开任务输入区" },
+  ])("opens the composer from $source extension settings while retaining draft and identity ($threadID)",
+    async ({ threadID, source, button }) => {
+      const base = threadID ? `#/threads/${threadID}` : "#/new";
+      window.history.replaceState({}, "", base);
+      const client = Object.assign(navigationClient(), {
+        get: vi.fn().mockResolvedValue({ thread: createdThread, active_run: { id: createdThread.active_run_id } }),
+        extensionInventory: vi.fn().mockResolvedValue({ protocol_version: "extension-inventory.v1",
+          workspace_id: workspace.id, run_id: threadID ? createdThread.active_run_id : "",
+          mcp_servers: [{ ...mcpServer("enabled"), workspace_id: workspace.id }], mcp_calls: [], plugins: [] }),
+        codeIntelInventory: vi.fn().mockResolvedValue({ protocol_version: "code-intel-lsp.v1",
+          enabled: true, qualifications: [], servers: [], configurations: [] }),
+      });
+      const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+      const files = [{ id: "extension-return-file", path: "README.md", digest: "c".repeat(64), partial: false, redacted: false }];
+      queryClient.setQueryData(v2FileReferenceKey(workspace.id, threadID), files);
+      render(<QueryClientProvider client={queryClient}><LocaleProvider><V2Workbench client={client} /></LocaleProvider></QueryClientProvider>);
+      const user = userEvent.setup();
+      const inputName = threadID ? "任务草稿 fixture" : "开始新对话";
+      await user.type(await screen.findByRole("textbox", { name: inputName }), "接入扩展前未发送的需求");
+      await act(async () => {
+        window.history.replaceState({}, "", `${base}/${source}/settings/extensions`);
+        window.dispatchEvent(new PopStateEvent("popstate"));
+      });
+      if (!threadID) await user.selectOptions(await screen.findByRole("combobox", { name: "接入工作区" }), workspace.id);
+      await user.click(await screen.findByRole("button", { name: button }));
+      expect(window.location.hash).toBe(base);
+      expect(await screen.findByRole("textbox", { name: inputName })).toHaveValue("接入扩展前未发送的需求");
+      if (threadID) expect(screen.getByTestId("v2-conversation")).toHaveAttribute("data-view", "conversation");
+      else expect(screen.getByRole("combobox", { name: "选择工作区" })).toHaveValue(workspace.id);
+      expect(queryClient.getQueryData(v2FileReferenceKey(workspace.id, threadID))).toEqual(files);
+      expectNoNavigationWrites(client);
+    });
 });
 
 describe("V2Workbench model navigation", () => {

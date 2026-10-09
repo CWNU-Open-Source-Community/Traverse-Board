@@ -10,9 +10,12 @@ export function useV2ImageCapability(client: APIClient, threadID: string,
   const catalog = useQuery({ queryKey: ["v2", "models", "available-routes"],
     queryFn: ({ signal }) => client.availableModelRoutes(signal),
     enabled: enabled && !threadID && client.hasModelControl, staleTime: 30_000 });
-  const model = threadID ? route.data : catalog.data?.routes.find((item) => pendingRoute
-    ? item.provider_id === pendingRoute.provider && item.model === pendingRoute.model
-    : item.default_for_routes.includes("code"));
+  const selectable = catalog.data?.routes.filter((item) => item.selectable) ?? [];
+  // Match Thread creation's default/fallback choice, while preserving an
+  // explicit draft selection even when it is missing or no longer eligible.
+  const model = threadID ? route.data : pendingRoute
+    ? catalog.data?.routes.find((item) => item.provider_id === pendingRoute.provider && item.model === pendingRoute.model)
+    : selectable.find((item) => item.default_for_routes.includes("code")) ?? selectable[0];
   const capability = model?.vision_capability;
   const state = capability?.state ?? "unknown";
   const loading = threadID ? route.isFetching : catalog.isFetching;

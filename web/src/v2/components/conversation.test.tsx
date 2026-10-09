@@ -5,6 +5,7 @@ import type { ReactNode } from "react";
 import { APIRequestError, type APIClient } from "../../api/client";
 import type { V2FileReference } from "./file-context";
 import type { PageResult, ThreadDetailView, ThreadExecutionView, ThreadTranscriptItemView, WorkspaceView } from "../../api/types";
+import type { ThreadReview } from "../../api/task-delivery";
 import { v2QueryKeys } from "../query-keys";
 import { V2RecoveryProvider } from "../recovery-storage";
 import * as desktopBridge from "../../lib/desktop-bridge";
@@ -115,6 +116,30 @@ function deferred<T>() {
     reject = rejectPromise;
   });
   return { promise, reject, resolve };
+}
+
+function fileDrawerReview(): ThreadReview {
+  return {
+    thread_id: "thread-a", thread_version: 2, current_run_id: "run-current", total_runs: 2,
+    observed_at: "2026-10-07T01:00:00Z", change_scope: "recorded_file_edits", partial: false, reasons: [],
+    target: { state: "available", kind: "drydock", source_workspace_id: "source-workspace", workspace_id: "current-workspace" },
+    revision: { state: "available", repository_kind: "none", reasons: [] },
+    runs: [
+      { run_id: "run-current", session_id: "session-current", ordinal: 2, source_event_sequence: 2,
+        workspace_id: "current-workspace", handoff_url: "/api/v1/runs/run-current/code-handoff" },
+      { run_id: "run-old", session_id: "session-old", ordinal: 1, source_event_sequence: 1,
+        handoff_url: "/api/v1/runs/run-old/code-handoff" },
+    ],
+    applied_changes: [], unapplied_changes: [], checks: [],
+  };
+}
+
+function renderFileDrawer(client: APIClient, runID = "run-old") {
+  const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return render(<QueryClientProvider client={queryClient}>
+    <V2FileDrawer client={client} threadID="thread-a" workspaceID="source-workspace" runID={runID}
+      initialPath="src/index.ts" onClose={vi.fn()} returnFocusRef={{ current: document.createElement("button") }} />
+  </QueryClientProvider>);
 }
 
 function renderConversation(client: APIClient, initialThreadID = "thread-a", extras?: ReactNode,
@@ -973,6 +998,48 @@ describe("V2Conversation", () => {
     await waitFor(() => {
       expect(client.workspaceExplore).toHaveBeenCalledWith("drydock-run-123", ".", expect.anything());
     });
+  });
+
+  it("does not open the current or source workspace when the historical Run's target is unavailable", async () => {
+    const client = baseClient({
+      fileEditChangeSet: vi.fn().mockRejectedValue(new APIRequestError("Run target unavailable", "FAILED_PRECONDITION", 412)),
+      get: vi.fn().mockResolvedValue(fileDrawerReview()),
+    });
+    renderFileDrawer(client);
+
+    await waitFor(() => expect(screen.queryByText("正在确认工作区…")).not.toBeInTheDocument());
+    expect(client.workspaceExplore).not.toHaveBeenCalled();
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent("无法确认此执行的工作区");
+    expect(client.get).toHaveBeenCalledWith("/threads/thread-a/review", {}, expect.any(AbortSignal));
+    expect(screen.getByText("执行：run-old")).toBeInTheDocument();
+  });
+
+  it("opens a historical Run's exact review workspace when its change set is unavailable", async () => {
+    const review = fileDrawerReview();
+    review.runs[1].workspace_id = "old-workspace";
+    const client = baseClient({
+      fileEditChangeSet: vi.fn().mockRejectedValue(new APIRequestError("Change set unavailable", "NOT_FOUND", 404)),
+      get: vi.fn().mockResolvedValue(review),
+    });
+    renderFileDrawer(client);
+
+    await waitFor(() => expect(client.workspaceExplore).toHaveBeenCalledWith("old-workspace", "src/index.ts", expect.any(AbortSignal)));
+    expect(client.workspaceExplore).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps a failed workspace lookup closed until retry confirms the originating Run's workspace", async () => {
+    const review = fileDrawerReview();
+    review.runs[1].workspace_id = "old-workspace";
+    const get = vi.fn().mockRejectedValueOnce(new Error("Review disconnected")).mockResolvedValue(review);
+    const client = baseClient({ fileEditChangeSet: vi.fn().mockRejectedValue(new Error("Change set disconnected")), get });
+    renderFileDrawer(client);
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("无法确认此执行的工作区");
+    expect(client.workspaceExplore).not.toHaveBeenCalled();
+    await userEvent.setup().click(screen.getByRole("button", { name: "重试工作区确认" }));
+    await waitFor(() => expect(client.workspaceExplore).toHaveBeenCalledWith("old-workspace", "src/index.ts", expect.any(AbortSignal)));
+    expect(client.workspaceExplore).toHaveBeenCalledTimes(1);
   });
 
   it("copies assistant message and code blocks to the clipboard with visual feedback", async () => {

@@ -442,7 +442,7 @@ function V2WorkbenchContent({ client }: { client: APIClient }) {
           <V2Settings client={client} onOpenInspector={openInspector}
           onSelectSection={setSettingsSection} onOpenThread={openConversation} onOpenTask={(workspaceID) => {
             if (!selectedThreadID && workspaceID) selectWorkspace(workspaceID);
-            returnFromSettings();
+            changeView("conversation");
           }} section={settingsSection}
           threadID={selectedThreadID} workspaces={workspaces}
           prepareModelForDraft={Boolean(modelSetupToken)} modelSetupToken={modelSetupToken}

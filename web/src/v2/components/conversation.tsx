@@ -108,34 +108,36 @@ export function V2FileDrawer({
         try {
           const changeSet = await client.fileEditChangeSet(runID, signal);
           if (changeSet?.workspace_id) return changeSet.workspace_id;
-        } catch {
-          // fallback
+        } catch (error) {
+          if (signal.aborted) throw error;
+          // The task review can still confirm this exact Run's workspace.
         }
       }
       if (threadID && typeof client.get === "function") {
-        try {
-          const review = await readThreadReview(client, threadID, signal);
-          const runMatch = review.runs?.find((r) => r.run_id === runID);
-          if (runMatch?.workspace_id) return runMatch.workspace_id;
-          if (review.current_run_id === runID && review.target?.workspace_id) {
-            return review.target.workspace_id;
-          }
-          const changeMatch = [...(review.applied_changes ?? []), ...(review.unapplied_changes ?? [])].find(
-            (c) => c.run_id === runID && c.workspace_id
-          );
-          if (changeMatch?.workspace_id) return changeMatch.workspace_id;
-          if (review.target?.workspace_id) return review.target.workspace_id;
-        } catch {
-          // fallback
+        const review = await readThreadReview(client, threadID, signal);
+        const runMatch = review.runs?.find((r) => r.run_id === runID);
+        if (runMatch) {
+          if (runMatch.workspace_id) return runMatch.workspace_id;
+          // A recorded Run with no workspace has an unavailable target;
+          // neither the current target nor the source can replace it.
+          throw new Error("此执行的文件目录当前不可用。");
         }
+        if (review.current_run_id === runID && review.target?.state === "available" && review.target.workspace_id) {
+          return review.target.workspace_id;
+        }
+        const changeMatch = [...(review.applied_changes ?? []), ...(review.unapplied_changes ?? [])].find(
+          (c) => c.run_id === runID && c.workspace_id
+        );
+        if (changeMatch?.workspace_id) return changeMatch.workspace_id;
       }
-      return defaultWorkspaceID;
+      throw new Error("尚未找到此执行的文件目录绑定。");
     },
     enabled: Boolean(runID || defaultWorkspaceID),
     staleTime: 30_000,
+    retry: false,
   });
 
-  const resolvedWorkspaceID = workspaceQuery.data ?? defaultWorkspaceID;
+  const resolvedWorkspaceID = workspaceQuery.data ?? "";
 
   return createPortal(
     <div
@@ -168,6 +170,13 @@ export function V2FileDrawer({
             <div className="v2-file-drawer-loading" role="status">
               <LoaderCircle className="spin" size={20} />
               <span>正在确认工作区…</span>
+            </div>
+          ) : workspaceQuery.isError ? (
+            <div className="v2-notice" role="alert">
+              <p>无法确认此执行的工作区，文件目录可能已清理或暂时无法读取。请重试确认后查看文件。</p>
+              <button disabled={workspaceQuery.isFetching} onClick={() => void workspaceQuery.refetch()} type="button">
+                重试工作区确认
+              </button>
             </div>
           ) : (
             <WorkspaceExplorer

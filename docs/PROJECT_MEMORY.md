@@ -24,6 +24,13 @@
 > all Go authority checks remain in place. See
 > [implementation and verification scope](FRONTEND_CAPABILITY_ALIGNMENT_287.md).
 
+> 2026-10-07 workbench journey follow-up (#257): explicit extension actions return
+> to the task composer, new-draft image eligibility matches the selectable creation
+> route, unavailable historical Run directories fail closed, and Desktop bootstrap
+> preserves the GitHub review capability. See the [acceptance scope and remaining
+> candidates](acceptance/2026-10-07-workbench-journeys.md); this does not complete the
+> broader model-to-delivery acceptance matrix.
+
 > 2026-10-07 extension onboarding checkpoint (#276): shared Web/Desktop settings
 > stage manual MCP descriptors, import pinned Plugin ZIPs and stage/review LSP
 > configuration through Go-owned services. Backend capability flags, source/scope,
