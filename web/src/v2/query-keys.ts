@@ -9,4 +9,5 @@ export const v2QueryKeys = {
   searchReadiness: (threadID: string) => ["v2", "thread", threadID, "search-readiness"] as const,
   approvals: (runID: string) => ["v2", "run", runID, "approvals"] as const,
   workspaces: ["v2", "workspaces"] as const,
+  inspectorRecords: ["v2", "inspector", "records"] as const,
 };

@@ -227,10 +227,11 @@ export function RunWorkspaceTabs({ activeTab, ariaLabel, children, items, onSele
   </>;
 }
 
-export function RunWorkspace({ client, runID, onOpenPlugins }: {
+export function RunWorkspace({ client, runID, onOpenPlugins, onOpenRun }: {
   client: APIClient;
   runID: string;
   onOpenPlugins?: () => void;
+  onOpenRun?: (runID: string) => void;
 }) {
   const { t } = useLocale();
   const [tab, setTab] = useState<RunTab>("activity");
@@ -463,7 +464,7 @@ export function RunWorkspace({ client, runID, onOpenPlugins }: {
             onOpenReceiptReview={openReceiptReview} />}
         {tab === "receipts" && <OperationReceiptHistory client={client} runID={runID} />}
         {tab === "checkpoints" && <WorkspaceCheckpointPanel client={client} runID={runID}
-          runStatus={detail.run.status} />}
+          runStatus={detail.run.status} onOpenRun={onOpenRun} />}
         {tab === "agents" && <AgentGraphPanel client={client} runID={runID} />}
         {tab === "delegations" && <DelegationsPanel client={client} runID={runID} />}
         {tab === "fanout" && <FanoutPanel client={client} runID={runID} />}
@@ -487,7 +488,8 @@ export function RunWorkspace({ client, runID, onOpenPlugins }: {
           </CollectionState>
         )}
         {tab === "context" && <ContextContinuityPanel client={client} runID={runID}
-          sessionID={detail.run.session_id ?? ""} workspaceID={detail.mission.workspace_id ?? ""} />}
+          sessionID={detail.run.session_id ?? ""} workspaceID={detail.mission.workspace_id ?? ""}
+          onOpenRun={onOpenRun} />}
         {tab === "notes" && (
           <CollectionState query={notesQuery} empty="暂无记忆">
             <NoteList client={client} notes={notes} />

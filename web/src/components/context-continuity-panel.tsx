@@ -23,7 +23,7 @@ import type {
 } from "../api/types";
 import { formatDate, shortID } from "../lib/format";
 import { useLocale } from "../lib/locale";
-import { useConnectionStore } from "../state/connection";
+import { v2QueryKeys } from "../v2/query-keys";
 import { ErrorState, LoadingState, StatusBadge } from "./common";
 
 type MemoryScope = "project" | "user";
@@ -47,15 +47,15 @@ const emptyMemoryDraft: MemoryDraft = {
   redactSensitive: false,
 };
 
-export function ContextContinuityPanel({ client, runID, sessionID, workspaceID }: {
+export function ContextContinuityPanel({ client, runID, sessionID, workspaceID, onOpenRun }: {
   client: APIClient;
   runID: string;
   sessionID: string;
   workspaceID: string;
+  onOpenRun?: (runID: string) => void;
 }) {
   const { t } = useLocale();
   const queryClient = useQueryClient();
-  const selectRun = useConnectionStore((state) => state.selectRun);
   const [memoryScope, setMemoryScope] = useState<MemoryScope>(workspaceID ? "project" : "user");
   const [memoryDraft, setMemoryDraft] = useState<MemoryDraft>(emptyMemoryDraft);
   const [editingMemoryID, setEditingMemoryID] = useState("");
@@ -177,12 +177,20 @@ export function ContextContinuityPanel({ client, runID, sessionID, workspaceID }
         `/continuity-nodes/${encodeURIComponent(node.id)}/${kind}`,
         { goal: branchGoal || undefined },
         `web-continuity-${kind}-${globalThis.crypto.randomUUID()}`),
-    onSuccess: (result) => {
+    onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["runs"] });
       void queryClient.invalidateQueries({ queryKey: ["sessions"] });
-      selectRun(result.run.id);
+      void queryClient.invalidateQueries({ queryKey: v2QueryKeys.inspectorRecords });
+      void queryClient.invalidateQueries({ queryKey: v2QueryKeys.threads("active") });
+      void queryClient.invalidateQueries({ queryKey: v2QueryKeys.workspaces });
     },
   });
+
+  const branchFrom = (node: SessionTreeNodeView, kind: BranchKind) => {
+    // Observer callbacks stop on unmount; background completion still refreshes
+    // the records above, but must not take navigation away from another page.
+    branch.mutate({ node, kind }, { onSuccess: (result) => onOpenRun?.(result.run.id) });
+  };
 
   const exportMemories = useMutation({
     mutationFn: () => client.get<ContextMemoryExportView>("/memories/export", {
@@ -395,11 +403,11 @@ export function ContextContinuityPanel({ client, runID, sessionID, workspaceID }
               </div>
               {!node.derived && <div className="context-row-actions">
                 <button className="compact-command" disabled={!client.hasControl || branch.isPending}
-                  onClick={() => branch.mutate({ node, kind: "fork" })} type="button">
+                  onClick={() => branchFrom(node, "fork")} type="button">
                   <GitFork aria-hidden="true" size={12} />Fork
                 </button>
                 <button className="compact-command" disabled={!client.hasControl || branch.isPending}
-                  onClick={() => branch.mutate({ node, kind: "resume" })} type="button">
+                  onClick={() => branchFrom(node, "resume")} type="button">
                   <RefreshCw aria-hidden="true" size={12} />Resume
                 </button>
               </div>}

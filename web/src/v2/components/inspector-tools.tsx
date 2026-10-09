@@ -12,13 +12,14 @@ import "./inspector.css";
 
 // Advanced resource pages retain their exact scope and existing controls. They
 // use the same application navigation/settings, and never infer a stale Thread.
-export function V2InspectorTools({ client, tool, resourceID = "", threadID, onBack, onOpenSettings }: {
+export function V2InspectorTools({ client, tool, resourceID = "", threadID, onBack, onOpenSettings, onOpenRun }: {
   client: APIClient;
   tool: "run" | "session" | "schedule";
   resourceID?: string;
   threadID: string;
   onBack: () => void;
   onOpenSettings: (section: V2SettingsSection) => void;
+  onOpenRun?: (runID: string) => void;
 }) {
   const title = tool === "schedule" ? "定时观察" : tool === "run" ? "运行诊断" : "会话上下文";
   return <section className="v2-inspector-resource">
@@ -40,7 +41,7 @@ export function V2InspectorTools({ client, tool, resourceID = "", threadID, onBa
             resourceKind={tool} runID={tool === "run" ? resourceID : ""}
             sessionID={tool === "session" ? resourceID : ""}>
             {tool === "run" ? <RunWorkspace client={client} key={`run:${resourceID}`} runID={resourceID}
-              onOpenPlugins={() => onOpenSettings("extensions")} />
+              onOpenPlugins={() => onOpenSettings("extensions")} onOpenRun={onOpenRun} />
               : <SessionWorkspace client={client} key={`session:${resourceID}`} sessionID={resourceID}
                 onOpenPlugins={() => onOpenSettings("extensions")} />}
           </WorkbenchFrame>}
