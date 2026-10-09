@@ -35,7 +35,7 @@ bash scripts/release-desktop-darwin.sh v1.0.0-rc.1 "$(git rev-parse HEAD)" "$(go
 流水线固定 `macos-15` ARM64 与 `macos-15-intel` Intel runner；检查原生 CPU、Go target、
 Mach-O CPU 三者一致。构建两次比较二进制，再 ad-hoc 签名。`CFBundleVersion` 和
 `CFBundleShortVersionString` 使用数字版本，完整预发布名称保留在 build metadata。
-最低构建目标为 macOS 11；不代表已在所有 macOS 11+ 真机上通过验收。
+最低构建目标为 macOS 12；不代表已在所有 macOS 12+ 真机上通过验收。
 
 产物位于 `build/macos-public`。ZIP 包含完整应用、指南、兼容入口、元数据、兼容报告、
 SBOM、NOTICE 与 LICENSE。`ditto` 保留 POSIX 权限；新目录解压后再次核对全部文件、

@@ -15,7 +15,7 @@ function runDetail(id = "run-1"): RunDetailView {
     run: { id, status: "paused", standard_code_preset_configured: false },
     mission: { id: "mission-1", workspace_id: "workspace-1" },
     mode: { surface: "code", phase: "deliver" },
-    execution_permission: { mode: "approval" },
+    execution_permission: { mode: "ask" },
     execution_profile: { profile: "preview", backend: "noop", risk_tier: "minimal",
       approval_policy: "none", required_gate: "none", revision: 1 },
     execution_interaction: { mode: "preview", workspace_trust: "untrusted", command_form: "none",
@@ -65,7 +65,7 @@ describe("V2ExecutionSettings", () => {
     const controls = setup();
     render(controls.ui("thread-1"));
     expect(await screen.findByText("项目：指定验收目录")).toBeInTheDocument();
-    expect(screen.getByText(/逐次审批命令在宿主机执行/u)).toBeInTheDocument();
+    expect(screen.getByText(/请求批准、帮我批准、完全访问是审批偏好/u)).toBeInTheDocument();
     expect(controls.postControl).not.toHaveBeenCalled();
     await user.click(screen.getByRole("button", { name: /本地工作区/u }));
     await waitFor(() => expect(controls.postControl).toHaveBeenCalledWith(

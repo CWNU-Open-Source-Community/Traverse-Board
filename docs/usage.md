@@ -235,6 +235,21 @@ Schema v86 separates execution interaction intent from general runtime authority
 
 Current execution preferences are `ask|auto|full`. Ask and Auto use the common per-operation authorizer and exact approvals when required; Full requires explicit confirmation and live activation in the current process. The Standard Code preset selects Ask. Commands use the same `command-runtime.v2` protocol with an independently ready Local or explicit Docker sandbox adapter, or an explicitly installed host adapter. A missing sandbox never falls back to host execution. `--enable-workspace-sandbox` opens the Local gate only after its real AppContainer/WFP/Job/ACL readiness proof; Docker remains independently enabled. Host Ask/Auto calls require exact durable approval, while host Full requires live activation. Saved permission rows cannot restore either authority. A permission revision change fences old calls and Jobs. See [Command Runtime adapter split](architecture/command-runtime-adapter-split.md) and [retirement decision](adr/0165-retire-legacy-command-execution.md).
 
+The current Web/Desktop permission selector and readiness projection use only
+Ask / Auto / Full; the five legacy values remain historical read formats. The
+execution environment, Debug interaction/runtime, exact URL fetch scope and
+browser-CDP permissions are separate controls. A Debug restart does not restore
+Full activation or enable independent batch-validation/UI-evidence capabilities.
+
+In a task, open **审阅改动 → 更多交付工具** to select batch delivery, advanced Git,
+GitHub review or UI evidence. Select the execution record before opening a tool;
+its reads, review and approval flow remain bound to that Run. Switching records
+clears the retained tool review. Missing startup capabilities show their existing
+configuration requirements and keep execution disabled. UI evidence history is
+still read independently of write capability; an unavailable reader is shown as
+unknown history, never as an empty evidence ledger. See
+[the #287 acceptance record](FRONTEND_CAPABILITY_ALIGNMENT_287.md).
+
 `run capability-readiness` and `GET /api/v1/runs/{run_id}/capability-readiness`
 return the same Go-owned `run_capability_readiness.v1` projection used by Desktop.
 Each Permission, Profile, Interaction, browser-CDP, and Standard Code option reports

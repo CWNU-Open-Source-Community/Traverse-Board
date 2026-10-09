@@ -398,6 +398,14 @@ function V2WorkbenchContent({ client }: { client: APIClient }) {
     kind: selectedThreadID ? "thread" : "new", ...(selectedThreadID ? { threadID: selectedThreadID } : {}),
     view: "inspector", tool, ...(resourceID ? { resourceID } : {}),
   });
+  const openCreatedRun = (runID: string) => {
+    // The mutation retains the callback from its source route. A later source
+    // selection must not be replaced by the completion of that older request.
+    if (routeRef.current !== route) return;
+    // Fork/Resume returns a Run, not a Thread association. Open that exact
+    // record without carrying the old Thread's permissions into its scope.
+    navigate({ kind: "new", view: "inspector", tool: "run", resourceID: runID });
+  };
 
   return <div className={`v2-shell${sidebarVisible ? " has-sidebar" : " no-sidebar"}`}>
     <V2Titlebar canGoBack={navigation.canGoBack} onBack={surface === "settings" ? returnFromSettings : goBack}
@@ -442,7 +450,8 @@ function V2WorkbenchContent({ client }: { client: APIClient }) {
           ? <V2LazySurface resetKey="inspector-tools"
             loadingText="正在加载检查工具…" errorLabel="检查工具">
             <V2InspectorTools client={client} tool={route.tool} resourceID={route.resourceID}
-            threadID={selectedThreadID} onBack={openInspector} onOpenSettings={setSettingsSection} /></V2LazySurface>
+            threadID={selectedThreadID} onBack={openInspector} onOpenSettings={setSettingsSection}
+            onOpenRun={openCreatedRun} /></V2LazySurface>
           : view === "inspector" && !selectedThreadID
           ? <V2LazySurface resetKey="inspector-home" loadingText="正在加载 Inspector…" errorLabel="Inspector">
             <V2InspectorHome client={client} onOpenTool={openTool} onOpenSettings={setSettingsSection} /></V2LazySurface>

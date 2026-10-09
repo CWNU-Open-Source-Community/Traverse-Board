@@ -5,6 +5,7 @@ import type { APIClient } from "../../api/client";
 import type { RunView, SessionView } from "../../api/types";
 import { LifecycleStatusLabel } from "../../components/lifecycle-status";
 import { formatDate } from "../../lib/format";
+import { v2QueryKeys } from "../query-keys";
 import "./inspector-record-browser.css";
 
 type RecordKind = "run" | "session";
@@ -32,7 +33,7 @@ function RecordList({ client, kind, onOpen }: {
 }) {
   const [search, setSearch] = useState("");
   const query = useInfiniteQuery({
-    queryKey: ["v2", "inspector", "records", kind],
+    queryKey: [...v2QueryKeys.inspectorRecords, kind],
     queryFn: ({ signal, pageParam }) => client.getPage<RunView | SessionView>(
       kind === "run" ? "/runs" : "/sessions", { limit: 50 }, pageParam, signal),
     initialPageParam: "", getNextPageParam: (page) => page.page.next_cursor || undefined,

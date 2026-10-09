@@ -16,11 +16,14 @@ Thank you for contributing to Universal Code. Resumability, auditability, and fa
 
 | 工具 | 版本 | 来源与用途 |
 |---|---:|---|
-| Go | 1.25 | [`go.mod`](go.mod)；唯一控制平面、CLI、TUI、HTTP API 与持久化 |
+| Go | 1.26.9 | [`go.mod`](go.mod)；唯一控制平面、CLI、TUI、HTTP API 与持久化 |
 | Node.js | 24 | [CI](.github/workflows/ci.yml)；`web/` 下的 React/Vite 控制台 |
 | Rust | 1.97.1 | [`analyzers/rust-toolchain.toml`](analyzers/rust-toolchain.toml)；确定性 Analyzer 夹具 |
 
 Git 需要 2.41+；修改 Analyzer 时另需 rustup。普通 Go/Web 开发不要求 Docker、真实 Provider 或 API key；未配置外部模型时使用 Mock Provider。`configs/models.yaml` 是无秘密的示例，不是运行时配置源。
+
+Go 构建使用 `go.mod` 中的精确补丁版本；本机安装其他版本时，设置
+`GOTOOLCHAIN=go1.26.9`。较新的 Go 发布分支也可能尚未修复同一漏洞，不能只按版本大小判断安全性。
 
 首次检出后，按你要修改的表面准备依赖：
 
@@ -40,7 +43,7 @@ rustup target add wasm32-wasip1 --toolchain 1.97.1
 
 ### Windows Desktop
 
-桌面开发和便携构建必须在 Windows 10/11 上进行，并安装 Microsoft Edge WebView2 Evergreen Runtime `94.0.992.31` 或更新版本。还需要上表中的 Go 1.25、Node.js 24 和 PowerShell；Rust 只在修改或完整验证 Analyzer 路径时需要。应用会在打开 SQLite 前检查 WebView2，缺失或过旧时失败关闭，不会自行下载或安装。
+桌面开发和便携构建必须在 Windows 10/11 上进行，并安装 Microsoft Edge WebView2 Evergreen Runtime `94.0.992.31` 或更新版本。还需要上表中的 Go 1.26.9、Node.js 24 和 PowerShell；Rust 只在修改或完整验证 Analyzer 路径时需要。应用会在打开 SQLite 前检查 WebView2，缺失或过旧时失败关闭，不会自行下载或安装。
 
 ```powershell
 # 在仓库根目录构建未签名的本地测试包
@@ -54,7 +57,7 @@ rustup target add wasm32-wasip1 --toolchain 1.97.1
 
 ### macOS Desktop
 
-macOS 便携构建需要 macOS 11+（Big Sur）与 Xcode 命令行工具（codesign），以及上表中的 Go 1.25、Node.js 24；WKWebView 随系统提供，不需要 WebView2 式预检。前端测试环境固定在 Node.js 24 基线：本地 Node 版本不符时脚本会在前端检查前明确报错（可用 `nvm use 24` 切换，或 `-SkipFrontend` 跳过已构建好的 web/dist）。
+macOS 便携构建需要 macOS 12+（Monterey）与 Xcode 命令行工具（codesign），以及上表中的 Go 1.26.9、Node.js 24；WKWebView 随系统提供，不需要 WebView2 式预检。前端测试环境固定在 Node.js 24 基线：本地 Node 版本不符时脚本会在前端检查前明确报错（可用 `nvm use 24` 切换，或 `-SkipFrontend` 跳过已构建好的 web/dist）。
 
 ```bash
 # 在仓库根目录构建未签名、ad-hoc 签名的本地测试包

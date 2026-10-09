@@ -2,6 +2,7 @@ Traverse Board · 针路簿 macOS 本地试用说明
 ==========================
 
 从下载的产品 ZIP 解压后，直接双击同目录 TraverseBoard.app；无需安装 Go、Node 或 Xcode。
+需要 macOS 12（Monterey）或更新版本。
 以下命令在解压后的产品目录执行；源码构建后先进入 build/desktop/。
 
 推荐入口
@@ -26,7 +27,7 @@ Start-Prayu-Operator-Preview.command 只是同一默认入口的兼容快捷方�
 
 Node 版本不符时脚本会在前端检查前明确报错；如果 web/dist 已经构建好，
 也可以用 -SkipFrontend 跳过前端步骤。构建还需要 Xcode 命令行工具
-（codesign）和 Go 1.25。
+（codesign）和 Go 1.26.9。
 
 首次接入真实模型
 ----------------
@@ -81,6 +82,7 @@ Traverse Board macOS Local Test Guide
 ============================
 
 After extracting the product ZIP, double-click TraverseBoard.app in that directory.
+Requires macOS 12 Monterey or later.
 Go, Node and Xcode are only build dependencies. Run the commands below from the
 extracted product directory; after building from source, first enter build/desktop/.
 
@@ -110,7 +112,7 @@ then run:
 
 A mismatched Node version fails fast before the frontend checks; use
 -SkipFrontend when web/dist is already built. Building also requires the
-Xcode command line tools (codesign) and Go 1.25.
+Xcode command line tools (codesign) and Go 1.26.9.
 
 Connect a real model
 --------------------

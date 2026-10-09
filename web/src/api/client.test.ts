@@ -1,8 +1,10 @@
+import { readFileSync } from "node:fs";
 import { APIClient, clientCapabilitiesFromRuntime } from "./client";
 import type { ProviderDefinitionView, RunEventStreamView, RunLifecycleControlView,
   ScheduledJobCreateRequestView, UIEvidenceArtifactMetadata } from "./types";
 import { standardCodeDeliveryFixture } from "../test/standard-code-delivery";
 import pausedPlanReadiness from "../test/fixtures/readiness-paused-plan.json";
+import currentPausedPlanReadiness from "../test/fixtures/readiness-paused-plan-current.json";
 
 const healthEnvelope = {
   version: "api.v1",
@@ -68,33 +70,15 @@ function runtimeCapabilitiesData(overrides: Record<string, unknown> = {}) {
   };
 }
 
-function capabilityReadinessOption(value: string, selected = false) {
-  return { value, selected, selectable: true, runtime_available: true,
-    blocked_by: [] as string[], remediation: [] as string[], restart_required: false };
+function capabilityReadinessEnvelope(): typeof currentPausedPlanReadiness {
+  // Go checks the committed specimen against its real HTTP response. A focused
+  // cross-language run can also parse the exact envelope exported by that test.
+  const path = process.env.TRAVERSE_TEST_READINESS_OUTPUT;
+  return path ? JSON.parse(readFileSync(path, "utf8")) : currentPausedPlanReadiness;
 }
 
 function capabilityReadinessData() {
-  const preset = capabilityReadinessOption("standard_code");
-  preset.selectable = false;
-  preset.runtime_available = false;
-  preset.blocked_by = ["capability_not_implemented"];
-  preset.remediation = ["upgrade_application"];
-  return {
-    protocol_version: "run_capability_readiness.v1", run_id: "run-1",
-    permissions: [capabilityReadinessOption("conservative", true),
-      capabilityReadinessOption("workspace_access"), capabilityReadinessOption("approval"),
-      capabilityReadinessOption("full_access"), capabilityReadinessOption("debug")],
-    profiles: [capabilityReadinessOption("preview", true),
-      capabilityReadinessOption("docker"), capabilityReadinessOption("local")],
-    interactions: [capabilityReadinessOption("preview", true),
-      capabilityReadinessOption("controlled"), capabilityReadinessOption("debug"),
-      capabilityReadinessOption("cyber")],
-    browser_cdp_permissions: [capabilityReadinessOption("restricted", true),
-      capabilityReadinessOption("full_debug")],
-    command_runtime: { protocol_available: true, adapter_installed: true,
-      adapter_ready: true, current_run_granted: false },
-    presets: [preset], capability_grant: false,
-  };
+  return { ...structuredClone(capabilityReadinessEnvelope().data), run_id: "run-1" };
 }
 
 function standardCodeTrustData(overrides: Record<string, unknown> = {}) {
@@ -479,6 +463,27 @@ describe("APIClient", () => {
     }
   });
 
+  it.each([
+    ["", {}, "missing_control_credential"],
+    ["   ", { uiEvidenceControlEnabled: true }, "missing_control_credential"],
+    ["control-secret", {}, "ui_evidence_disabled"],
+    ["control-secret", { uiEvidenceControlEnabled: false, runExecutionEnabled: false }, "ui_evidence_disabled"],
+    ["control-secret", { uiEvidenceControlEnabled: true, runExecutionEnabled: false }, "run_execution_disabled"],
+    ["control-secret", { uiEvidenceControlEnabled: true, runExecutionEnabled: true,
+      browserCDPPermissionControlEnabled: false }, "browser_cdp_control_disabled"],
+    ["control-secret", { uiEvidenceControlEnabled: true, runExecutionEnabled: true,
+      browserCDPPermissionControlEnabled: true }, null],
+    ["control-secret", { uiEvidenceControlEnabled: true, runExecutionEnabled: true,
+      browserCDPPermissionControlEnabled: true, runControlEnabled: false }, null],
+  ] as const)("projects the UI evidence availability reason for control %j and capabilities %j", (control, capabilities, reason) => {
+    const client = new APIClient("read-secret", "/api/v1", control, capabilities);
+    expect(client.uiEvidenceUnavailableReason).toBe(reason);
+    expect(client.hasUIEvidence).toBe(reason === null);
+    if ("runControlEnabled" in capabilities && capabilities.runControlEnabled === false) {
+      expect(client.hasControl).toBe(false);
+    }
+  });
+
   it("keeps the bearer out of the URL and sends it only in Authorization", async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify(healthEnvelope), {
       status: 200,
@@ -775,14 +780,47 @@ describe("APIClient", () => {
     expect(init.headers).toMatchObject({ Authorization: "Bearer read-secret" });
   });
 
-  it("accepts the captured paused Plan response with a selected LPAC adapter and no active Run grant", async () => {
-    // Captured from Phase H's real HTTP service after two workspace reads and
-    // plan_delivery_propose paused the same Run; no idealized readiness builder.
-    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify(pausedPlanReadiness), {
+  it("accepts the current Go paused Plan response with three permissions and an installed LPAC adapter without a Run grant", async () => {
+    const envelope = capabilityReadinessEnvelope();
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify(envelope), {
       status: 200, headers: { "Content-Type": "application/json" },
     })));
     const client = new APIClient("read-secret");
-    await expect(client.runCapabilityReadiness(pausedPlanReadiness.data.run_id)).resolves.toEqual(pausedPlanReadiness.data);
+    const result = await client.runCapabilityReadiness(envelope.data.run_id);
+    expect(result).toEqual(envelope.data);
+    expect(result.permissions.map((option) => option.value)).toEqual(["ask", "auto", "full"]);
+    expect(result.command_runtime).toMatchObject({ adapter_installed: true, adapter_ready: true,
+      adapter_kind: "sandboxed_workspace", backend: "local_windows_lpac", current_run_granted: false });
+    expect(result.capability_grant).toBe(false);
+  });
+
+  it("rejects an archived five-mode readiness response as the current selectable contract", async () => {
+    // Preserve the original Phase H HTTP capture as historical evidence. Current
+    // readiness offers only writable choices; historical permission reads are
+    // exercised separately by approval-mode-integration.test.tsx.
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify(pausedPlanReadiness), {
+      status: 200, headers: { "Content-Type": "application/json" },
+    })));
+    await expect(new APIClient("read-secret").runCapabilityReadiness(pausedPlanReadiness.data.run_id))
+      .rejects.toMatchObject({ code: "INVALID_RESPONSE" });
+  });
+
+  it.each([
+    ["missing Auto", (data: ReturnType<typeof capabilityReadinessData>) => { data.permissions.splice(1, 1); }],
+    ["duplicate Ask", (data: ReturnType<typeof capabilityReadinessData>) => { data.permissions[1] = { ...data.permissions[0]! }; }],
+    ["unknown mode", (data: ReturnType<typeof capabilityReadinessData>) => { data.permissions[1]!.value = "unknown_permission"; }],
+    ["retired mode", (data: ReturnType<typeof capabilityReadinessData>) => { data.permissions[1]!.value = "workspace_access"; }],
+    ["extra mode", (data: ReturnType<typeof capabilityReadinessData>) => { data.permissions.push({ ...data.permissions[2]! }); }],
+    ["reordered modes", (data: ReturnType<typeof capabilityReadinessData>) => { data.permissions.reverse(); }],
+    ["multiple selected modes", (data: ReturnType<typeof capabilityReadinessData>) => { data.permissions[1]!.selected = true; }],
+  ])("rejects a noncanonical current readiness permission group with %s", async (_label, mutate) => {
+    const data = capabilityReadinessData();
+    mutate(data);
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      version: "api.v1", request_id: "req-readiness-permission-drift", data,
+    }), { status: 200, headers: { "Content-Type": "application/json" } })));
+    await expect(new APIClient("read-secret").runCapabilityReadiness(data.run_id))
+      .rejects.toMatchObject({ code: "INVALID_RESPONSE" });
   });
 
   it("rejects incomplete or malformed adapter identities even without an active Run grant", async () => {
@@ -790,8 +828,9 @@ describe("APIClient", () => {
     vi.stubGlobal("fetch", fetchMock);
     for (const patch of [{ adapter_kind: undefined }, { backend: undefined }, { adapter_kind: "unknown_adapter" },
       { adapter_kind: ["sandboxed_workspace"] }, { backend: "b".repeat(257) }, { adapter_kind: "" }, { backend: "" }]) {
-      const data = { ...pausedPlanReadiness.data, command_runtime: { ...pausedPlanReadiness.data.command_runtime, ...patch } };
-      fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ ...pausedPlanReadiness, data }), {
+      const envelope = capabilityReadinessEnvelope();
+      const data = { ...envelope.data, command_runtime: { ...envelope.data.command_runtime, ...patch } };
+      fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ ...envelope, data }), {
         status: 200, headers: { "Content-Type": "application/json" },
       }));
       await expect(new APIClient("read-secret").runCapabilityReadiness(data.run_id))
@@ -879,6 +918,8 @@ describe("APIClient", () => {
     }],
     ["granted adapter without identity", (data: ReturnType<typeof capabilityReadinessData>) => {
       data.command_runtime.current_run_granted = true;
+      delete (data.command_runtime as Partial<typeof data.command_runtime>).adapter_kind;
+      delete (data.command_runtime as Partial<typeof data.command_runtime>).backend;
     }],
     ["private extension", (data: ReturnType<typeof capabilityReadinessData>) => {
       (data.permissions[0] as Record<string, unknown>).root_path = "C:\\private";

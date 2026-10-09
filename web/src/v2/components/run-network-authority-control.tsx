@@ -120,9 +120,11 @@ export function V2RunNetworkAuthorityControl({ client, threadID = "", runID,
     // pre-flight "待验证" state after a successful probe or a failed request.
     refetchInterval: 5_000,
   });
-  const current = query.data?.mode.scope.allowed_targets ?? [];
-  const permissionMode = query.data?.execution_permission.mode;
-  const publicHTTPS = permissionMode === "full_access" || permissionMode === "debug";
+  const networkScope = query.data?.mode.scope;
+  const current = networkScope?.network_mode === "allowlist" ? networkScope.allowed_targets ?? [] : [];
+  // Historical broad scopes are read as stored facts. An approval preference,
+  // including activated Full, does not itself grant this fetch scope.
+  const publicHTTPS = current.includes("public_https");
   const rawRequested = useMemo(() => parseExactNetworkTargets(draft), [draft]);
   const invalid = rawRequested.filter((target) => !exactNetworkTargetLooksValid(target));
   const requested = useMemo(() => invalid.length === 0
@@ -173,7 +175,7 @@ export function V2RunNetworkAuthorityControl({ client, threadID = "", runID,
     : query.isLoading ? "正在读取当前执行的网页访问范围…"
       : query.isError ? "无法读取网页访问范围。"
         : publicHTTPS
-          ? "当前权限允许匿名访问任意公网 HTTPS；私网、loopback、元数据地址、DNS 重绑定和非 HTTPS 请求仍会被拒绝。"
+          ? "当前执行保存的网络范围允许匿名访问公网 HTTPS；私网、loopback、元数据地址、DNS 重绑定和非 HTTPS 请求仍会被拒绝。"
         : mutable ? "只追加明确的公网 HTTPS 主机；现有授权不可在这里静默扩大或删除。"
           : `当前执行为 ${query.data?.run.status ?? "unknown"}；需在 created/paused 静止边界追加。`;
   const readiness = readinessQuery.data;
@@ -183,8 +185,8 @@ export function V2RunNetworkAuthorityControl({ client, threadID = "", runID,
   const body = <>
     <header><span><Globe2 aria-hidden="true" size={18} /></span><div>
       <strong>直接 URL 抓取</strong><p>{status}</p></div>
-      <span className="v2-network-count">{publicHTTPS ? "公网 HTTPS"
-        : current.length === 0 ? "无网络" : `${current.length} 个主机`}</span>
+      <span className="v2-network-count">{query.isError ? "范围未知" : query.isPending ? "读取中"
+        : publicHTTPS ? "公网 HTTPS" : current.length === 0 ? "未预先授权主机" : `${current.length} 个主机`}</span>
     </header>
     {threadID && <div className={`v2-search-readiness state-${readiness?.state ?? "loading"}`}
       role="status"><span><strong>{readiness?.search_policy === "provider_native" ? "供应商搜索" : "网页搜索"} · {readinessQuery.isError
@@ -195,6 +197,7 @@ export function V2RunNetworkAuthorityControl({ client, threadID = "", runID,
       {!readinessQuery.isError && <em>{remediationLabel(readiness)}</em>}</div>}
     {readiness && <V2SearchDiagnosticsControl client={client} readiness={readiness}
       onOpenModelSettings={onOpenModelSettings} />}
+    {query.isSuccess && <p className="v2-network-note">这里显示当前执行预先授权的 URL 抓取范围。范围外的请求仍需通过后端的单独授权检查；审批偏好与供应商搜索不会自动扩大此范围。</p>}
     {!publicHTTPS && current.length > 0 && <div aria-label="当前允许的 HTTPS 主机" className="v2-network-targets">
       {current.map((target) => <code key={target}>{target}</code>)}
     </div>}
@@ -233,8 +236,8 @@ export function V2RunNetworkAuthorityControl({ client, threadID = "", runID,
         ref={menuTriggerRef} type="button">
         {publicHTTPS || current.length > 0 ? <Globe2 aria-hidden="true" size={14} />
           : <ShieldCheck aria-hidden="true" size={14} />}
-        {readinessQuery.isError ? publicHTTPS ? "公网 HTTPS"
-          : current.length === 0 ? "无网络" : `网页访问 · ${current.length}`
+        {readinessQuery.isError ? query.isError ? "范围未知" : publicHTTPS ? "公网 HTTPS"
+          : current.length === 0 ? "URL 待授权" : `网页访问 · ${current.length}`
           : readinessLabel(readiness)}
         <ChevronDown aria-hidden="true" size={13} />
       </button>

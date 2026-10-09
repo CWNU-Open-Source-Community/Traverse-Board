@@ -3290,7 +3290,7 @@ function parseRunCapabilityReadiness(value: unknown,
       "INVALID_RESPONSE", 502);
   }
   const groups: Array<[unknown, readonly string[], boolean]> = [
-    [value.permissions, ["conservative", "workspace_access", "approval", "full_access", "debug"], true],
+    [value.permissions, ["ask", "auto", "full"], true],
     [value.profiles, ["preview", "docker", "local"], true],
     [value.interactions, ["preview", "controlled", "debug", "cyber"], true],
     [value.browser_cdp_permissions, ["restricted", "full_debug"], true],
@@ -6416,6 +6416,8 @@ export class APIClient {
   readonly hasBatchDeliveryHostValidation: boolean;
   readonly hasExtensionControl: boolean;
   readonly hasUIEvidence: boolean;
+  readonly uiEvidenceUnavailableReason: "missing_control_credential" | "ui_evidence_disabled" |
+    "run_execution_disabled" | "browser_cdp_control_disabled" | null;
 
   constructor(
     private readonly token: string,
@@ -6497,6 +6499,10 @@ export class APIClient {
       (capabilities.extensionControlEnabled ?? true);
     this.hasUIEvidence = controlPresent && (capabilities.uiEvidenceControlEnabled ?? false) &&
       this.hasRunExecution && this.hasBrowserCDPPermissionControl;
+    this.uiEvidenceUnavailableReason = !controlPresent ? "missing_control_credential"
+      : !(capabilities.uiEvidenceControlEnabled ?? false) ? "ui_evidence_disabled"
+        : !this.hasRunExecution ? "run_execution_disabled"
+          : !this.hasBrowserCDPPermissionControl ? "browser_cdp_control_disabled" : null;
   }
 
   async health(signal?: AbortSignal): Promise<HealthView> {

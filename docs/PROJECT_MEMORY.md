@@ -1,5 +1,29 @@
 # Prayu Project Memory
 
+> 2026-10-09 recovery and connection workflow checkpoint (#292): Continuity
+> Fork/Resume and checkpoint Fork open the returned Run in V2 without inheriting
+> a source Thread binding. Late completion refreshes record and Thread lists
+> without replacing a later navigation. GitHub connection editing uses the selected
+> generation; confirmed disconnect deletes the connection's current local credential,
+> preserving settings and historical evidence. Approval navigation retains the exact
+> PR, snapshot and connection binding. Verification is recorded in the issue/PR; this slice
+> does not add execution authority or certify the remaining frontend rebuild.
+
+> 2026-10-09 Go security baseline (#289): Go 1.26.9 is the minimum compiler;
+> CI and release builders read the exact version from go.mod. Local desktop
+> builders require that same patched compiler. The x/net
+> dependency includes the October HTTP/2 fixes. Native macOS packaging now
+> declares and verifies macOS 12, matching the compiler's actual support floor.
+> The nightly full matrix and blocking vulnerability audit remain enabled;
+> see [CI security baseline](ci.md#go-security-baseline) for scan evidence limits.
+
+> 2026-10-07 permission/capability alignment (#287): the frontend consumes the
+> current Ask / Auto / Full readiness contract, with a Go HTTP fixture checked by
+> both Go and the real APIClient. Task review exposes existing Run-bound delivery
+> tools and explains independent startup gates. Historical permission readers and
+> all Go authority checks remain in place. See
+> [implementation and verification scope](FRONTEND_CAPABILITY_ALIGNMENT_287.md).
+
 > 2026-10-07 workbench journey follow-up (#257): explicit extension actions return
 > to the task composer, new-draft image eligibility matches the selectable creation
 > route, unavailable historical Run directories fail closed, and Desktop bootstrap
