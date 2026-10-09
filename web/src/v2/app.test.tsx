@@ -13,14 +13,16 @@ import * as desktopBridge from "../lib/desktop-bridge";
 import { v2FileReferenceKey } from "./components/file-context";
 
 vi.mock("./components/conversation", () => ({
-  V2Conversation: ({ threadID, view = "conversation", draft, onDraftChange }: {
+  V2Conversation: ({ threadID, view = "conversation", draft, onDraftChange, reviewEntry }: {
     threadID: string;
     view?: "conversation" | "inspector";
     draft: string;
     onDraftChange: (value: string) => void;
+    reviewEntry?: { threadID: string; runID: string };
   }) => (
     <div data-testid="v2-conversation" data-view={view}>{threadID}
       <textarea aria-label="任务草稿 fixture" value={draft} onChange={(event) => onDraftChange(event.target.value)} />
+      {reviewEntry && <output aria-label="Requested GitHub review">{`${reviewEntry.threadID}:${reviewEntry.runID}`}</output>}
     </div>
   ),
 }));
@@ -93,6 +95,23 @@ function expectNoNavigationWrites(client: APIClient) {
 }
 
 describe("V2Workbench inspector navigation", () => {
+  it("opens the source task's GitHub delivery tool from connections while retaining the task draft", async () => {
+    window.history.replaceState({}, "", `#/threads/${createdThread.id}`);
+    const client = navigationClient();
+    vi.mocked(client.get).mockResolvedValue({ thread: createdThread,
+      active_run: { id: "run-current" }, last_run: { id: "run-current" },
+      runs: [{ ordinal: 1, run: { id: "run-current" } }] });
+    render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+      <V2Workbench client={client} /></QueryClientProvider>);
+    const user = userEvent.setup();
+    await user.type(await screen.findByRole("textbox", { name: "任务草稿 fixture" }), "等待连接设置后继续的草稿");
+    await user.click(screen.getByRole("button", { name: "连接与环境" }));
+    await user.click(await screen.findByRole("button", { name: /GitHub 连接与审阅.*run-current/u }));
+    expect(await screen.findByLabelText("Requested GitHub review")).toHaveTextContent(`${createdThread.id}:run-current`);
+    expect(window.location.hash).toBe(`#/threads/${createdThread.id}`);
+    expect(screen.getByRole("textbox", { name: "任务草稿 fixture" })).toHaveValue("等待连接设置后继续的草稿");
+    expectNoNavigationWrites(client);
+  });
   it("closes the narrow navigation drawer after new-task and settings navigation while retaining the draft", async () => {
     vi.stubGlobal("matchMedia", vi.fn((query: string) => ({
       matches: query === "(max-width: 760px)", media: query,

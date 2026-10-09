@@ -28,6 +28,7 @@ import { v2AttachmentReferenceKey } from "./attachment-keys";
 import { v2ImageReferenceKey } from "./components/image-input";
 import { assertV2DraftVersion, getV2DraftDocument, readV2Draft, requireV2DraftVersion, useV2DraftDocument, v2DraftScope } from "./draft-context";
 import type { V2DraftVersion } from "./draft-version";
+import type { TaskReviewToolMemory } from "./components/task-review-tools";
 import { V2DraftConflict } from "./components/draft-conflict";
 import { V2PhasePicker, type V2WorkPhase } from "./components/phase-picker";
 
@@ -224,6 +225,16 @@ function V2WorkbenchContent({ client }: { client: APIClient }) {
   const routeRef = useRef(route);
   routeRef.current = route;
   const selectedThreadID = route.threadID ?? "";
+  const reviewMemoryRef = useRef<TaskReviewToolMemory>({ generation: 0 });
+  const [reviewEntry, setReviewEntry] = useState<{ threadID: string; runID: string; requestID: string }>();
+  useEffect(() => {
+    reviewMemoryRef.current = { generation: reviewMemoryRef.current.generation + 1 };
+    setReviewEntry(undefined);
+  }, [client, selectedThreadID]);
+  useEffect(() => {
+    if (route.tool === "run" && reviewMemoryRef.current.runID && reviewMemoryRef.current.runID !== route.resourceID)
+      reviewMemoryRef.current = { generation: reviewMemoryRef.current.generation + 1 };
+  }, [route.tool, route.resourceID]);
   const surface = route.section ? "settings" : "conversation";
   const view = route.view ?? "conversation";
   const settingsSection = route.section ?? "general";
@@ -394,10 +405,13 @@ function V2WorkbenchContent({ client }: { client: APIClient }) {
       document.querySelector<HTMLTextAreaElement>(".v2-new-conversation .v2-composer textarea")?.focus()));
   };
   const openInspector = () => changeView("inspector");
-  const openTool = (tool: "run" | "session" | "schedule", resourceID?: string, pane?: V2RunPane) => navigate({
-    kind: selectedThreadID ? "thread" : "new", ...(selectedThreadID ? { threadID: selectedThreadID } : {}),
-    view: "inspector", tool, ...(resourceID ? { resourceID } : {}), ...(tool === "run" && pane ? { pane } : {}),
-  });
+  const openTool = (tool: "run" | "session" | "schedule", resourceID?: string, pane?: V2RunPane) => {
+    if (tool === "run" && reviewMemoryRef.current.runID !== resourceID)
+      reviewMemoryRef.current = { generation: reviewMemoryRef.current.generation + 1 };
+    navigate({ kind: selectedThreadID ? "thread" : "new", ...(selectedThreadID ? { threadID: selectedThreadID } : {}),
+      view: "inspector", tool, ...(resourceID ? { resourceID } : {}), ...(tool === "run" && pane ? { pane } : {}),
+    });
+  };
   const openCreatedRun = (runID: string) => {
     // The mutation retains the callback from its source route. A later source
     // selection must not be replaced by the completion of that older request.
@@ -405,6 +419,12 @@ function V2WorkbenchContent({ client }: { client: APIClient }) {
     // Fork/Resume returns a Run, not a Thread association. Open that exact
     // record without carrying the old Thread's permissions into its scope.
     navigate({ kind: "new", view: "inspector", tool: "run", resourceID: runID });
+  };
+  const openGithubReview = (runID: string) => {
+    if (!selectedThreadID || routeRef.current !== route) return;
+    setReviewEntry({ threadID: selectedThreadID, runID, requestID: globalThis.crypto.randomUUID() });
+    navigate({ kind: "thread", threadID: selectedThreadID });
+    closeNavigationSidebar();
   };
 
   return <div className={`v2-shell${sidebarVisible ? " has-sidebar" : " no-sidebar"}`}>
@@ -446,6 +466,9 @@ function V2WorkbenchContent({ client }: { client: APIClient }) {
             changeView("conversation");
           }} section={settingsSection}
           threadID={selectedThreadID} workspaces={workspaces}
+          sourceRunID={route.tool === "run" ? route.resourceID : reviewMemoryRef.current.client === client &&
+            reviewMemoryRef.current.threadID === selectedThreadID ? reviewMemoryRef.current.runID : undefined}
+          onOpenGithubReview={openGithubReview}
           prepareModelForDraft={Boolean(modelSetupToken)} modelSetupToken={modelSetupToken}
           onModelReady={completeModelSetup} /></V2LazySurface> : route.tool
           ? <V2LazySurface resetKey="inspector-tools"
@@ -517,6 +540,8 @@ function V2WorkbenchContent({ client }: { client: APIClient }) {
               closeNavigationSidebar();
             }}
             view={view} onOpenTool={openTool}
+            reviewMemoryRef={reviewMemoryRef} reviewEntry={reviewEntry}
+            onReviewEntryHandled={(requestID) => setReviewEntry((current) => current?.requestID === requestID ? undefined : current)}
             onOpenInspectorHome={() => navigate({ kind: "new", view: "inspector" })}
             onExitInspector={() => changeView("conversation")}
             draft={drafts[draftKey] ?? ""} onDraftChange={updateDraft}

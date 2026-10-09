@@ -19,7 +19,7 @@ import { v2QueryKeys } from "../query-keys";
 import { TaskOverview } from "./task-overview";
 import { TaskGit } from "./task-git";
 import { TaskPullRequest } from "./task-pull-request";
-import { TaskReviewTools, type TaskReviewToolReviews } from "./task-review-tools";
+import { TaskReviewTools, type TaskReviewToolMemory, type TaskReviewToolReviews } from "./task-review-tools";
 import type { WorkspaceView } from "../../api/types";
 import "./task-review.css";
 
@@ -46,26 +46,33 @@ interface ReportAttempt {
 }
 const reportIntentKey = (runID: string) => ["run", runID, "standard-code-delivery-intent"] as const;
 
-export function V2TaskReview({ client, detail, working, onClose, onRequestChange, returnFocusRef, onOpenWorktree, initialFileTarget }: {
+export function V2TaskReview({ client, detail, working, onClose, onRequestChange, returnFocusRef, onOpenWorktree, initialFileTarget,
+  initialToolTarget, toolMemoryRef }: {
   client: APIClient; detail: ThreadDetailView; working: boolean;
   onClose: () => void; onRequestChange: (context: string) => void;
   returnFocusRef: RefObject<HTMLElement | null>;
   onOpenWorktree?: (workspace: WorkspaceView) => void;
   initialFileTarget?: FileEditReviewTarget;
+  initialToolTarget?: { runID: string; tool: "github-review" };
+  toolMemoryRef?: RefObject<TaskReviewToolMemory>;
 }) {
   const queryClient = useQueryClient();
   const currentRun = detail.active_run ?? detail.last_run;
-  const toolReviews = useRef(new Map<string, TaskReviewToolReviews>());
+  const localToolMemory = useRef<TaskReviewToolMemory>({ generation: 0 });
+  const toolMemory = toolMemoryRef ?? localToolMemory;
+  const retainedRunID = toolMemory.current.client === client && toolMemory.current.threadID === detail.thread.id
+    ? toolMemory.current.runID : undefined;
   const [runSelection, setRunSelection] = useState({ threadID: detail.thread.id,
-    runID: initialFileTarget?.runID ?? currentRun.id });
+    runID: initialFileTarget?.runID ?? initialToolTarget?.runID ?? retainedRunID ?? currentRun.id });
   const selectedRunID = runSelection.threadID === detail.thread.id
-    ? runSelection.runID : initialFileTarget?.runID ?? currentRun.id;
+    ? runSelection.runID : initialFileTarget?.runID ?? initialToolTarget?.runID ?? currentRun.id;
   const setSelectedRunID = (runID: string) => {
-    if (runID !== selectedRunID || runSelection.threadID !== detail.thread.id) toolReviews.current.clear();
+    if (runID !== selectedRunID || runSelection.threadID !== detail.thread.id)
+      toolMemory.current = { generation: toolMemory.current.generation + 1 };
     setRunSelection({ threadID: detail.thread.id, runID });
   };
   const [fileTarget, setFileTarget] = useState<FileEditReviewTarget | undefined>(initialFileTarget);
-  const [tab, setTab] = useState<ReviewTab>(initialFileTarget ? "files" : "overview");
+  const [tab, setTab] = useState<ReviewTab>(initialFileTarget ? "files" : initialToolTarget ? "tools" : "overview");
   const [showHistory, setShowHistory] = useState(Boolean(initialFileTarget));
   useEffect(() => {
     if (!initialFileTarget) return;
@@ -86,10 +93,13 @@ export function V2TaskReview({ client, detail, working, onClose, onRequestChange
   const selectedRun = detail.runs.find(({ run }) => run.id === selectedRunID)?.run
     ?? (selectedRunID === currentRun.id ? currentRun : undefined);
   const reviewedRunID = selectedRun?.id ?? selectedRunID;
-  const toolReviewKey = `${detail.thread.id}:${reviewedRunID}`;
+  if (toolMemory.current.client !== client || toolMemory.current.threadID !== detail.thread.id || toolMemory.current.runID !== reviewedRunID)
+    toolMemory.current = { generation: toolMemory.current.generation + 1, client, threadID: detail.thread.id, runID: reviewedRunID };
+  const toolMemoryGeneration = toolMemory.current.generation;
   const retainToolReview = <T extends keyof TaskReviewToolReviews>(kind: T, value: TaskReviewToolReviews[T]) => {
-    toolReviews.current.set(toolReviewKey, { git: null, github: null,
-      ...toolReviews.current.get(toolReviewKey), [kind]: value });
+    if (toolMemory.current.generation !== toolMemoryGeneration) return;
+    toolMemory.current = { generation: toolMemoryGeneration, client, threadID: detail.thread.id, runID: reviewedRunID,
+      reviews: { git: null, github: null, ...toolMemory.current?.reviews, [kind]: value } };
   };
   const reviewFile = (target: FileEditReviewTarget) => {
     setSelectedRunID(target.runID); setFileTarget(target); setFilePath(null);
@@ -212,7 +222,8 @@ export function V2TaskReview({ client, detail, working, onClose, onRequestChange
         {!["overview", "git", "pr"].includes(tab) && !selectedRun && <p role="alert">无法找到目标执行记录 {selectedRunID}，尚未打开审阅工具。请刷新任务后重试，或明确选择另一次执行。</p>}
         {tab === "tools" && selectedRun && <TaskReviewTools client={client} runID={reviewedRunID}
           key={`${detail.thread.id}:${reviewedRunID}`} threadID={detail.thread.id}
-          retainedReviews={toolReviews.current.get(toolReviewKey)}
+          retainedReviews={toolMemory.current?.reviews}
+          initialTool={initialToolTarget?.runID === reviewedRunID ? initialToolTarget.tool : undefined}
           onGitReviewChange={(review) => retainToolReview("git", review)}
           onGithubReviewChange={(review) => retainToolReview("github", review)}
           onOpenDelivery={() => selectTab("checks", true)} />}

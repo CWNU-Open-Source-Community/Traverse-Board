@@ -29,6 +29,7 @@ import { APPLICATION_PREVIEW_START_REQUEST, applicationPreviewRequestCopy, appli
   trackApplicationPreviewSubmission, type ApplicationPreviewRequest } from "../application-preview-request";
 import type { FileEditReviewTarget } from "../../components/file-edit-panel";
 import type { V2RunPane } from "../navigation";
+import type { TaskReviewToolMemory } from "./task-review-tools";
 import { V2ThreadContext } from "./thread-context";
 import { V2ThreadPlanControl } from "./thread-plan";
 import { useV2ThreadSubmissions, useV2ThreadTurn, V2SubmissionError, V2RecoveredSubmissionError, removeV2Submission, v2TurnFailed, v2TurnOutcomeKnown, v2TurnWasNotQueued, type V2TurnInput } from "../use-thread-turn";
@@ -312,7 +313,8 @@ export function V2TerminalDrawer({
 }
 
 export function V2Conversation({ client, threadID, workspaces, onArchive, onManageModels,
-  onOpenInspector, draft: legacyDraft, onDraftChange: legacyDraftChange, view = "conversation", onOpenTool, onOpenInspectorHome, onOpenWorktree, onExitInspector }: {
+  onOpenInspector, draft: legacyDraft, onDraftChange: legacyDraftChange, view = "conversation", onOpenTool, onOpenInspectorHome, onOpenWorktree, onExitInspector,
+  reviewEntry, onReviewEntryHandled, reviewMemoryRef }: {
   client: APIClient;
   threadID: string;
   workspaces: WorkspaceView[];
@@ -326,6 +328,9 @@ export function V2Conversation({ client, threadID, workspaces, onArchive, onMana
   onOpenInspectorHome?: () => void;
   onOpenWorktree?: (workspace: WorkspaceView) => void;
   onExitInspector?: () => void;
+  reviewEntry?: { threadID: string; runID: string; requestID: string };
+  onReviewEntryHandled?: (requestID: string) => void;
+  reviewMemoryRef?: RefObject<TaskReviewToolMemory>;
 }) {
   const queryClient = useQueryClient();
   const previewRequest = useQuery<ApplicationPreviewRequest | null>({
@@ -354,6 +359,7 @@ export function V2Conversation({ client, threadID, workspaces, onArchive, onMana
   const setContextOpen = (open: boolean) => setPaneOpen("context", open);
   const setTerminalDrawerOpen = (open: boolean) => setPaneOpen("terminal", open);
   const [reviewFileTarget, setReviewFileTarget] = useState<FileEditReviewTarget | undefined>();
+  const [reviewToolTarget, setReviewToolTarget] = useState<{ runID: string; tool: "github-review" }>();
   const reviewReturnFocus = useRef<HTMLButtonElement | null>(null);
   const contextTrigger = useRef<HTMLButtonElement>(null);
   const previewTrigger = useRef<HTMLButtonElement>(null);
@@ -650,11 +656,20 @@ export function V2Conversation({ client, threadID, workspaces, onArchive, onMana
     setMenuOpen(false);
     setActivePane(null);
     setReviewFileTarget(undefined);
+    setReviewToolTarget(undefined);
     setFileDrawerState({ path: ".", line: undefined, runID: undefined });
     setComposerFocusRequest(null);
     olderScrollAnchorRef.current = null;
     setDeliveryMode("next_turn");
   }, [threadID, view]);
+  useEffect(() => {
+    if (!reviewEntry || reviewEntry.threadID !== threadID) return;
+    setReviewFileTarget(undefined);
+    setReviewToolTarget({ runID: reviewEntry.runID, tool: "github-review" });
+    reviewReturnFocus.current = reviewTrigger.current;
+    setActivePane("review");
+    onReviewEntryHandled?.(reviewEntry.requestID);
+  }, [reviewEntry?.requestID, threadID]);
   useEffect(() => {
     if (!composerFocusRequest || composerFocusRequest.threadID !== threadID || reviewOpen || previewOpen || contextOpen ||
       filesOpen || terminalDrawerOpen ||
@@ -848,7 +863,7 @@ export function V2Conversation({ client, threadID, workspaces, onArchive, onMana
       </div>
       <div className="v2-task-workflows" role="group" aria-label="任务流程">
         <button aria-label="审阅改动" aria-pressed={reviewOpen} onClick={() => {
-          setReviewFileTarget(undefined); reviewReturnFocus.current = reviewTrigger.current; setReviewOpen(true);
+          setReviewFileTarget(undefined); setReviewToolTarget(undefined); reviewReturnFocus.current = reviewTrigger.current; setReviewOpen(true);
         }} ref={reviewTrigger} type="button"><FileDiff aria-hidden="true" size={16} />改动与交付</button>
         <button aria-label="查看上下文" aria-pressed={contextOpen} onClick={() => setContextOpen(true)}
           ref={contextTrigger} type="button"><BookOpen aria-hidden="true" size={16} />上下文与恢复</button>
@@ -905,6 +920,7 @@ export function V2Conversation({ client, threadID, workspaces, onArchive, onMana
       <V2TaskReview client={client} detail={detail} working={working}
       onOpenWorktree={onOpenWorktree}
       initialFileTarget={reviewFileTarget}
+      initialToolTarget={reviewToolTarget} toolMemoryRef={reviewMemoryRef}
       onClose={() => {
         if (!reviewReturnFocus.current?.isConnected) reviewReturnFocus.current = reviewTrigger.current;
         setReviewOpen(false);
@@ -980,7 +996,7 @@ export function V2Conversation({ client, threadID, workspaces, onArchive, onMana
           role="status">实时进度暂不可用；持久工作记录仍会继续同步。</div>}
         {detail.active_run && <V2ApprovalCards client={client}
           runID={currentRun.id} threadID={threadID} onReviewFile={(target, trigger) => {
-            reviewReturnFocus.current = trigger; setReviewFileTarget(target); setReviewOpen(true);
+            reviewReturnFocus.current = trigger; setReviewToolTarget(undefined); setReviewFileTarget(target); setReviewOpen(true);
           }} />}
         {detail.active_run && <div className="v2-command-approvals">
           <ControlledCommandProposalPanel client={client} runID={currentRun.id} threadID={threadID} />

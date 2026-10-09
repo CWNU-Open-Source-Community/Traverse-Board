@@ -14,8 +14,9 @@ afterEach(() => {
 it("routes connection and environment tasks directly without inspecting or changing a resource", async () => {
   const onSelectSection = vi.fn();
   const get = vi.fn(); const postControl = vi.fn();
-  render(<V2Settings client={{ get, postControl } as unknown as APIClient} section="connections"
-    threadID="thread-current" workspaces={[]} onSelectSection={onSelectSection} onOpenInspector={vi.fn()} />);
+  render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+    <V2Settings client={{ get, postControl } as unknown as APIClient} section="connections"
+    threadID="" workspaces={[]} onSelectSection={onSelectSection} onOpenInspector={vi.fn()} /></QueryClientProvider>);
   const nav = screen.getByRole("navigation", { name: "连接与环境设置" });
   const user = userEvent.setup();
   for (const label of ["模型连接", "扩展与代码智能", "任务权限与执行环境", "应用连接与诊断"]) {
@@ -23,6 +24,27 @@ it("routes connection and environment tasks directly without inspecting or chang
   }
   expect(onSelectSection.mock.calls).toEqual([["models"], ["extensions"], ["permissions"], ["about"]]);
   expect(get).not.toHaveBeenCalled(); expect(postControl).not.toHaveBeenCalled();
+  expect(within(nav).getByRole("button", { name: /GitHub 连接与审阅/ })).toBeDisabled();
+});
+
+it("opens GitHub tools for the explicit historical Run and never substitutes an unavailable Run", async () => {
+  const get = vi.fn().mockResolvedValue({ thread: { id: "thread-current" },
+    active_run: { id: "run-current" }, last_run: { id: "run-current" },
+    runs: [{ run: { id: "run-history" } }, { run: { id: "run-current" } }] });
+  const onOpenGithubReview = vi.fn();
+  const client = { get } as unknown as APIClient;
+  const queries = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const draw = (sourceRunID: string) => <QueryClientProvider client={queries}><V2Settings client={client} section="connections"
+    threadID="thread-current" sourceRunID={sourceRunID} workspaces={[]} onSelectSection={vi.fn()}
+    onOpenInspector={vi.fn()} onOpenGithubReview={onOpenGithubReview} /></QueryClientProvider>;
+  const view = render(draw("run-history"));
+  const entry = await screen.findByRole("button", { name: /GitHub 连接与审阅.*run-history/u });
+  await userEvent.click(entry);
+  expect(onOpenGithubReview).toHaveBeenCalledExactlyOnceWith("run-history");
+  view.rerender(draw("run-missing"));
+  expect(screen.getByRole("button", { name: /GitHub 连接与审阅/ })).toBeDisabled();
+  expect(screen.getByText(/来源执行尚未找到/)).toBeInTheDocument();
+  expect(onOpenGithubReview).toHaveBeenCalledTimes(1);
 });
 
 function archivedThread(id: string, title: string, version: number): ThreadView {

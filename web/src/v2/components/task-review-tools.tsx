@@ -27,14 +27,23 @@ export interface TaskReviewToolReviews {
   github: GitHubReviewWriteReviewResultView | null;
 }
 
+export interface TaskReviewToolMemory {
+  generation: number;
+  client?: APIClient;
+  threadID?: string;
+  runID?: string;
+  reviews?: TaskReviewToolReviews;
+}
+
 export function TaskReviewTools({ client, runID, threadID, onOpenDelivery, retainedReviews,
-  onGitReviewChange, onGithubReviewChange }: {
+  onGitReviewChange, onGithubReviewChange, initialTool }: {
   client: APIClient; runID: string; threadID: string; onOpenDelivery: () => void;
   retainedReviews?: TaskReviewToolReviews;
   onGitReviewChange: (review: GitAdvancedReviewResultView | null) => void;
   onGithubReviewChange: (review: GitHubReviewWriteReviewResultView | null) => void;
+  initialTool?: "github-review";
 }) {
-  const [selected, setSelected] = useState<Tool | null>(null);
+  const [selected, setSelected] = useState<Tool | null>(initialTool ?? null);
   const [showApprovals, setShowApprovals] = useState(false);
   const [gitReview, setGitReview] = useState(retainedReviews?.git ?? null);
   const [githubReview, setGithubReview] = useState(retainedReviews?.github ?? null);

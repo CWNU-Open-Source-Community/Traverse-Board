@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArchiveRestore, BookOpen, Monitor, Search, Trash2, X } from "lucide-react";
 import type { APIClient } from "../../api/client";
-import type { ProviderDefinitionView, ThreadView, WorkspaceView } from "../../api/types";
+import type { ProviderDefinitionView, ThreadDetailView, ThreadView, WorkspaceView } from "../../api/types";
 import { applyPrayuTheme, readPrayuTheme, type PrayuTheme } from "../../lib/appearance";
 import { useModalFocusTrap } from "../../hooks/use-modal-focus-trap";
 import { v2QueryKeys } from "../query-keys";
@@ -29,16 +29,31 @@ function SettingRow({ title, detail, children }: { title: string; detail: string
     <div className="v2-setting-value">{children}</div></div>;
 }
 
-function ConnectionsSettings({ threadID, onSelect }: {
-  threadID: string; onSelect: (section: V2SettingsSection) => void;
+function ConnectionsSettings({ client, threadID, sourceRunID, onSelect, onOpenGithubReview, onOpenTask }: {
+  client: APIClient; threadID: string; sourceRunID?: string; onSelect: (section: V2SettingsSection) => void;
+  onOpenGithubReview?: (runID: string) => void; onOpenTask?: (workspaceID?: string) => void;
 }) {
+  const thread = useQuery({ queryKey: v2QueryKeys.thread(threadID), enabled: Boolean(threadID),
+    queryFn: ({ signal }) => client.get<ThreadDetailView>(`/threads/${encodeURIComponent(threadID)}`, {}, signal) });
+  const detail = !thread.isError && thread.data?.thread.id === threadID ? thread.data : undefined;
+  const run = sourceRunID ? detail?.runs.find((item) => item.run.id === sourceRunID)?.run
+    ?? (detail?.active_run?.id === sourceRunID ? detail.active_run : detail?.last_run?.id === sourceRunID ? detail.last_run : undefined)
+    : detail?.active_run ?? detail?.last_run;
   return <><h1>连接与环境</h1><p className="v2-settings-lead">配置模型、扩展与执行环境，再回到原任务继续。各连接的可用状态与任务授权分别由服务端核验。</p>
     <nav className="v2-connection-navigation" aria-label="连接与环境设置">
       <button onClick={() => onSelect("models")} type="button"><strong>模型连接</strong><span>接入服务、选择可用模型并检查资格。</span></button>
       <button onClick={() => onSelect("extensions")} type="button"><strong>扩展与代码智能</strong><span>接入 MCP、Plugin 和语言服务，检查来源与使用范围。</span></button>
+      <button disabled={!run?.id || !onOpenGithubReview} onClick={() => { if (run?.id) onOpenGithubReview?.(run.id); }} type="button">
+        <strong>GitHub 连接与审阅</strong><span>{run?.id ? `在此执行的交付工具中管理连接与 PR：${run.id}`
+          : !threadID ? "先从侧栏打开已有任务，或新建对话后再管理此任务的 GitHub 连接。"
+            : thread.isPending ? "正在核对来源任务与执行记录…" : thread.isError ? "任务读取失败，暂不能确定 GitHub 工具范围。"
+              : "来源执行尚未找到，请返回任务或重新选择一条执行记录。"}</span></button>
       <button onClick={() => onSelect("permissions")} type="button"><strong>任务权限与执行环境</strong><span>{threadID ? "查看当前任务的权限、工作区信任与执行后端。" : "尚未选择任务；进入后可查看环境能力，任务设置需先打开对话。"}</span></button>
       <button onClick={() => onSelect("about")} type="button"><strong>应用连接与诊断</strong><span>查看当前服务版本、网页能力和界面连接。</span></button>
-    </nav></>;
+    </nav>
+    {thread.isError && <button className="v2-setting-link" onClick={() => void thread.refetch()} type="button">重试来源任务</button>}
+    {!threadID && onOpenTask && <button className="v2-setting-link" onClick={() => onOpenTask()} type="button">打开新任务输入区</button>}
+  </>;
 }
 
 function FontLicenseControl() {
@@ -300,7 +315,7 @@ function PlaceholderSettings({ section, onOpenLegacy }: {
 
 export function V2Settings({ client, section, threadID, workspaces, onSelectSection,
   onOpenInspector, onOpenThread, prepareModelForDraft = false, modelSetupToken = "",
-  onModelReady, onOpenTask, desktop = desktopBridgeAvailable() }: {
+  onModelReady, onOpenTask, sourceRunID, onOpenGithubReview, desktop = desktopBridgeAvailable() }: {
   client: APIClient;
   section: V2SettingsSection;
   threadID: string;
@@ -308,6 +323,8 @@ export function V2Settings({ client, section, threadID, workspaces, onSelectSect
   onSelectSection: (section: V2SettingsSection) => void;
   onOpenThread?: (id: string) => void;
   onOpenTask?: (workspaceID?: string) => void;
+  sourceRunID?: string;
+  onOpenGithubReview?: (runID: string) => void;
   onOpenInspector: (returnFocus?: HTMLElement | null) => void;
   prepareModelForDraft?: boolean;
   modelSetupToken?: string;
@@ -328,7 +345,8 @@ export function V2Settings({ client, section, threadID, workspaces, onSelectSect
         <V2ExecutionSettings client={client} threadID={threadID} workspaces={workspaces} />
         <section className="v2-settings-section"><V2RuntimeCapabilityControl /></section></>}
       {section === "appearance" && <AppearanceSettings />}
-      {section === "connections" && <ConnectionsSettings threadID={threadID} onSelect={onSelectSection} />}
+      {section === "connections" && <ConnectionsSettings client={client} threadID={threadID} sourceRunID={sourceRunID}
+        onOpenGithubReview={onOpenGithubReview} onOpenTask={onOpenTask} onSelect={onSelectSection} />}
       {section === "archived" && <ArchivedSettings client={client} onOpenThread={onOpenThread} />}
       {(section === "models" || section === "advanced-models") &&
         <ModelSettingsPage client={client} initialAdvancedOpen={section === "advanced-models"}

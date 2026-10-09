@@ -640,4 +640,5 @@
 .v2-connection-navigation > button:last-child { border-bottom: 0; }
 .v2-connection-navigation > button:hover { background: var(--v2-control-hover); }
 .v2-connection-navigation > button:focus-visible { outline: 2px solid var(--v2-accent); outline-offset: -3px; }
+.v2-connection-navigation > button:disabled { cursor: default; opacity: .65; }
 .v2-connection-navigation span { color: var(--v2-muted); font-size: 13px; line-height: 1.6; }
