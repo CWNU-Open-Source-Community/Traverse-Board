@@ -1617,6 +1617,257 @@
         "x-cyberagent-read-only": false
       }
     },
+    "/api/v1/extensions/mcp/{server_id}/credential": {
+      "get": {
+        "operationId": "getMCPCredentialStatus",
+        "summary": "Read local MCP bearer credential presence",
+        "description": "Reads only local OS credential presence for the exact registered HTTPS descriptor and scope. It does not test remote authentication, discover capabilities or invoke tools. Shared MCP registration metadata is bound to a reference fingerprint; plaintext is never returned.",
+        "tags": [
+          "Extensions"
+        ],
+        "parameters": [
+          {
+            "name": "server_id",
+            "in": "path",
+            "description": "MCP server identity",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          },
+          {
+            "name": "workspace_id",
+            "in": "query",
+            "description": "Exact descriptor Workspace",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          },
+          {
+            "name": "run_id",
+            "in": "query",
+            "description": "Exact descriptor Run, if Run scoped",
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          },
+          {
+            "name": "expected_descriptor_fingerprint",
+            "in": "query",
+            "description": "Exact descriptor SHA-256",
+            "required": true,
+            "schema": {
+              "maxLength": 64,
+              "minLength": 64,
+              "pattern": "^[a-f0-9]{64}$",
+              "type": "string"
+            }
+          },
+          {
+            "name": "target",
+            "in": "query",
+            "description": "Exact registered HTTPS endpoint",
+            "required": true,
+            "schema": {
+              "format": "uri",
+              "maxLength": 4096,
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          {
+            "name": "credential_ref",
+            "in": "query",
+            "description": "Exact OS credential name",
+            "required": true,
+            "schema": {
+              "maxLength": 64,
+              "minLength": 1,
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful read",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/MCPCredentialStatusView"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
+          }
+        },
+        "x-cyberagent-read-only": true
+      },
+      "post": {
+        "operationId": "changeMCPCredential",
+        "summary": "Set or remove an exact MCP bearer credential",
+        "description": "Explicitly confirmed set/delete through the Go-owned OS credential store. Rechecks descriptor, endpoint, scope and shared reference fingerprint. No plaintext fallback, connection, discovery, enablement or remote token revocation occurs.",
+        "tags": [
+          "Extensions"
+        ],
+        "parameters": [
+          {
+            "name": "server_id",
+            "in": "path",
+            "description": "MCP server identity",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Control request accepted or idempotently replayed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/MCPCredentialStatusView"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "412": {
+            "$ref": "#/components/responses/FailedPrecondition"
+          },
+          "413": {
+            "$ref": "#/components/responses/RequestEntityTooLarge"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
+          }
+        },
+        "security": [
+          {
+            "ControlBearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/MCPCredentialRequestView"
+              }
+            }
+          }
+        },
+        "x-cyberagent-read-only": false
+      }
+    },
     "/api/v1/extensions/mcp/{server_id}/refresh": {
       "post": {
         "operationId": "refreshMCPServer",
@@ -35546,6 +35797,9 @@
           "lsp_configuration": {
             "type": "boolean"
           },
+          "mcp_credentials": {
+            "type": "boolean"
+          },
           "mcp_registration": {
             "type": "boolean"
           },
@@ -42321,6 +42575,159 @@
         "required": [
           "id",
           "extensions"
+        ],
+        "type": "object"
+      },
+      "MCPCredentialBindingView": {
+        "additionalProperties": false,
+        "properties": {
+          "credential_ref": {
+            "type": "string"
+          },
+          "expected_descriptor_fingerprint": {
+            "type": "string"
+          },
+          "run_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "server_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "target": {
+            "type": "string"
+          },
+          "workspace_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "server_id",
+          "workspace_id",
+          "expected_descriptor_fingerprint",
+          "target",
+          "credential_ref"
+        ],
+        "type": "object"
+      },
+      "MCPCredentialRequestView": {
+        "additionalProperties": false,
+        "properties": {
+          "action": {
+            "enum": [
+              "set",
+              "delete"
+            ],
+            "type": "string"
+          },
+          "binding": {
+            "$ref": "#/components/schemas/MCPCredentialBindingView"
+          },
+          "confirm": {
+            "type": "boolean"
+          },
+          "expected_reference_fingerprint": {
+            "type": "string"
+          },
+          "secret": {
+            "maxLength": 2560,
+            "type": "string",
+            "writeOnly": true
+          },
+          "version": {
+            "enum": [
+              "mcp-credential.v1"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "binding",
+          "action",
+          "confirm",
+          "expected_reference_fingerprint"
+        ],
+        "type": "object"
+      },
+      "MCPCredentialStatusView": {
+        "additionalProperties": false,
+        "properties": {
+          "configured": {
+            "type": "boolean"
+          },
+          "credential_ref": {
+            "type": "string"
+          },
+          "descriptor_fingerprint": {
+            "type": "string"
+          },
+          "endpoint_conflict": {
+            "type": "boolean"
+          },
+          "plaintext_returned": {
+            "enum": [
+              false
+            ],
+            "type": "boolean"
+          },
+          "protocol_version": {
+            "enum": [
+              "mcp-credential.v1"
+            ],
+            "type": "string"
+          },
+          "reference_fingerprint": {
+            "type": "string"
+          },
+          "registration_count": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "run_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "server_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "store_available": {
+            "type": "boolean"
+          },
+          "store_kind": {
+            "type": "string"
+          },
+          "target": {
+            "type": "string"
+          },
+          "workspace_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "protocol_version",
+          "server_id",
+          "workspace_id",
+          "descriptor_fingerprint",
+          "target",
+          "credential_ref",
+          "configured",
+          "store_kind",
+          "store_available",
+          "plaintext_returned",
+          "registration_count",
+          "reference_fingerprint",
+          "endpoint_conflict"
         ],
         "type": "object"
       },

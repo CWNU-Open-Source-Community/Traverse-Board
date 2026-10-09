@@ -105,6 +105,26 @@ func (s *SQLiteStore) GetMCPClientServer(ctx context.Context, id string) (mcp.Se
 	return value, err
 }
 
+// All durable registrations count, including other Workspaces and disabled
+// entries: the OS credential name is shared independently of execution state.
+func (s *SQLiteStore) ListMCPClientServersByCredentialRef(ctx context.Context, reference string) ([]mcp.ServerRecord, error) {
+	rows, err := s.db.QueryContext(ctx, `SELECT `+mcpClientServerColumns+`
+		FROM mcp_client_servers WHERE json_extract(descriptor_json, '$.credential_ref') = ? ORDER BY id`, reference)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	values := []mcp.ServerRecord{}
+	for rows.Next() {
+		value, err := scanMCPClientServer(rows)
+		if err != nil {
+			return nil, err
+		}
+		values = append(values, value)
+	}
+	return values, rows.Err()
+}
+
 func (s *SQLiteStore) ListMCPClientServers(ctx context.Context, runID, workspaceID string,
 	limit int,
 ) ([]mcp.ServerRecord, error) {

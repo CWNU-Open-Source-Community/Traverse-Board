@@ -304,6 +304,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/extensions/mcp/{server_id}/credential": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read local MCP bearer credential presence
+         * @description Reads only local OS credential presence for the exact registered HTTPS descriptor and scope. It does not test remote authentication, discover capabilities or invoke tools. Shared MCP registration metadata is bound to a reference fingerprint; plaintext is never returned.
+         */
+        get: operations["getMCPCredentialStatus"];
+        put?: never;
+        /**
+         * Set or remove an exact MCP bearer credential
+         * @description Explicitly confirmed set/delete through the Go-owned OS credential store. Rechecks descriptor, endpoint, scope and shared reference fingerprint. No plaintext fallback, connection, discovery, enablement or remote token revocation occurs.
+         */
+        post: operations["changeMCPCredential"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/extensions/mcp/{server_id}/refresh": {
         parameters: {
             query?: never;
@@ -6809,6 +6833,7 @@ export interface components {
         };
         ExtensionOnboardingCapabilitiesView: {
             lsp_configuration: boolean;
+            mcp_credentials?: boolean;
             mcp_registration: boolean;
             plugin_import: boolean;
         };
@@ -8560,6 +8585,43 @@ export interface components {
         Language: {
             extensions: string[];
             id: string;
+        };
+        MCPCredentialBindingView: {
+            credential_ref: string;
+            expected_descriptor_fingerprint: string;
+            run_id?: string;
+            server_id: string;
+            target: string;
+            workspace_id: string;
+        };
+        MCPCredentialRequestView: {
+            /** @enum {string} */
+            action: "set" | "delete";
+            binding: components["schemas"]["MCPCredentialBindingView"];
+            confirm: boolean;
+            expected_reference_fingerprint: string;
+            secret?: string;
+            /** @enum {string} */
+            version: "mcp-credential.v1";
+        };
+        MCPCredentialStatusView: {
+            configured: boolean;
+            credential_ref: string;
+            descriptor_fingerprint: string;
+            endpoint_conflict: boolean;
+            /** @enum {boolean} */
+            plaintext_returned: false;
+            /** @enum {string} */
+            protocol_version: "mcp-credential.v1";
+            reference_fingerprint: string;
+            /** Format: int32 */
+            registration_count: number;
+            run_id?: string;
+            server_id: string;
+            store_available: boolean;
+            store_kind: string;
+            target: string;
+            workspace_id: string;
         };
         Manifest: {
             backend: string;
@@ -14462,6 +14524,99 @@ export interface operations {
                 content: {
                     "application/json": {
                         data: components["schemas"]["ExtensionMCPRegistrationView"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            412: components["responses"]["FailedPrecondition"];
+            413: components["responses"]["RequestEntityTooLarge"];
+            414: components["responses"]["RequestTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
+        };
+    };
+    getMCPCredentialStatus: {
+        parameters: {
+            query: {
+                /** @description Exact descriptor Workspace */
+                workspace_id: string;
+                /** @description Exact descriptor Run, if Run scoped */
+                run_id?: string;
+                /** @description Exact descriptor SHA-256 */
+                expected_descriptor_fingerprint: string;
+                /** @description Exact registered HTTPS endpoint */
+                target: string;
+                /** @description Exact OS credential name */
+                credential_ref: string;
+            };
+            header?: never;
+            path: {
+                /** @description MCP server identity */
+                server_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful read */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["MCPCredentialStatusView"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            414: components["responses"]["RequestTooLarge"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
+        };
+    };
+    changeMCPCredential: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description MCP server identity */
+                server_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["MCPCredentialRequestView"];
+            };
+        };
+        responses: {
+            /** @description Control request accepted or idempotently replayed */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["MCPCredentialStatusView"];
                         request_id: string;
                         /** @constant */
                         version: "api.v1";

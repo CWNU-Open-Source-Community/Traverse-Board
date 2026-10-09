@@ -1106,6 +1106,10 @@ func (a *API) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 		a.serveExtensionOnboarding(tracked, request, requestID)
 		return
 	}
+	if identity, matched := matchMCPCredentialPath(request.URL.Path); matched {
+		a.serveMCPCredential(tracked, request, requestID, identity)
+		return
+	}
 	if identity, kind, matched := matchCodeIntelConfigurationMutationPath(request.URL.Path); matched {
 		a.serveCodeIntelConfigurationMutation(tracked, request, requestID, identity, kind)
 		return

@@ -15,6 +15,11 @@ import (
 func (s *ExtensionControlService) RegisterMCP(ctx context.Context, descriptor mcp.ServerDescriptor) (
 	mcp.ServerRecord, bool, error,
 ) {
+	// Keep in-process registration and reference confirmation in one ordering.
+	if s.credentials != nil {
+		s.credentials.mu.Lock()
+		defer s.credentials.mu.Unlock()
+	}
 	if descriptor.ProtocolVersion != mcp.ClientProtocolVersion || descriptor.NativeSource != nil {
 		return mcp.ServerRecord{}, false, apperror.New(apperror.CodeInvalidArgument,
 			"manual MCP registration requires the supported descriptor protocol")

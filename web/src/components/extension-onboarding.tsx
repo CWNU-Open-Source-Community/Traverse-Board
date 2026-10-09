@@ -3,6 +3,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import type { APIClient } from "../api/client";
 import type { ExtensionMCPServerView, ExtensionPluginInstallationView } from "../api/types";
 import { useLocale } from "../lib/locale";
+import { MCPCredentialControls } from "./mcp-credential-controls";
 import "./extension-onboarding.css";
 
 function Failure({ error }: { error: unknown }) {
@@ -62,8 +63,8 @@ export function MCPRegistrationForm({ client, enabled, workspaceID, runID, capab
         </div>
         {transport === "stdio" ? <label>{t("程序参数（每行一项，可选）", "Arguments (one per line, optional)")}
           <textarea rows={3} maxLength={8192} value={args} onChange={(event) => change(() => setArgs(event.target.value))} /></label>
-          : <label>{t("已有凭据引用（可选，不填写密钥）", "Existing credential reference (optional, no secret)")}
-            <input maxLength={256} value={credential} onChange={(event) => change(() => setCredential(event.target.value))} /></label>}
+          : <label>{t("凭据名称（认证时填写，登记后输入令牌）", "Credential name (for authentication; enter the token after registration)")}
+            <input maxLength={64} value={credential} placeholder="mcp-example" onChange={(event) => change(() => setCredential(event.target.value))} /></label>}
         <button className="settings-action" disabled={!id.trim() || !name.trim() || !target.trim() ||
           capabilities.length === 0 || registration.isSuccess} type="submit">
           {registration.isPending ? t("正在登记…", "Registering…") : t("提交登记", "Register descriptor")}</button>
@@ -118,8 +119,8 @@ export function PluginImportForm({ client, enabled, capabilityKnown = true }: { 
   </details>;
 }
 
-export function MCPReviewControls({ client, server, onOpenTask }: {
-  client: APIClient; server: ExtensionMCPServerView; onOpenTask?: (workspaceID?: string) => void;
+export function MCPReviewControls({ client, server, onOpenTask, credentialCapability }: {
+  client: APIClient; server: ExtensionMCPServerView; onOpenTask?: (workspaceID?: string) => void; credentialCapability?: boolean;
 }) {
   const { t } = useLocale();
   const queryClient = useQueryClient();
@@ -133,6 +134,7 @@ export function MCPReviewControls({ client, server, onOpenTask }: {
   }), onSuccess: () => queryClient.invalidateQueries({ queryKey: ["extensions"] }) });
   const draft = `请在当前任务中通过现有 MCP 权限与审批路径调用 Server ${server.id} 的工具 ${server.capabilities.tools[0] ?? "（选择工具）"}，使用该工具需要的明确参数。请报告实际调用结果；不要把已登记或已启用视为调用成功。`;
   return <div className="extension-review">
+    <MCPCredentialControls client={client} server={server} capability={credentialCapability} />
     <p>{server.state === "enabled" ? t("能力已启用；实际调用仍需当前任务的权限、审批与参数。", "Capabilities enabled; calls still require task permissions, approval, and arguments.")
       : server.state === "discovery_approved" ? t("发现审查已通过。点击重新发现以连接并读取能力；这不是工具调用。", "Discovery reviewed. Rediscover to connect and inspect capabilities; this does not invoke a tool.")
       : server.state === "capabilities_pending" ? t("发现已完成，请核对工具和能力指纹后启用。", "Discovery complete. Review tools and the capability fingerprint before enabling.")

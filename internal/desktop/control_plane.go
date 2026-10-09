@@ -380,6 +380,7 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 		_ = stateStore.Close()
 		return nil, err
 	}
+	extensionControl.WithCredentials(credentialStore)
 	checker := policy.NewDefaultChecker()
 	webEvidence := webevidence.NewService(stateStore, webSearchProvider,
 		webevidence.NewFetcher(webClient)).

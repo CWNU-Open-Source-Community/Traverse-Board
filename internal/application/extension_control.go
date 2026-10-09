@@ -32,9 +32,10 @@ type ExtensionInventory struct {
 }
 
 type ExtensionControlService struct {
-	store   ExtensionControlStore
-	mcp     *mcp.Manager
-	plugins *plugins.Service
+	store       ExtensionControlStore
+	mcp         *mcp.Manager
+	plugins     *plugins.Service
+	credentials *MCPCredentialService
 }
 
 func NewExtensionControlService(store ExtensionControlStore, manager *mcp.Manager,

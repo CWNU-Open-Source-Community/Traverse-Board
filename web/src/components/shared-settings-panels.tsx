@@ -191,7 +191,7 @@ export function ExtensionSettings({ client, selectedRunID, selectedWorkspaceID =
       <MCPRegistrationForm capabilityKnown={Boolean(inventory.data)} client={client} enabled={Boolean(client.hasExtensionControl && onboarding?.mcp_registration)}
         runID={selectedRunID} workspaceID={configurationWorkspaceID} />
       {inventory.data?.mcp_servers.map((server) => <MCPServerCard action={action}
-        client={client} key={server.id} onOpenTask={onOpenTask} server={server} />)}
+        client={client} key={server.id} onOpenTask={onOpenTask} server={server} credentialCapability={onboarding?.mcp_credentials} />)}
       {inventory.data && inventory.data.mcp_servers.length === 0 &&
         <ExtensionEmpty>{selectedRunID ?
           t("当前 Run / Workspace 没有 MCP Server。", "No MCP server is scoped to this Run / Workspace.") :
@@ -297,11 +297,12 @@ function ExtensionCollection({ title, count, children }: {
   </section>;
 }
 
-function MCPServerCard({ action, client, server, onOpenTask }: {
+function MCPServerCard({ action, client, server, onOpenTask, credentialCapability }: {
   action: { isPending: boolean; mutate: (value: ExtensionAction) => void };
   client: APIClient;
   server: ExtensionMCPServerView;
   onOpenTask?: (workspaceID?: string) => void;
+  credentialCapability?: boolean;
 }) {
   const { t } = useLocale();
   const refreshable = ["discovery_approved", "capabilities_pending", "enabled",
@@ -328,7 +329,7 @@ function MCPServerCard({ action, client, server, onOpenTask }: {
     <Fingerprint label={t("能力指纹", "Capability fingerprint")}
       value={server.capabilities.fingerprint || ""} />
     <MCPReviewControls client={client} key={`${server.state}/${server.descriptor_fingerprint}/${server.capabilities.fingerprint}`}
-      onOpenTask={onOpenTask} server={server} />
+      onOpenTask={onOpenTask} server={server} credentialCapability={credentialCapability} />
     <div className="extension-actions">
       <button className="settings-action" disabled={!client.hasExtensionControl ||
         !refreshable || action.isPending}
