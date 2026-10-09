@@ -2,7 +2,8 @@ import { lazy, useEffect, useMemo, useRef, useState, type RefObject } from "reac
 import { QueryClient, QueryClientProvider, useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Folder } from "lucide-react";
 import type { APIClient } from "../api/client";
-import type { ProviderDefinitionView, ThreadDetailView, ThreadView, WorkspaceView } from "../api/types";
+import type { ProviderDefinitionView, TaskBudgetSettings, ThreadDetailView, ThreadView, WorkspaceView } from "../api/types";
+import { normalizedTaskBudget } from "../api/task-configuration";
 import { useConnectionStore } from "../state/connection";
 import { V2Composer, v2ComposerNotSubmitted } from "./components/composer";
 import { v2FileReferenceKey, type V2FileReference } from "./components/file-context";
@@ -31,6 +32,7 @@ import type { V2DraftVersion } from "./draft-version";
 import type { TaskReviewToolMemory } from "./components/task-review-tools";
 import { V2DraftConflict } from "./components/draft-conflict";
 import { V2PhasePicker, type V2WorkPhase } from "./components/phase-picker";
+import { useV2DraftTaskConfiguration } from "./draft-task-configuration";
 
 type CreationAttempt = Map<string, string>;
 type NewThreadOptions = { networkMode: V2NetworkMode; allowedTargets: string[];
@@ -49,7 +51,8 @@ const V2InspectorHome = lazy(() => import("./components/inspector-home").then((m
 })));
 
 function NewConversation({ client, workspaces, workspaceID, onWorkspaceChange, onCreated,
-  onTurnSuccess, onManageModels, draft: legacyDraft, onDraftChange: legacyDraftChange, creationAttemptRef, options, onOptionsChange, moreProjects, onImported }: {
+  onTurnSuccess, onManageModels, onOpenTaskConfiguration, budget, configurationValid,
+  draft: legacyDraft, onDraftChange: legacyDraftChange, creationAttemptRef, options, onOptionsChange, moreProjects, onImported }: {
   client: APIClient;
   workspaces: WorkspaceView[];
   workspaceID: string;
@@ -58,6 +61,9 @@ function NewConversation({ client, workspaces, workspaceID, onWorkspaceChange, o
   onCreated: (thread: ThreadView, submittedDraft: string, files: V2FileReference[], images?: WorkspaceImageAttachment[], version?: V2DraftVersion, attachments?: WorkspaceFileAttachment[], shouldOpen?: boolean) => void;
   onTurnSuccess: (threadID: string, submittedDraft: string) => void;
   onManageModels: (prepareForDraft?: boolean) => void;
+  onOpenTaskConfiguration: () => void;
+  budget?: TaskBudgetSettings;
+  configurationValid: boolean;
   draft: string;
   onDraftChange: (content: string, expected?: string) => void;
   creationAttemptRef: RefObject<CreationAttempt>;
@@ -91,6 +97,8 @@ function NewConversation({ client, workspaces, workspaceID, onWorkspaceChange, o
   const [savedPhase, setSavedPhase] = useV2PersistentState<unknown>(`new-thread-phase:${workspaceID}`, "deliver");
   const phase: V2WorkPhase = savedPhase === "plan" ? "plan" : "deliver";
   const create = async (content: string, files: V2FileReference[] = [], images: WorkspaceImageAttachment[] = [], draftVersion?: V2DraftVersion, attachments: WorkspaceFileAttachment[] = []) => {
+    if (!configurationValid) throw new Error("任务配置尚未通过核对，请打开任务配置修正预算或重新读取项目设置。草稿已保留。");
+    normalizedTaskBudget(budget);
     if (phase === "plan" && !client.hasPlanDelivery) throw new Error("当前连接未启用计划确认。请检查连接，或选择直接执行。");
     const submittedDraft = draft;
     setModelCatalogError("");
@@ -124,6 +132,7 @@ function NewConversation({ client, workspaces, workspaceID, onWorkspaceChange, o
       surface: "code",
       phase,
       network_mode: networkMode,
+      ...(budget ? { budget } : {}),
       ...(networkMode === "allowlist" ? { allowed_targets: allowedTargets } : {}),
       ...(modelRoute ? { provider: modelRoute.provider, model: modelRoute.model } : {}),
     } as Parameters<APIClient["createThread"]>[0] & { provider?: string; model?: string };
@@ -177,16 +186,20 @@ function NewConversation({ client, workspaces, workspaceID, onWorkspaceChange, o
     </div></div>
     {creationRecovery.notice}
     {modelCatalogError && <div className="v2-notice" role="alert">{modelCatalogError}</div>}
+    {!configurationValid && <div className="v2-notice" role="alert">任务配置需要修正或重新核对，草稿已保留。
+      <button onClick={onOpenTaskConfiguration} type="button">修正任务配置</button></div>}
     <div className="v2-composer-dock">
       {managedDraft && <V2DraftConflict key={workspaceID} client={client} workspaceID={workspaceID} state={managedDraft.state}
         onResolve={(token, ref) => { managedDraft.document.resolve(managedDraft.scope, token, ref); }} />}
       <V2Composer client={client}
       draft={draft} onDraftChange={onDraftChange}
-      disabled={!client.hasThreadControl} onSubmit={create}
+      disabled={!client.hasThreadControl} submitDisabled={!configurationValid} onSubmit={create}
       onManageModels={onManageModels} onPendingModelRouteChange={(route) =>
         onOptionsChange({ ...options, modelRoute: route })}
       pendingModelRoute={modelRoute}
-      newThreadControls={<><V2PhasePicker phase={phase} onChange={setSavedPhase}
+      newThreadControls={<><button aria-label="任务预算与项目配置" className="v2-composer-chip"
+        onClick={onOpenTaskConfiguration} type="button">任务配置{budget ? " · 自定义" : ""}</button>
+      <V2PhasePicker phase={phase} onChange={setSavedPhase}
         disabled={!client.hasThreadControl} planAvailable={client.hasPlanDelivery} />
       <V2NetworkScopeControl disabled={!client.hasThreadControl}
         mode={networkMode} onChange={(nextMode, nextTargets) => {
@@ -255,6 +268,7 @@ function V2WorkbenchContent({ client }: { client: APIClient }) {
   }, [normalizedThreadSearch, searchComposing, searchTooLong]);
   const [storedWorkspace, setWorkspaceID] = useV2PersistentState<unknown>("workspace", "");
   const workspaceID = typeof storedWorkspace === "string" ? storedWorkspace : "";
+  const draftTaskConfiguration = useV2DraftTaskConfiguration(workspaceID);
   // An explicitly imported existing project may be outside the first list page.
   // Retain its pathless receipt so selection survives list refetches.
   const [importedWorkspaces, setImportedWorkspaces] = useState<WorkspaceView[]>([]);
@@ -469,6 +483,9 @@ function V2WorkbenchContent({ client }: { client: APIClient }) {
           sourceRunID={route.tool === "run" ? route.resourceID : reviewMemoryRef.current.client === client &&
             reviewMemoryRef.current.threadID === selectedThreadID ? reviewMemoryRef.current.runID : undefined}
           onOpenGithubReview={openGithubReview}
+          draftWorkspaceID={workspaceID} draftBudget={draftTaskConfiguration.budget}
+          onDraftBudgetChange={draftTaskConfiguration.onBudgetChange}
+          onDraftValidityChange={draftTaskConfiguration.onValidityChange}
           prepareModelForDraft={Boolean(modelSetupToken)} modelSetupToken={modelSetupToken}
           onModelReady={completeModelSetup} /></V2LazySurface> : route.tool
           ? <V2LazySurface resetKey="inspector-tools"
@@ -483,6 +500,8 @@ function V2WorkbenchContent({ client }: { client: APIClient }) {
           ? <NewConversation client={client} draft={drafts[draftKey] ?? ""} onDraftChange={updateDraft}
             creationAttemptRef={creationAttemptRef}
             options={newThreadOptions} onOptionsChange={setNewThreadOptions}
+            budget={draftTaskConfiguration.budget} configurationValid={draftTaskConfiguration.valid}
+            onOpenTaskConfiguration={() => setSettingsSection("task-configuration")}
             onCreated={(thread, submittedDraft, files, images = [], version, attachments = [], shouldOpen = true) => {
               const source = `new:${thread.workspace_id}`;
               const target = `thread:${thread.id}`;

@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from "react";
 import type { ReactNode } from "react";
 import { canonicalExactNetworkTarget } from "../api/client";
 import type { APIClient } from "../api/client";
-import type { ThreadCreationControlRequestView, ThreadDetailView, ThreadView } from "../api/types";
+import type { TaskBudgetSettings, ThreadCreationControlRequestView, ThreadDetailView, ThreadView } from "../api/types";
+import { normalizedTaskBudget } from "../api/task-configuration";
 import type { V2FileReference } from "./components/file-context";
 import { inspectV2CreationRequest } from "./recovery-api";
 import { recoveryTurnKey, validRecoveryFiles, validRecoveryTurn } from "./recovery-session";
@@ -32,7 +33,7 @@ const text = (value: unknown, maxBytes = 16384): value is string => typeof value
   value.trim().length > 0 && new TextEncoder().encode(value).byteLength <= maxBytes;
 const creationKey = (intent: CreationIntent) => `creation:${intent.operationID}`;
 const createOperationKey = (intent: CreationIntent) => `v2-thread-create-${intent.operationID}`;
-const allowedRequestKeys = new Set(["version", "workspace_id", "goal", "profile", "surface", "phase", "network_mode", "allowed_targets", "provider", "model"]);
+const allowedRequestKeys = new Set(["version", "workspace_id", "goal", "profile", "surface", "phase", "network_mode", "allowed_targets", "provider", "model", "budget"]);
 
 function validRequest(value: unknown): value is ThreadCreationControlRequestView {
   if (!record(value) || Object.keys(value).some((key) => !allowedRequestKeys.has(key)) ||
@@ -42,6 +43,7 @@ function validRequest(value: unknown): value is ThreadCreationControlRequestView
     (value.phase !== undefined && !["plan", "deliver"].includes(String(value.phase))) ||
     (value.network_mode !== undefined && !["disabled", "allowlist"].includes(String(value.network_mode))) ||
     ((value.provider === undefined) !== (value.model === undefined))) return false;
+  try { normalizedTaskBudget(value.budget as TaskBudgetSettings | undefined); } catch { return false; }
   for (const name of ["provider", "model"]) {
     if (value[name] !== undefined && (typeof value[name] !== "string" || !value[name] ||
       value[name].trim() !== value[name] || [...value[name]].length > 256 || /[\u0000-\u001f\u007f/]/u.test(value[name]))) return false;

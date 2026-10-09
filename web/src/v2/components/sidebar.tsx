@@ -6,7 +6,7 @@ import type { ThreadView, WorkspaceView } from "../../api/types";
 export type V2SettingsSection = "general" | "permissions" | "appearance" | "voice" |
   "models" | "plugins" | "browser" | "hooks" | "git" | "environment" |
   "worktrees" | "keyboard" | "inspector" | "archived" | "extensions" | "skills" |
-  "advanced-models" | "about" | "shortcuts" | "connections";
+  "advanced-models" | "about" | "shortcuts" | "connections" | "task-configuration";
 
 const executionLabels = {
   idle: "空闲", running: "执行中", stopping: "正在停止", stop_failed: "停止失败",
@@ -161,6 +161,7 @@ const settingsGroups: Array<{ label: string; items: Array<{
     { id: "skills", label: "Skill 包", icon: PackageSearch },
   ] },
   { label: "任务与观察", items: [
+    { id: "task-configuration", label: "任务预算与项目配置", icon: Settings },
     { id: "permissions", label: "当前任务权限", icon: ShieldCheck },
     { id: "inspector", label: "观察视图偏好", icon: Box },
   ] },

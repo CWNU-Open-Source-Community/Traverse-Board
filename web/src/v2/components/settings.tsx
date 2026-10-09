@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useRef, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArchiveRestore, BookOpen, Monitor, Search, Trash2, X } from "lucide-react";
 import type { APIClient } from "../../api/client";
-import type { ProviderDefinitionView, ThreadDetailView, ThreadView, WorkspaceView } from "../../api/types";
+import type { ProviderDefinitionView, TaskBudgetSettings, ThreadDetailView, ThreadView, WorkspaceView } from "../../api/types";
 import { applyPrayuTheme, readPrayuTheme, type PrayuTheme } from "../../lib/appearance";
 import { useModalFocusTrap } from "../../hooks/use-modal-focus-trap";
 import { v2QueryKeys } from "../query-keys";
@@ -23,6 +23,8 @@ import { ShortcutSettings } from "../../components/shared-settings-panels";
 import { ModelAvailabilitySettings } from "../../components/model-availability-dialog";
 import { V2AboutSettings, V2ExtensionSettings, V2InspectorPreferences, V2SkillSettings } from "./advanced-settings";
 import "./settings.css";
+
+const TaskConfigurationSettings = lazy(() => import("./task-configuration-settings").then((module) => ({ default: module.TaskConfigurationSettings })));
 
 function SettingRow({ title, detail, children }: { title: string; detail: string; children: React.ReactNode }) {
   return <div className="v2-setting-row"><div><strong>{title}</strong><span>{detail}</span></div>
@@ -315,7 +317,8 @@ function PlaceholderSettings({ section, onOpenLegacy }: {
 
 export function V2Settings({ client, section, threadID, workspaces, onSelectSection,
   onOpenInspector, onOpenThread, prepareModelForDraft = false, modelSetupToken = "",
-  onModelReady, onOpenTask, sourceRunID, onOpenGithubReview, desktop = desktopBridgeAvailable() }: {
+  onModelReady, onOpenTask, sourceRunID, onOpenGithubReview, draftWorkspaceID, draftBudget,
+  onDraftBudgetChange, onDraftValidityChange, desktop = desktopBridgeAvailable() }: {
   client: APIClient;
   section: V2SettingsSection;
   threadID: string;
@@ -325,6 +328,10 @@ export function V2Settings({ client, section, threadID, workspaces, onSelectSect
   onOpenTask?: (workspaceID?: string) => void;
   sourceRunID?: string;
   onOpenGithubReview?: (runID: string) => void;
+  draftWorkspaceID?: string;
+  draftBudget?: TaskBudgetSettings;
+  onDraftBudgetChange?: (budget: TaskBudgetSettings | undefined) => void;
+  onDraftValidityChange?: (valid: boolean) => void;
   onOpenInspector: (returnFocus?: HTMLElement | null) => void;
   prepareModelForDraft?: boolean;
   modelSetupToken?: string;
@@ -347,6 +354,10 @@ export function V2Settings({ client, section, threadID, workspaces, onSelectSect
       {section === "appearance" && <AppearanceSettings />}
       {section === "connections" && <ConnectionsSettings client={client} threadID={threadID} sourceRunID={sourceRunID}
         onOpenGithubReview={onOpenGithubReview} onOpenTask={onOpenTask} onSelect={onSelectSection} />}
+      {section === "task-configuration" && <Suspense fallback={<p role="status">正在加载任务配置…</p>}>
+        <TaskConfigurationSettings client={client} threadID={threadID} sourceRunID={sourceRunID} draftWorkspaceID={draftWorkspaceID}
+          draftBudget={draftBudget} onDraftBudgetChange={onDraftBudgetChange} onDraftValidityChange={onDraftValidityChange} />
+      </Suspense>}
       {section === "archived" && <ArchivedSettings client={client} onOpenThread={onOpenThread} />}
       {(section === "models" || section === "advanced-models") &&
         <ModelSettingsPage client={client} initialAdvancedOpen={section === "advanced-models"}
