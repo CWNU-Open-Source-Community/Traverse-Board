@@ -37,10 +37,10 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           fetch-depth: 0
-      - name: Set up current Go 1.25 patch
+      - name: Set up current Go 1.26 patch
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: '1.25.x'
+          go-version: '1.26.x'
           check-latest: true
           cache: true
       - name: Test CI helpers
@@ -70,10 +70,10 @@ jobs:
           # Protocol and Surface history are compared with the exact PR/push
           # baseline. The first Surface registry PR is its explicit bootstrap.
           fetch-depth: 0
-      - name: Set up current Go 1.25 patch
+      - name: Set up current Go 1.26 patch
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: '1.25.x'
+          go-version: '1.26.x'
           check-latest: true
           cache: true
       - name: Report Go toolchain
@@ -135,10 +135,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      - name: Set up current Go 1.25 patch
+      - name: Set up current Go 1.26 patch
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: '1.25.x'
+          go-version: '1.26.x'
           check-latest: true
           cache: true
       - name: Race-check Workspace Access permission and authority fencing
@@ -155,10 +155,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      - name: Set up current Go 1.25 patch
+      - name: Set up current Go 1.26 patch
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: '1.25.x'
+          go-version: '1.26.x'
           check-latest: true
           cache: true
       - name: Install pinned govulncheck
@@ -183,10 +183,10 @@ jobs:
         shard: [0, 1, 2, 3, 4, 5, 6, 7]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      - name: Set up current Go 1.25 patch
+      - name: Set up current Go 1.26 patch
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: '1.25.x'
+          go-version: '1.26.x'
           check-latest: true
           cache: true
       - name: Run exact Store shard
@@ -241,10 +241,10 @@ jobs:
         os: [ubuntu-latest, macos-latest, windows-latest]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      - name: Set up current Go 1.25 patch
+      - name: Set up current Go 1.26 patch
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: '1.25.x'
+          go-version: '1.26.x'
           check-latest: true
           cache: true
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
@@ -305,10 +305,10 @@ jobs:
       - run: npm run check:api
       - run: npm test
       - run: npm run build
-      - name: Set up current Go 1.25 patch
+      - name: Set up current Go 1.26 patch
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: '1.25.x'
+          go-version: '1.26.x'
           check-latest: true
           cache: true
       - name: Verify Go bundle loader and embedded production UI bundle
@@ -338,10 +338,10 @@ jobs:
         working-directory: analyzers
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      - name: Set up current Go 1.25 patch
+      - name: Set up current Go 1.26 patch
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: '1.25.x'
+          go-version: '1.26.x'
           check-latest: true
           cache: true
       - name: Report Go toolchain
@@ -414,10 +414,10 @@ jobs:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      - name: Set up current Go 1.25 patch
+      - name: Set up current Go 1.26 patch
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: '1.25.x'
+          go-version: '1.26.x'
           check-latest: true
           cache: true
       - name: Report Go toolchain
@@ -465,11 +465,11 @@ jobs:
       TRAVERSE_BOARD_LOCAL_SANDBOX_TEST_HOST_PREP: '1'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      - name: Set up current Go 1.25 patch
+      - name: Set up current Go 1.26 patch
         id: windows-go
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: '1.25.x'
+          go-version: '1.26.x'
           check-latest: true
           cache: true
       - name: Report Go toolchain
@@ -561,10 +561,10 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      - name: Set up current Go 1.25 patch
+      - name: Set up current Go 1.26 patch
         uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: '1.25.x'
+          go-version: '1.26.x'
           check-latest: true
           cache: true
       - name: Verify Local Sandbox on the Windows 2022 compatibility host

@@ -28,6 +28,29 @@ An unreadable or empty change set fails selection. Failed selection, a failed
 required job, cancellation, or an unexpected required-job skip cannot become a
 successful aggregate result. Unclassified build inputs select full checks.
 
+## Go security baseline
+
+The minimum toolchain is Go **1.26.9**, enforced by `go.mod`. Central CI selects
+the latest Go 1.26 patch; release builders pin 1.26.9 for reproducible artifacts.
+The Windows fixed-toolchain fixture must match the exact version selected by
+`setup-go` and retains its official archive and executable hash checks.
+Update the module floor, CI release family, release pin and fixture guard
+together when moving to another supported Go release.
+
+`govulncheck` uses the current Go vulnerability database. A successful scan is
+evidence for its recorded toolchain, source revision and database timestamp;
+newly published advisories can make a later scan of the same commit fail.
+Affected-check PR runs may skip the Go audit, while nightly and manual full
+runs always select it. Check the job selection and scan log before treating a
+green PR as current full security evidence.
+
+The 2026-10-08 database update exposed the retired Go 1.25 baseline in the
+2026-10-09 nightly run ([#289](https://github.com/CWNU-Open-Source-Community/Universal-Code/issues/289)).
+The repair upgrades Go and `golang.org/x/net` without suppressing advisories or
+changing the schedule. Go 1.26 requires macOS 12+, so native build flags, bundle
+metadata and package verification use that same minimum; the earlier macOS 11
+declaration was already inconsistent with Go 1.25's supported platforms.
+
 ## Go impact selection
 
 `scripts/ci/run_go_checks.py` uses `go list -json ./...` to identify package

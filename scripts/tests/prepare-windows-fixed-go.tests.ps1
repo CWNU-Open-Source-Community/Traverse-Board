@@ -25,8 +25,24 @@ if ($assignments.Count -ne 1 -or $guards.Count -ne 1) {
 }
 $selectCandidate = [scriptblock]::Create($assignments[0].Extent.Text)
 $checkVersion = [scriptblock]::Create($guards[0].Extent.Text)
-$current = 'C:\hostedtoolcache\windows\go\1.25.14\x64\bin\go.exe'
-$older = 'C:\hostedtoolcache\windows\go\1.24.13\x64\bin\go.exe'
+$validateParameter = [scriptblock]::Create(
+    $ast.ParamBlock.Extent.Text + [Environment]::NewLine + '$ExpectedGoVersion')
+foreach ($case in @(
+    @{ Version = '1.26.9'; Accepted = $true },
+    @{ Version = '1.26.10'; Accepted = $true },
+    @{ Version = '1.25.14'; Accepted = $false },
+    @{ Version = '1.27.2'; Accepted = $false },
+    @{ Version = '1.26.9-custom'; Accepted = $false }
+)) {
+    $accepted = $true
+    try { $null = & $validateParameter -ExpectedGoVersion $case.Version } catch { $accepted = $false }
+    if ($accepted -ne $case.Accepted) {
+        throw 'Parameter validation did not enforce the supported Go release family.'
+    }
+    Write-Output "fixed_go_parameter_$($case.Version): pass"
+}
+$current = 'C:\hostedtoolcache\windows\go\1.26.9\x64\bin\go.exe'
+$older = 'C:\hostedtoolcache\windows\go\1.25.14\x64\bin\go.exe'
 foreach ($candidates in @(@($current), @($current, $older), @($older, $current))) {
     & {
         param([string[]]$Paths)
@@ -46,11 +62,14 @@ foreach ($candidates in @(@($current), @($current, $older), @($older, $current))
     Write-Output "fixed_go_candidate_order_$($candidates.Count): pass"
 }
 foreach ($case in @(
-    @{ Version = 'go1.25.14'; Expected = '1.25.14'; ExitCode = 0; Accepted = $true },
-    @{ Version = 'go1.25.13'; Expected = '1.25.14'; ExitCode = 0; Accepted = $false },
-    @{ Version = 'go1.24.13'; Expected = '1.24.13'; ExitCode = 0; Accepted = $false },
-    @{ Version = 'go1.25.14'; Expected = ''; ExitCode = 0; Accepted = $false },
-    @{ Version = 'go1.25.14'; Expected = '1.25.14'; ExitCode = 1; Accepted = $false }
+    @{ Version = 'go1.26.9'; Expected = '1.26.9'; ExitCode = 0; Accepted = $true },
+    @{ Version = 'go1.26.10'; Expected = '1.26.10'; ExitCode = 0; Accepted = $true },
+    @{ Version = 'go1.26.8'; Expected = '1.26.9'; ExitCode = 0; Accepted = $false },
+    @{ Version = 'go1.25.14'; Expected = '1.25.14'; ExitCode = 0; Accepted = $false },
+    @{ Version = 'go1.27.2'; Expected = '1.27.2'; ExitCode = 0; Accepted = $false },
+    @{ Version = 'go1.26.9-custom'; Expected = '1.26.9'; ExitCode = 0; Accepted = $false },
+    @{ Version = 'go1.26.9'; Expected = ''; ExitCode = 0; Accepted = $false },
+    @{ Version = 'go1.26.9'; Expected = '1.26.9'; ExitCode = 1; Accepted = $false }
 )) {
     & {
         $goVersion = $case.Version

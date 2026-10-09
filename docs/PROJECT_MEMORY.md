@@ -1,5 +1,12 @@
 # Prayu Project Memory
 
+> 2026-10-09 Go security baseline (#289): Go 1.26.9 is the minimum compiler;
+> CI tracks the 1.26 patch line and release builders pin 1.26.9. The x/net
+> dependency includes the October HTTP/2 fixes. Native macOS packaging now
+> declares and verifies macOS 12, matching the compiler's actual support floor.
+> The nightly full matrix and blocking vulnerability audit remain enabled;
+> see [CI security baseline](ci.md#go-security-baseline) for scan evidence limits.
+
 > 2026-10-07 extension onboarding checkpoint (#276): shared Web/Desktop settings
 > stage manual MCP descriptors, import pinned Plugin ZIPs and stage/review LSP
 > configuration through Go-owned services. Backend capability flags, source/scope,

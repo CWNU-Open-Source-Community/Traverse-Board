@@ -52,7 +52,7 @@ class MacArchiveTest(unittest.TestCase):
         self.contents[release.APP + "/Contents/Info.plist"] = plistlib.dumps({
             "CFBundleShortVersionString": "1.0.0", "CFBundleVersion": "1.0.0",
             "CFBundleIdentifier": "workbench.prayu.desktop", "CFBundleExecutable": "cyberagent-desktop",
-            "LSMinimumSystemVersion": "11.0.0",
+            "LSMinimumSystemVersion": "12.0.0",
         })
 
     def write(self, modes=None, extra=None):
@@ -95,6 +95,16 @@ class MacArchiveTest(unittest.TestCase):
         self.write()
         with self.assertRaisesRegex(ValueError, "metadata differs: revision"):
             self.verify()
+
+    def test_incorrect_minimum_os_inside_rehashed_archive(self):
+        name = release.APP + "/Contents/Info.plist"
+        plist = plistlib.loads(self.contents[name])
+        for minimum in ("11.0.0", "13.0.0"):
+            with self.subTest(minimum=minimum):
+                self.contents[name] = plistlib.dumps({**plist, "LSMinimumSystemVersion": minimum})
+                self.write()
+                with self.assertRaisesRegex(ValueError, "bundle identity differs: LSMinimumSystemVersion"):
+                    self.verify()
 
     def test_wrong_cpu_even_when_metadata_claims_arm64(self):
         self.contents[release.BINARY] = bytes.fromhex("cffaedfe") + struct.pack("<I", 0x01000007)
