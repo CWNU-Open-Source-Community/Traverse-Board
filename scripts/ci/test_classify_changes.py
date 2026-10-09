@@ -217,6 +217,16 @@ class WorkflowGateTests(unittest.TestCase):
         cls.ci = (cls.root / ".github/workflows/ci.yml").read_text(encoding="utf-8")
         cls.release = (cls.root / ".github/workflows/release-desktop.yml").read_text(encoding="utf-8")
 
+    def test_all_builders_use_the_exact_module_toolchain(self):
+        module = (self.root / "go.mod").read_text(encoding="utf-8")
+        self.assertRegex(module, r"(?m)^go [0-9]+\.[0-9]+\.[0-9]+$")
+        for workflow in (self.ci, self.release):
+            builders = re.findall(r"uses: actions/setup-go@", workflow)
+            self.assertTrue(builders)
+            self.assertNotRegex(workflow, r"(?m)^\s*go-version:")
+            self.assertEqual(len(builders), len(re.findall(
+                r"(?m)^\s*go-version-file: go\.mod$", workflow)))
+
     def run_gate(self, job, needs):
         start = self.ci.index(f"  {job}:\n")
         block = self.ci[start:]

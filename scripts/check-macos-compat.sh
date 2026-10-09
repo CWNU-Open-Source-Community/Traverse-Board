@@ -75,8 +75,8 @@ if go version -m "$binary" 2>/dev/null | grep -q "cyberagent-workbench" &&
     GO_BUILD_METADATA_OK="true"
 fi
 
-# The deployment target must match the Go 1.25 darwin minimum (macOS 11). The
-# build script aligns both the cgo compile flags and the bundle plist to 11.0.
+# The deployment target must match the Go 1.26 darwin minimum (macOS 12). The
+# build script aligns both the cgo compile flags and the bundle plist to 12.0.
 DEPLOYMENT_TARGET="unknown"
 minimumOS="$(otool -l "$binary" | awk '/LC_BUILD_VERSION/{seen=1; next} seen && /minos/{print $2; exit}')"
 if [ -n "$minimumOS" ]; then
@@ -136,8 +136,8 @@ add_check(
 )
 add_check(
     "macho_deployment_target",
-    "pass" if os.environ["MACOS_COMPAT_DEPLOYMENT_TARGET"] == "11.0" else "fail",
-    "Mach-O deployment target matches the Go 1.25 macOS 11 minimum",
+    "pass" if os.environ["MACOS_COMPAT_DEPLOYMENT_TARGET"] == "12.0" else "fail",
+    "Mach-O deployment target matches the Go 1.26 macOS 12 minimum",
 )
 add_check(
     "sha256_binding",
@@ -255,7 +255,7 @@ else:
 add_check(
     "macos_matrix",
     "manual",
-    "verify macOS 11+, Retina scaling, notarized distribution, launch, and recovery on a clean machine",
+    "verify macOS 12+, Retina scaling, notarized distribution, launch, and recovery on a clean machine",
 )
 
 failed = [check for check in checks if check["status"] == "fail"]

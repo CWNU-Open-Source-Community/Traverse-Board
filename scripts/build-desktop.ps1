@@ -72,6 +72,18 @@ function Assert-NoOutputReparsePoint {
 
 Assert-NoOutputReparsePoint -Root $repositoryFull -Candidate $outputRoot
 
+# A newer Go release can still be affected by an advisory fixed in our pinned
+# branch. Use the same exact compiler as CI and release packaging.
+$goDirective = [regex]::Match(
+    [IO.File]::ReadAllText((Join-Path $repositoryRoot 'go.mod')),
+    '(?m)^go (?<version>[0-9]+\.[0-9]+\.[0-9]+)\r?$')
+if (-not $goDirective.Success) { throw 'Pinned Go toolchain is unavailable in go.mod.' }
+$expectedGoVersion = 'go' + $goDirective.Groups['version'].Value
+$goVersion = ([string](& go -C $repositoryRoot env GOVERSION)).Trim()
+if ($LASTEXITCODE -ne 0 -or $goVersion -cne $expectedGoVersion) {
+    throw "Desktop build requires $expectedGoVersion from go.mod. Set GOTOOLCHAIN=$expectedGoVersion."
+}
+
 if (-not $SkipFrontend) {
     Push-Location (Join-Path $repositoryRoot "web")
     try {
@@ -117,10 +129,6 @@ try {
     $cgoEnabled = (& go env CGO_ENABLED).Trim()
     if ($LASTEXITCODE -ne 0 -or $cgoEnabled -notmatch '^[01]$') {
         throw "Go CGO build metadata is invalid"
-    }
-    $goVersion = (& go env GOVERSION).Trim()
-    if ($LASTEXITCODE -ne 0 -or $goVersion -notmatch '^go[0-9]+\.[0-9]+') {
-        throw "Go version build metadata is invalid"
     }
     $nodeVersion = (& node --version).Trim()
     if ($LASTEXITCODE -ne 0 -or $nodeVersion -notmatch '^v[0-9]+\.[0-9]+\.[0-9]+') {

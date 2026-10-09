@@ -24,7 +24,7 @@ func trustedDesktopRendererHost() string {
 }
 
 // checkDesktopPrerequisites returns nil on macOS: WKWebView ships with every
-// supported macOS release (the Go 1.25 toolchain requires macOS 11 Big Sur or
+// supported macOS release (the Go 1.26 toolchain requires macOS 12 Monterey or
 // newer), so the Desktop never probes, downloads, or installs a web runtime.
 func checkDesktopPrerequisites() error {
 	return nil

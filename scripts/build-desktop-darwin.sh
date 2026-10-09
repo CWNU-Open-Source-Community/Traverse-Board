@@ -41,6 +41,16 @@ repositoryRoot="$(cd "$(dirname "$0")/.." && pwd -P)"
 cd "$repositoryRoot"
 repositoryFull="$(pwd -P)"
 
+# Match the exact compiler used by CI, including its security patch level.
+expectedGoVersion="$(tr -d '\r' < go.mod | sed -nE 's/^go ([0-9]+\.[0-9]+\.[0-9]+)$/go\1/p')"
+if [ -z "$expectedGoVersion" ]; then
+    die "Pinned Go toolchain is unavailable in go.mod"
+fi
+goVersion="$(go env GOVERSION)"
+if [ "$goVersion" != "$expectedGoVersion" ]; then
+    die "Desktop build requires $expectedGoVersion from go.mod. Set GOTOOLCHAIN=$expectedGoVersion."
+fi
+
 mkdir -p "$OutputDirectory"
 outputRoot="$(cd "$OutputDirectory" && pwd -P)"
 case "$outputRoot" in
@@ -117,10 +127,6 @@ cgoEnabled="$(go env CGO_ENABLED)"
 if [ "$cgoEnabled" != "1" ]; then
     die "Desktop macOS build requires CGO_ENABLED=1 (go-sqlite3 and Wails need cgo)"
 fi
-goVersion="$(go env GOVERSION)"
-if ! printf '%s' "$goVersion" | grep -Eq '^go[0-9]+.[0-9]+'; then
-    die "Go version build metadata is invalid"
-fi
 targetOS="$(go env GOOS)"
 if [ "$targetOS" != "darwin" ]; then
     die "Desktop portable build requires GOOS=darwin"
@@ -145,13 +151,13 @@ previousSourceDateEpoch="${SOURCE_DATE_EPOCH:-}"
 previousCgoLdflags="${CGO_LDFLAGS:-}"
 previousCgoCflags="${CGO_CFLAGS:-}"
 # Mirror the wails build command's darwin link flags: WailsContext.m uses
-# UTType (macOS 11+). The deployment target matches the Go 1.25 darwin
+# UTType (macOS 11+). The deployment target matches the Go 1.26 darwin
 # minimum and the bundle's LSMinimumSystemVersion. Plain go build does not
-# add these itself. CGO_CFLAGS keeps the clang objects on the same 11.0
+# add these itself. CGO_CFLAGS keeps the clang objects on the same 12.0
 # target; without it the macOS 26 SDK compiles them at 26.0 and the external
 # linker floods the build with "built for newer macOS version" warnings.
-export CGO_CFLAGS="-g -O2 -mmacosx-version-min=11.0${previousCgoCflags:+ $previousCgoCflags}"
-export CGO_LDFLAGS="-framework UniformTypeIdentifiers -mmacosx-version-min=11.0${previousCgoLdflags:+ $previousCgoLdflags}"
+export CGO_CFLAGS="-g -O2 -mmacosx-version-min=12.0${previousCgoCflags:+ $previousCgoCflags}"
+export CGO_LDFLAGS="-framework UniformTypeIdentifiers -mmacosx-version-min=12.0${previousCgoLdflags:+ $previousCgoLdflags}"
 export SOURCE_DATE_EPOCH="$sourceDateEpoch"
 trap 'export SOURCE_DATE_EPOCH="$previousSourceDateEpoch"; export CGO_LDFLAGS="$previousCgoLdflags"; export CGO_CFLAGS="$previousCgoCflags"' EXIT
 # The previous run codesigned the final binary in place. go build over an
