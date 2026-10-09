@@ -20,7 +20,7 @@ import type {
 } from "../api/types";
 import { formatBytes, formatDate, shortID } from "../lib/format";
 import { useLocale } from "../lib/locale";
-import { useConnectionStore } from "../state/connection";
+import { v2QueryKeys } from "../v2/query-keys";
 import { ErrorState, LoadingState, StatusBadge } from "./common";
 
 type RestoreAction = "rewind" | "undo" | "redo";
@@ -44,12 +44,13 @@ const restoreIntentKey = (runID: string) => ["run", runID, "workspace-restore-in
 
 const reversibleKinds = new Set(["file_tool", "command_batch", "git_mutation", "agent_merge"]);
 
-export function WorkspaceCheckpointPanel({ client, runID, runStatus, variant = "inspector", onChanged }: {
+export function WorkspaceCheckpointPanel({ client, runID, runStatus, variant = "inspector", onChanged, onOpenRun }: {
   client: APIClient;
   runID: string;
   runStatus: string;
   variant?: "inspector" | "conversation";
   onChanged?: () => void;
+  onOpenRun?: (runID: string) => void;
 }) {
   const { t } = useLocale();
   const allowFork = variant === "inspector";
@@ -61,7 +62,6 @@ export function WorkspaceCheckpointPanel({ client, runID, runStatus, variant = "
       ? " · 修改前" : checkpoint.phase === "after" ? " · 修改后" : ""}`;
   };
   const queryClient = useQueryClient();
-  const selectRun = useConnectionStore((state) => state.selectRun);
   const timelineKey = ["run", runID, "workspace-checkpoints"] as const;
   const [selectedID, setSelectedID] = useState("");
   const [title, setTitle] = useState("");
@@ -215,10 +215,12 @@ export function WorkspaceCheckpointPanel({ client, runID, runStatus, variant = "
           confirm: true,
         }, operationKey);
     },
-    onSuccess: (result) => {
+    onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ["runs"] });
       void queryClient.invalidateQueries({ queryKey: ["sessions"] });
-      selectRun(result.run.id);
+      void queryClient.invalidateQueries({ queryKey: v2QueryKeys.inspectorRecords });
+      void queryClient.invalidateQueries({ queryKey: v2QueryKeys.threads("active") });
+      void queryClient.invalidateQueries({ queryKey: v2QueryKeys.workspaces });
     },
   });
 
@@ -261,7 +263,7 @@ export function WorkspaceCheckpointPanel({ client, runID, runStatus, variant = "
     if (globalThis.confirm(t(
       "确认从该检查点创建独立 Run、Git 分支和 worktree？旧权限与进程不会继承。",
       "Create an independent Run, Git branch, and worktree from this checkpoint? Old authority and processes are not inherited.",
-    ))) fork.mutate();
+    ))) fork.mutate(undefined, { onSuccess: (result) => onOpenRun?.(result.run.id) });
   };
 
   if (timeline.isLoading && !pendingRestore) return <LoadingState label={t("加载 Workspace 检查点", "Loading Workspace checkpoints")} />;

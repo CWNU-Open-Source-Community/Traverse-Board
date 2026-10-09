@@ -1,5 +1,14 @@
 # Prayu Project Memory
 
+> 2026-10-09 recovery and connection workflow checkpoint (#292): Continuity
+> Fork/Resume and checkpoint Fork open the returned Run in V2 without inheriting
+> a source Thread binding. Late completion refreshes record and Thread lists
+> without replacing a later navigation. GitHub connection editing uses the selected
+> generation; confirmed disconnect deletes the connection's current local credential,
+> preserving settings and historical evidence. Approval navigation retains the exact
+> PR, snapshot and connection binding. Verification is recorded in the issue/PR; this slice
+> does not add execution authority or certify the remaining frontend rebuild.
+
 > 2026-10-09 Go security baseline (#289): Go 1.26.9 is the minimum compiler;
 > CI and release builders read the exact version from go.mod. Local desktop
 > builders require that same patched compiler. The x/net
