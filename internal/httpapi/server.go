@@ -1062,6 +1062,14 @@ func (a *API) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 		a.serveUI(tracked, request)
 		return
 	}
+	if request.URL.Path == TaskConfigurationPreviewPath {
+		a.serveTaskConfiguration(tracked, request, requestID, "")
+		return
+	}
+	if runID, matched := matchRunTaskConfigurationPath(request.URL.Path); matched {
+		a.serveTaskConfiguration(tracked, request, requestID, runID)
+		return
+	}
 	if isDockerSandboxPath(request.URL.Path) {
 		a.serveDockerSandbox(tracked, request, requestID)
 		return

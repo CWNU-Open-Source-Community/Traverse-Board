@@ -15,6 +15,7 @@ import (
 	"cyberagent-workbench/internal/redact"
 	"cyberagent-workbench/internal/runmutation"
 	"cyberagent-workbench/internal/session"
+	"cyberagent-workbench/internal/toolgateway"
 	"cyberagent-workbench/internal/webevidence"
 )
 
@@ -46,6 +47,7 @@ type ControlledRunCreationRequest struct {
 	NetworkMode    string
 	AllowedTargets []string
 	ModelRoute     string
+	Budget         *domain.TaskBudgetSettings
 	// CustomModelProvider and ExpectedProviderDefinitionRevision are internal
 	// admission facts supplied by the model Registry. They are deliberately not
 	// copied from the renderer's JSON request.
@@ -75,6 +77,7 @@ type normalizedControlledRunCreationRequest struct {
 	InitialModelRoutePin domain.InitialThreadModelRoutePin
 	OperationKey         string
 	RequestedBy          string
+	Budget               domain.Budget
 }
 
 func NewControlledRunCreationService(store ControlledRunCreationStore) *ControlledRunCreationService {
@@ -102,10 +105,10 @@ func (s *ControlledRunCreationService) Create(ctx context.Context,
 		return ControlledRunCreationResult{}, err
 	}
 	keyDigest := runmutation.RunCreationOperationDigest(normalized.OperationKey)
-	requestFingerprint := runmutation.RunCreationRequestFingerprintWithNetworkAndModelRoute(normalized.Goal,
+	requestFingerprint := domain.ControlledCreationFingerprint(normalized.Goal,
 		normalized.WorkspaceID, string(normalized.Profile), string(normalized.Surface),
 		string(normalized.Phase), normalized.NetworkMode, normalized.AllowedTargets,
-		normalized.ModelRoute, normalized.RequestedBy)
+		normalized.ModelRoute, normalized.RequestedBy, normalized.Budget)
 
 	if existing, found, err := s.store.GetRunCreationOperation(ctx, keyDigest); err != nil {
 		return ControlledRunCreationResult{}, apperror.Normalize(err)
@@ -126,10 +129,16 @@ func (s *ControlledRunCreationService) Create(ctx context.Context,
 		return ControlledRunCreationResult{}, apperror.New(
 			apperror.CodeFailedPrecondition, "controlled Run workspace record is invalid")
 	}
+	project, rejected, err := projectconfig.ResolveWorkspace(ctx, workspace.RootPath, normalized.Profile, normalized.Budget, toolgateway.TypedActionIDs())
+	if err != nil {
+		return ControlledRunCreationResult{}, apperror.New(apperror.CodeFailedPrecondition, "project configuration could not be safely loaded; fix .prayu/config.yaml")
+	}
+	if len(rejected) != 0 {
+		return ControlledRunCreationResult{}, apperror.New(apperror.CodeFailedPrecondition, "project configuration rejected: "+rejected[0].Field+": "+rejected[0].Reason)
+	}
 	instructions, err := projectconfig.DiscoverInstructions(ctx, workspace.RootPath, ".")
 	if err != nil {
-		return ControlledRunCreationResult{}, apperror.Wrap(
-			apperror.CodeFailedPrecondition, "project instruction discovery failed closed", err)
+		return ControlledRunCreationResult{}, apperror.New(apperror.CodeFailedPrecondition, "project instruction discovery failed closed")
 	}
 
 	prepared, err := prepareRun(ctx, CreateRunRequest{
@@ -138,7 +147,8 @@ func (s *ControlledRunCreationService) Create(ctx context.Context,
 		WorkspaceID: normalized.WorkspaceID, ModelRoute: normalized.ModelRoute,
 		NetworkMode:    normalized.NetworkMode,
 		AllowedTargets: append([]string(nil), normalized.AllowedTargets...),
-		Interactive:    true, Budget: domain.DefaultBudget(), RequestedBy: normalized.RequestedBy,
+		Interactive:    true, Budget: normalized.Budget, RequestedBudget: &normalized.Budget, RequestedBy: normalized.RequestedBy,
+		ProjectConfig:       project,
 		ProjectInstructions: &instructions,
 	}, nil)
 	if err != nil {
@@ -210,19 +220,26 @@ func (s *ControlledRunCreationService) loadResult(ctx context.Context,
 		run.Status != domain.RunCreated || run.StartedAt != nil || run.FinishedAt != nil ||
 		linkedSession.Status != session.StatusActive || linkedSession.Title != mission.Goal ||
 		!run.Config.Interactive || run.Config.ModelRoute == "" ||
-		run.Budget != domain.DefaultBudget() || linkedSession.Route != run.Config.ModelRoute ||
+		linkedSession.Route != run.Config.ModelRoute ||
 		!mission.CreatedAt.Equal(operation.CreatedAt) ||
 		!mission.UpdatedAt.Equal(operation.CreatedAt) ||
 		!run.CreatedAt.Equal(operation.CreatedAt) || !run.UpdatedAt.Equal(operation.CreatedAt) ||
 		!linkedSession.CreatedAt.Equal(operation.CreatedAt) ||
 		!linkedSession.UpdatedAt.Equal(operation.CreatedAt) ||
 		!mode.CreatedAt.Equal(operation.CreatedAt) ||
-		operation.RequestFingerprint != runmutation.RunCreationRequestFingerprintWithNetworkAndModelRoute(
+		operation.RequestFingerprint != domain.ControlledCreationFingerprint(
 			mission.Goal, mission.WorkspaceID, string(mission.Profile), string(mode.Surface),
 			string(mode.Phase), mission.Scope.NetworkMode, mission.Scope.AllowedTargets,
-			run.Config.ModelRoute, operation.RequestedBy) {
+			run.Config.ModelRoute, operation.RequestedBy, run.Config.CreationBudget()) {
 		return ControlledRunCreationResult{}, apperror.New(
 			apperror.CodeConflict, "stored controlled Run creation binding is inconsistent")
+	}
+	if run.Config.RequestedBudget != nil {
+		if _, err := PinnedTaskConfiguration(run, mission.WorkspaceID, mission.Profile); err != nil {
+			return ControlledRunCreationResult{}, err
+		}
+	} else if run.Budget != domain.DefaultBudget() {
+		return ControlledRunCreationResult{}, apperror.New(apperror.CodeConflict, "legacy controlled budget binding is invalid")
 	}
 	return ControlledRunCreationResult{Mission: mission, Run: run,
 		Session: linkedSession, Mode: mode, Replayed: replayed}, nil
@@ -357,7 +374,11 @@ func normalizeControlledRunCreationRequest(request ControlledRunCreationRequest)
 		return normalizedControlledRunCreationRequest{}, apperror.New(
 			apperror.CodeInvalidArgument, "Run creation requester is invalid")
 	}
-	return normalizedControlledRunCreationRequest{Goal: goal, WorkspaceID: workspaceID,
+	budget, err := request.Budget.Normalize()
+	if err != nil {
+		return normalizedControlledRunCreationRequest{}, apperror.New(apperror.CodeInvalidArgument, err.Error())
+	}
+	return normalizedControlledRunCreationRequest{Budget: budget, Goal: goal, WorkspaceID: workspaceID,
 		Profile: profile, Surface: surface, Phase: phase, NetworkMode: networkMode,
 		AllowedTargets: append([]string(nil), allowedTargets...), ModelRoute: modelRoute,
 		InitialModelRoutePin: initialModelRoutePin,

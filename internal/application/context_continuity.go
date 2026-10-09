@@ -264,7 +264,7 @@ func (s *ContextContinuityService) prepareBranch(ctx context.Context,
 		Goal: goal, Profile: string(sourceMission.Profile), Surface: string(mode.Surface),
 		Phase: string(mode.Phase), WorkspaceID: workspaceID,
 		ModelRoute: sourceRun.Config.ModelRoute, Interactive: sourceRun.Config.Interactive,
-		Budget: sourceRun.Budget, RequestedBy: request.RequestedBy,
+		Budget: sourceRun.Budget, RequestedBudget: sourceRun.Config.RequestedBudget, RequestedBy: request.RequestedBy,
 		ProjectConfig: project, ProjectInstructions: instructions,
 		ContinuityContext: &continuity,
 	}, s.store.GetSession)

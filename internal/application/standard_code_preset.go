@@ -14,14 +14,17 @@ import (
 	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/events"
 	"cyberagent-workbench/internal/idgen"
+	"cyberagent-workbench/internal/projectconfig"
 	"cyberagent-workbench/internal/redact"
 	"cyberagent-workbench/internal/runmutation"
 	"cyberagent-workbench/internal/runworktree"
 	"cyberagent-workbench/internal/sandbox"
 	"cyberagent-workbench/internal/session"
+	"cyberagent-workbench/internal/toolgateway"
 )
 
 type StandardCodePresetStore interface {
+	GetWorkspaceInfo(context.Context, string) (session.WorkspaceInfo, error)
 	GetRun(context.Context, string) (domain.Run, error)
 	GetMission(context.Context, string) (domain.Mission, error)
 	GetSession(context.Context, string) (session.Session, error)
@@ -348,10 +351,19 @@ func (s *StandardCodePresetService) resolveTarget(ctx context.Context,
 func (s *StandardCodePresetService) prepareNewTarget(ctx context.Context,
 	workspaceID, goal, requestedBy string,
 ) (standardCodeTarget, bool, *StandardCodePresetResult, error) {
+	workspace, err := s.store.GetWorkspaceInfo(ctx, workspaceID)
+	if err != nil {
+		return standardCodeTarget{}, false, nil, apperror.Normalize(err)
+	}
+	budget := domain.DefaultBudget()
+	project, rejected, err := projectconfig.ResolveWorkspace(ctx, workspace.RootPath, domain.ProfileCode, budget, toolgateway.TypedActionIDs())
+	if err != nil || len(rejected) != 0 {
+		return standardCodeTarget{}, false, nil, apperror.New(apperror.CodeFailedPrecondition, "Standard Code project configuration rejected or could not be safely loaded")
+	}
 	prepared, err := prepareRun(ctx, CreateRunRequest{Goal: goal,
 		Profile: string(domain.ProfileCode), Surface: string(domain.ExecutionSurfaceCode),
 		Phase: string(domain.ExecutionPhasePlan), WorkspaceID: workspaceID,
-		Interactive: true, Budget: domain.DefaultBudget(), RequestedBy: requestedBy},
+		Interactive: true, Budget: budget, RequestedBudget: &budget, ProjectConfig: project, RequestedBy: requestedBy},
 		s.store.GetSession)
 	if err != nil {
 		return standardCodeTarget{}, false, nil, apperror.Wrap(

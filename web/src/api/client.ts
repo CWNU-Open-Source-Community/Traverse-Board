@@ -1,3 +1,4 @@
+import { creationBudgetMatches, normalizedTaskBudget, parseTaskConfiguration } from "./task-configuration";
 import { consumeSSE } from "./sse";
 import { parseMCPCredentialStatus, validMCPBearerSecret, validMCPCredentialBinding } from "./mcp-credentials";
 import type { MCPCredentialBindingView, MCPCredentialRequestView, MCPCredentialStatusView } from "./types";
@@ -477,9 +478,7 @@ function parseRunCreationControl(value: unknown,
     value.session.title !== value.mission.goal ||
     !scopeMatchesRequestedNetworkAuthority(value.mission.scope, expectedNetwork) ||
     !scopeMatchesRequestedNetworkAuthority(value.mode.scope, expectedNetwork) ||
-    value.run.budget.max_turns !== 100 || value.run.budget.max_tool_calls !== 100 ||
-    (value.run.budget.max_tokens ?? 0) !== 0 || (value.run.budget.max_cost_usd ?? 0) !== 0 ||
-    (value.run.budget.timeout_seconds ?? 0) !== 0 ||
+    !creationBudgetMatches(value.run.budget, value.run.config, request.budget) ||
     value.mode.capability_grant !== false || value.mode.protocol_version !== "run_mode.v1" ||
     value.mode.policy_version !== "mode_policy.v1" || value.mode.revision !== 1 ||
     value.mode.surface !== expectedSurface || value.mode.phase !== expectedPhase) {
@@ -540,7 +539,7 @@ function parseThreadCreationControl(value: unknown,
     replayed: value.replayed, run: value.run, session: value.session }, {
     version: "run_creation.v1", goal: request.goal, workspace_id: request.workspace_id,
     profile: request.profile, surface: request.surface, phase: request.phase,
-    network_mode: request.network_mode, allowed_targets: request.allowed_targets,
+    network_mode: request.network_mode, allowed_targets: request.allowed_targets, budget: request.budget,
   }, requestedModelRoute);
   const thread = parseThreadView(value.thread);
   if (thread.status !== "active" || thread.workspace_id !== request.workspace_id ||
@@ -8149,11 +8148,25 @@ export class APIClient {
     return this.sendControlRequest<T>(path, body, signal, "", "DELETE");
   }
 
+  async previewTaskConfiguration(body: import("./types").TaskConfigurationRequest,
+    signal?: AbortSignal): Promise<import("./types").TaskConfigurationView> {
+    if (!boundedIdentity(body.workspace_id) || body.workspace_id.trim() !== body.workspace_id ||
+      (body.profile !== undefined && !["code", "learn", "review", "script"].includes(body.profile))) throw new Error("A normalized workspace and profile are required");
+    normalizedTaskBudget(body.budget);
+    return parseTaskConfiguration(await this.sendReadRequest<unknown>("/task-configuration/preview", body, signal), body.workspace_id, body.profile ?? "code");
+  }
+
+  async getRunTaskConfiguration(runID: string, signal?: AbortSignal): Promise<import("./types").TaskConfigurationView> {
+    if (!boundedIdentity(runID) || runID.trim() !== runID) throw new Error("A normalized Run identity is required");
+    return parseTaskConfiguration(await this.get<unknown>(`/runs/${encodeURIComponent(runID)}/task-configuration`, {}, signal));
+  }
+
   async createRun(body: RunCreationControlRequestView, idempotencyKey: string,
     signal?: AbortSignal): Promise<RunCreationControlView> {
     if (!this.hasRunCreation) {
       throw new Error("Run creation capability is required for this operation");
     }
+    normalizedTaskBudget(body.budget);
     normalizeRequestedNetworkAuthority(body);
     const result = await this.sendControl<unknown>("/runs", body, idempotencyKey, signal);
     return parseRunCreationControl(result, body);
@@ -8169,6 +8182,7 @@ export class APIClient {
         body.provider!.includes("/") || body.model!.includes("/")))) {
       throw new Error("Thread creation capability and a normalized Provider/model pair are required");
     }
+    normalizedTaskBudget(body.budget);
     normalizeRequestedNetworkAuthority(body);
     return parseThreadCreationControl(await this.sendControl<unknown>("/threads", body,
       idempotencyKey, signal), body);

@@ -11,7 +11,6 @@ import (
 	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/durableoperation"
 	"cyberagent-workbench/internal/events"
-	"cyberagent-workbench/internal/runmutation"
 	"cyberagent-workbench/internal/session"
 	"cyberagent-workbench/internal/webevidence"
 )
@@ -152,7 +151,6 @@ func validateControlledRunCreation(mission domain.Mission, run domain.Run,
 		run.Status != domain.RunCreated || run.StartedAt != nil || run.FinishedAt != nil ||
 		!run.Config.Interactive ||
 		!validStoredControlledModelRoute(run.Config.ModelRoute, mission.Profile) ||
-		run.Budget != domain.DefaultBudget() ||
 		mission.Scope.WorkspaceID != mission.WorkspaceID ||
 		!validControlledRunCreationNetworkScope(mission.Scope) || mode.Revision != 1 ||
 		mode.MissionID != mission.ID || mode.RunID != run.ID ||
@@ -161,6 +159,9 @@ func validateControlledRunCreation(mission domain.Mission, run domain.Run,
 		linkedSession.Route != run.Config.ModelRoute {
 		return apperror.New(apperror.CodeInvalidArgument,
 			"controlled Run creation must remain interactive, workspace-bound, and exact-network-scoped")
+	}
+	if err := validateControlledCreationBudget(run); err != nil {
+		return err
 	}
 	if pin.Empty() {
 		if run.Config.ModelRoute != string(mission.Profile) {
@@ -171,10 +172,10 @@ func validateControlledRunCreation(mission domain.Mission, run domain.Run,
 		return apperror.New(apperror.CodeInvalidArgument,
 			"initial Thread model route pin does not match the controlled Run")
 	}
-	if operation.RequestFingerprint != runmutation.RunCreationRequestFingerprintWithNetworkAndModelRoute(
+	if operation.RequestFingerprint != domain.ControlledCreationFingerprint(
 		mission.Goal, mission.WorkspaceID, string(mission.Profile), string(mode.Surface),
 		string(mode.Phase), mission.Scope.NetworkMode, mission.Scope.AllowedTargets,
-		run.Config.ModelRoute, operation.RequestedBy) {
+		run.Config.ModelRoute, operation.RequestedBy, run.Config.CreationBudget()) {
 		return apperror.New(apperror.CodeInvalidArgument,
 			"Run creation request fingerprint does not match the controlled Run")
 	}

@@ -69,25 +69,19 @@ func (a *App) threadCreate(ctx context.Context, args []string) error {
 			return err
 		}
 		workspaceID = record.ID
-		config, found, err := projectconfig.LoadWorkspace(ctx, record.RootPath)
+		selectedProfile, err := domain.ParseProfile(*profile)
+		if err != nil {
+			return err
+		}
+		value, rejections, err := projectconfig.ResolveWorkspace(ctx, record.RootPath, selectedProfile,
+			domain.Budget{MaxTurns: *maxTurns, MaxToolCalls: domain.DefaultBudget().MaxToolCalls}, toolgateway.TypedActionIDs())
 		if err != nil {
 			return fmt.Errorf("project config fail-closed: %w", err)
 		}
-		if found {
-			value, rejections, err := config.Narrow(projectconfig.Ceiling{
-				AllowedProfiles: []string{*profile}, MaxTurns: *maxTurns,
-				MaxToolCalls:       int(domain.DefaultBudget().MaxToolCalls),
-				RegisteredCommands: toolgateway.TypedActionIDs(),
-			})
-			if err != nil {
-				return fmt.Errorf("project config fail-closed: %w", err)
-			}
-			if len(rejections) != 0 {
-				return fmt.Errorf("project config rejection: field=%s reason=%s",
-					rejections[0].Field, rejections[0].Reason)
-			}
-			effective = &value
+		if len(rejections) != 0 {
+			return fmt.Errorf("project config rejection: field=%s reason=%s", rejections[0].Field, rejections[0].Reason)
 		}
+		effective = value
 		discovered, err := projectconfig.DiscoverInstructions(ctx, record.RootPath, ".")
 		if err != nil {
 			return fmt.Errorf("project instruction discovery fail-closed: %w", err)

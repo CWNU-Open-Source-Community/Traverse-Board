@@ -444,3 +444,7 @@ export interface VerificationPlanItemCoveragePage {
   page: Page;
   requestID: string;
 }
+
+export type TaskBudgetSettings = components["schemas"]["TaskBudgetSettings"];
+export type TaskConfigurationRequest = components["schemas"]["TaskConfigurationRequest"];
+export type TaskConfigurationView = components["schemas"]["TaskConfigurationView"];

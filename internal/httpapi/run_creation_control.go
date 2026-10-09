@@ -17,14 +17,15 @@ import (
 const RunCreationControlPath = "/api/v1/runs"
 
 type RunCreationControlRequestView struct {
-	Version        string   `json:"version"`
-	Goal           string   `json:"goal"`
-	WorkspaceID    string   `json:"workspace_id"`
-	Profile        string   `json:"profile,omitempty"`
-	Surface        string   `json:"surface,omitempty"`
-	Phase          string   `json:"phase,omitempty"`
-	NetworkMode    string   `json:"network_mode,omitempty"`
-	AllowedTargets []string `json:"allowed_targets,omitempty"`
+	Version        string                     `json:"version"`
+	Goal           string                     `json:"goal"`
+	WorkspaceID    string                     `json:"workspace_id"`
+	Profile        string                     `json:"profile,omitempty"`
+	Surface        string                     `json:"surface,omitempty"`
+	Phase          string                     `json:"phase,omitempty"`
+	NetworkMode    string                     `json:"network_mode,omitempty"`
+	AllowedTargets []string                   `json:"allowed_targets,omitempty"`
+	Budget         *domain.TaskBudgetSettings `json:"budget,omitempty"`
 }
 
 type RunCreationControlView struct {
@@ -108,7 +109,7 @@ func (a *API) serveRunCreationControl(writer http.ResponseWriter,
 		request.Context(), application.ControlledRunCreationRequest{
 			Version: view.Version, Goal: view.Goal, WorkspaceID: view.WorkspaceID,
 			Profile: view.Profile, Surface: view.Surface, Phase: view.Phase,
-			NetworkMode:    view.NetworkMode,
+			NetworkMode: view.NetworkMode, Budget: view.Budget,
 			AllowedTargets: append([]string(nil), view.AllowedTargets...),
 			OperationKey:   operationKey, RequestedBy: "http_control",
 		})
@@ -171,7 +172,7 @@ func rejectDuplicateJSONObject(decoder *json.Decoder, label string) error {
 				fmt.Sprintf("%s body contains duplicate field %q", label, name))
 		}
 		seen[name] = struct{}{}
-		if err := rejectDuplicateJSONValue(decoder, label); err != nil {
+		if err := rejectDuplicateJSONValue(decoder, label, name); err != nil {
 			return err
 		}
 	}
@@ -183,11 +184,14 @@ func rejectDuplicateJSONObject(decoder *json.Decoder, label string) error {
 	return nil
 }
 
-func rejectDuplicateJSONValue(decoder *json.Decoder, label string) error {
+func rejectDuplicateJSONValue(decoder *json.Decoder, label string, fieldName ...string) error {
 	token, err := decoder.Token()
 	if err != nil {
 		return apperror.New(apperror.CodeInvalidArgument,
 			label+" body contains an invalid field value")
+	}
+	if len(fieldName) > 0 && fieldName[0] == "budget" && token == nil {
+		return apperror.New(apperror.CodeInvalidArgument, label+" budget must be a JSON object")
 	}
 	delim, container := token.(json.Delim)
 	if !container {

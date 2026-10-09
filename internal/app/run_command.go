@@ -1707,27 +1707,21 @@ func (a *App) runCreate(ctx context.Context, service *application.RunService, ar
 	var projectConfig *projectconfig.Effective
 	var projectInstructions *projectconfig.InstructionSnapshot
 	if workspaceRecord != nil && !*ignoreProjectConfig {
-		config, found, err := projectconfig.LoadWorkspace(ctx, workspaceRecord.RootPath)
+		selectedProfile, err := domain.ParseProfile(*profile)
+		if err != nil {
+			return err
+		}
+		effective, rejections, err := projectconfig.ResolveWorkspace(ctx, workspaceRecord.RootPath, selectedProfile,
+			domain.Budget{MaxTurns: *maxTurns, MaxToolCalls: *maxToolCalls}, toolgateway.TypedActionIDs())
 		if err != nil {
 			return fmt.Errorf("project config fail-closed: %w", err)
 		}
-		if found {
-			effective, rejections, err := config.Narrow(projectconfig.Ceiling{
-				AllowedProfiles:    []string{*profile},
-				MaxTurns:           *maxTurns,
-				MaxToolCalls:       int(*maxToolCalls),
-				RegisteredCommands: toolgateway.TypedActionIDs(),
-			})
-			if err != nil {
-				return fmt.Errorf("project config fail-closed: %w", err)
-			}
-			if len(rejections) > 0 {
-				return fmt.Errorf("project config rejection: field=%s reason=%s",
-					rejections[0].Field, rejections[0].Reason)
-			}
-			projectConfig = &effective
+		if len(rejections) != 0 {
+			return fmt.Errorf("project config rejection: field=%s reason=%s", rejections[0].Field, rejections[0].Reason)
 		}
+		projectConfig = effective
 	}
+
 	if workspaceRecord != nil && !*ignoreProjectInstructions {
 		discovered, err := projectconfig.DiscoverInstructions(ctx, workspaceRecord.RootPath,
 			*instructionTarget)

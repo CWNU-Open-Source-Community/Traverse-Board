@@ -2812,6 +2812,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/runs/{run_id}/task-configuration": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Read immutable task configuration
+         * @description Projects only stored Run budget and project snapshot, never live repository configuration. Legacy snapshots use snapshot provenance when operator input was not retained. This read grants no capability.
+         */
+        get: operations["getRunTaskConfiguration"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/runs/{run_id}/tool-rounds": {
         parameters: {
             query?: never;
@@ -3678,6 +3698,26 @@ export interface paths {
          * @description Creates a Code Surface Run in Plan phase and atomically applies the controlled Ask preset after exact Workspace Trust and Drydock readiness checks. Auto selects only a ready Local backend; Docker always requires explicit intent. The receipt never grants runtime authority or returns a bearer token.
          */
         post: operations["createStandardCodeRun"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/task-configuration/preview": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Preview task budget and project narrowing
+         * @description Read-only bounded workspace configuration preview using the read bearer. Loads inert .prayu/config.yaml through the same Go resolver as creation. Rejections block the entire creation; no source bytes, host paths or secrets are returned. No command, model, network, Skill or capability is executed or granted. Cost limits require an operator price snapshot at execution and do not represent exact billing.
+         */
+        post: operations["previewTaskConfiguration"];
         delete?: never;
         options?: never;
         head?: never;
@@ -5508,6 +5548,18 @@ export interface components {
             review_fingerprint: string;
             reviewer_identity: string;
         };
+        Budget: {
+            /** Format: double */
+            max_cost_usd?: number;
+            /** Format: int64 */
+            max_tokens?: number;
+            /** Format: int64 */
+            max_tool_calls?: number;
+            /** Format: int32 */
+            max_turns: number;
+            /** Format: int64 */
+            timeout_seconds?: number;
+        };
         BudgetView: {
             /** Format: double */
             max_cost_usd?: number;
@@ -6136,6 +6188,12 @@ export interface components {
             arguments?: string[];
             executable: string;
             working_directory: string;
+        };
+        ConfigurationSource: {
+            /** @enum {string} */
+            field: "budget.max_turns" | "budget.max_tokens" | "budget.max_tool_calls" | "budget.max_cost_usd" | "budget.timeout_seconds" | "read_only" | "allowed_profiles" | "exclude_paths" | "skill_suggestions" | "test_command_id" | "format_command_id";
+            /** @enum {string} */
+            source: "default" | "operator" | "project" | "snapshot";
         };
         Conflict: {
             current_sha256?: string;
@@ -9237,6 +9295,17 @@ export interface components {
             items: components["schemas"]["PriceSnapshotItemView"][];
             protocol_version: string;
         };
+        ProjectConfigurationView: {
+            allowed_profiles: string[];
+            /** Format: int32 */
+            excluded_path_count: number;
+            format_command_id?: string;
+            protocol: string;
+            read_only: boolean;
+            /** Format: int32 */
+            skill_suggestion_count: number;
+            test_command_id?: string;
+        };
         ProjectInstructionState: {
             capability_grant: boolean;
             diff: components["schemas"]["InstructionSnapshotDiff"];
@@ -9506,6 +9575,10 @@ export interface components {
             /** Format: int64 */
             Version: number;
             WorkspaceID: string;
+        };
+        Rejection: {
+            field: string;
+            reason: string;
         };
         ReleaseMetadata: {
             app_version: string;
@@ -9957,6 +10030,7 @@ export interface components {
             model_route: string;
             project_config_fingerprint?: string;
             project_instructions_fingerprint?: string;
+            requested_budget?: components["schemas"]["Budget"];
         };
         RunContextDiagnosticView: {
             attempt_id: string;
@@ -9994,6 +10068,7 @@ export interface components {
         };
         RunCreationControlRequestView: {
             allowed_targets?: string[];
+            budget?: components["schemas"]["TaskBudgetSettings"];
             goal: string;
             /** @enum {string} */
             network_mode?: "disabled" | "allowlist";
@@ -11496,6 +11571,42 @@ export interface components {
             /** Format: int32 */
             turn: number;
         };
+        TaskBudgetSettings: {
+            /** Format: double */
+            max_cost_usd?: number;
+            /** Format: int64 */
+            max_tokens?: number;
+            /** Format: int64 */
+            max_tool_calls?: number;
+            /** Format: int32 */
+            max_turns?: number;
+            /** Format: int64 */
+            timeout_seconds?: number;
+        };
+        TaskConfigurationRequest: {
+            budget?: components["schemas"]["TaskBudgetSettings"];
+            /** @enum {string} */
+            profile?: "code" | "learn" | "review" | "script";
+            workspace_id: string;
+        };
+        TaskConfigurationView: {
+            budget: components["schemas"]["Budget"];
+            /** @enum {boolean} */
+            capability_grant: false;
+            fingerprint?: string;
+            /** @enum {string} */
+            profile: "code" | "learn" | "review" | "script";
+            project?: components["schemas"]["ProjectConfigurationView"];
+            /** @enum {string} */
+            project_disposition: "absent" | "applied" | "rejected";
+            project_fingerprint?: string;
+            rejections: components["schemas"]["Rejection"][];
+            requested_budget: components["schemas"]["Budget"];
+            sources: components["schemas"]["ConfigurationSource"][];
+            /** @enum {string} */
+            version: "task_configuration.v1";
+            workspace_id: string;
+        };
         ThreadActivityArtifactReferenceView: {
             artifact_ref: string;
             /** @enum {string} */
@@ -11817,6 +11928,7 @@ export interface components {
         };
         ThreadCreationControlRequestView: {
             allowed_targets?: string[];
+            budget?: components["schemas"]["TaskBudgetSettings"];
             goal: string;
             model?: string;
             /** @enum {string} */
@@ -20328,6 +20440,43 @@ export interface operations {
             504: components["responses"]["GatewayTimeout"];
         };
     };
+    getRunTaskConfiguration: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Run identity */
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful read */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["TaskConfigurationView"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            414: components["responses"]["RequestTooLarge"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
+        };
+    };
     listRunToolRounds: {
         parameters: {
             query?: {
@@ -22479,6 +22628,44 @@ export interface operations {
             413: components["responses"]["RequestEntityTooLarge"];
             414: components["responses"]["RequestTooLarge"];
             415: components["responses"]["UnsupportedMediaType"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
+        };
+    };
+    previewTaskConfiguration: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["TaskConfigurationRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful read */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["TaskConfigurationView"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            414: components["responses"]["RequestTooLarge"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
             503: components["responses"]["Unavailable"];

@@ -853,7 +853,14 @@ func openAPIOperationSpecs() []openAPIOperationSpec {
 					string(domain.ThreadActive), string(domain.ThreadArchived), string(domain.ThreadDeleted)}),
 				openAPIParameter{Name: "q", In: "query", Description: "Trimmed literal title substring across all matching tasks; at most 256 Unicode characters. ASCII case-insensitive, other Unicode exact; no message-body search.", Schema: map[string]any{"type": "string", "maxLength": domain.MaxThreadTitleQueryRunes}},
 				booleanQueryParameter("include_deleted", "Include soft-deleted Threads"))},
+		{Path: TaskConfigurationPreviewPath, Method: http.MethodPost, OperationID: "previewTaskConfiguration", Summary: "Preview task budget and project narrowing", Tag: "Runs", SuccessStatus: http.StatusOK,
+			Description: "Read-only bounded workspace configuration preview using the read bearer. Loads inert .prayu/config.yaml through the same Go resolver as creation. Rejections block the entire creation; no source bytes, host paths or secrets are returned. No command, model, network, Skill or capability is executed or granted. Cost limits require an operator price snapshot at execution and do not represent exact billing.",
+			DataType:    reflect.TypeOf(application.TaskConfigurationView{}), RequestType: reflect.TypeOf(application.TaskConfigurationRequest{}), NotFound: true},
+		{Path: RunTaskConfigurationPathTemplate, OperationID: "getRunTaskConfiguration", Summary: "Read immutable task configuration", Tag: "Runs",
+			Description: "Projects only stored Run budget and project snapshot, never live repository configuration. Legacy snapshots use snapshot provenance when operator input was not retained. This read grants no capability.",
+			DataType:    reflect.TypeOf(application.TaskConfigurationView{}), Parameters: []openAPIParameter{runID}, NotFound: true},
 		{Path: ThreadCollectionPath, Method: http.MethodPost,
+
 			OperationID: "createThread", Summary: "Create a Thread", Tag: "Control",
 			Description: "Atomically creates one stable Thread with its initial Mission, Run, Session, closed execution mode, all-denied process authority snapshots, root Agent, and audit events. Network remains disabled unless the request supplies a bounded exact public HTTPS host allowlist.",
 			DataType:    reflect.TypeOf(ThreadCreationControlView{}),
@@ -2581,6 +2588,23 @@ func applyOpenAPIFieldMetadata(typeName string, fieldName string, schema map[str
 	if typeName == "MCPCredentialStatusView" && fieldName == "plaintext_returned" {
 		schema["enum"] = []bool{false}
 	}
+	if typeName == "TaskBudgetSettings" {
+		bounds := map[string][2]float64{
+			"max_turns": {1, domain.MaxTaskTurns}, "max_tokens": {0, float64(domain.MaxTaskTokens)},
+			"max_tool_calls": {1, float64(domain.MaxTaskToolCalls)}, "max_cost_usd": {0, domain.MaxTaskCostUSD},
+			"timeout_seconds": {0, float64(domain.MaxTaskTimeoutSeconds)},
+		}
+		if bound, found := bounds[fieldName]; found {
+			schema["minimum"], schema["maximum"] = bound[0], bound[1]
+		}
+	}
+	if typeName == "TaskConfigurationView" && fieldName == "capability_grant" {
+		schema["enum"] = []bool{false}
+	}
+	if typeName == "TaskConfigurationView" && (fieldName == "fingerprint" || fieldName == "project_fingerprint") {
+		schema["pattern"] = "^[0-9a-f]{64}$"
+	}
+
 	if typeName == "BoundedCommandGrantView" && fieldName == "each_command_requires_review" {
 		schema["enum"] = []bool{true}
 	}
@@ -3390,6 +3414,12 @@ var openAPIFieldEnums = map[string][]string{
 	"ThreadView.status":                                        {string(domain.ThreadActive), string(domain.ThreadArchived), string(domain.ThreadDeleted)},
 	"ThreadView.composer_state":                                {"ready", "waiting_approval", "successor_required", "unavailable"},
 	"ThreadView.execution_state":                               {"idle", "running", "stopping", "stop_failed", "waiting_approval", "paused", "completed", "failed", "cancelled", "unknown"},
+	"TaskConfigurationView.version":                            {application.TaskConfigurationVersion},
+	"TaskConfigurationView.project_disposition":                {"absent", "applied", "rejected"},
+	"TaskConfigurationView.profile":                            {"code", "learn", "review", "script"},
+	"TaskConfigurationRequest.profile":                         {"code", "learn", "review", "script"},
+	"ConfigurationSource.source":                               {"default", "operator", "project", "snapshot"},
+	"ConfigurationSource.field":                                {"budget.max_turns", "budget.max_tokens", "budget.max_tool_calls", "budget.max_cost_usd", "budget.timeout_seconds", "read_only", "allowed_profiles", "exclude_paths", "skill_suggestions", "test_command_id", "format_command_id"},
 	"ThreadCreationControlRequestView.version":                 {domain.ThreadCreationProtocolVersion},
 	"ThreadCreationControlRequestView.profile":                 {string(domain.ProfileCode), string(domain.ProfileReview), string(domain.ProfileLearn), string(domain.ProfileScript)},
 	"ThreadCreationControlRequestView.surface":                 {string(domain.ExecutionSurfaceCode), string(domain.ExecutionSurfaceCyber)},

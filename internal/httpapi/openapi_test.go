@@ -1318,6 +1318,8 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 				request.Header.Set("Idempotency-Key", "openapi-observe-original-missing-key")
 				response = httptest.NewRecorder()
 				fixture.api.ServeHTTP(response, request)
+			} else if spec.Path == TaskConfigurationPreviewPath {
+				response = previewConfigurationRequest(fixture.api, testAccessToken, `{"workspace_id":"`+fixture.workspace.ID+`"}`)
 			} else if spec.Control {
 				body := `{"profile":"docker"}`
 				if spec.OperationID == "controlThreadPlan" {

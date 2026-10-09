@@ -43,18 +43,19 @@ type RunService struct {
 }
 
 type CreateRunRequest struct {
-	Goal           string
-	Profile        string
-	Surface        string
-	Phase          string
-	WorkspaceID    string
-	SessionID      string
-	ModelRoute     string
-	Interactive    bool
-	NetworkMode    string
-	AllowedTargets []string
-	Budget         domain.Budget
-	RequestedBy    string
+	Goal            string
+	Profile         string
+	Surface         string
+	Phase           string
+	WorkspaceID     string
+	SessionID       string
+	ModelRoute      string
+	Interactive     bool
+	NetworkMode     string
+	AllowedTargets  []string
+	Budget          domain.Budget
+	RequestedBudget *domain.Budget
+	RequestedBy     string
 	// ProjectConfig is the validated, narrowed .prayu snapshot. It can only
 	// reduce the requested budget and profiles; any widening was already
 	// rejected by the caller, and the Run pins this exact view at creation.
@@ -335,6 +336,7 @@ func prepareRun(ctx context.Context, req CreateRunRequest,
 		Config: domain.RunConfig{
 			ModelRoute:                     route,
 			Interactive:                    req.Interactive,
+			RequestedBudget:                req.RequestedBudget,
 			ProjectConfig:                  projectSnapshot,
 			ProjectConfigFingerprint:       projectFingerprintOf(req.ProjectConfig),
 			ProjectInstructions:            projectInstructions,

@@ -695,11 +695,12 @@ type MissionView struct {
 }
 
 type RunConfigView struct {
-	ModelRoute                     string `json:"model_route"`
-	Interactive                    bool   `json:"interactive"`
-	ProjectConfigFingerprint       string `json:"project_config_fingerprint,omitempty"`
-	ProjectInstructionsFingerprint string `json:"project_instructions_fingerprint,omitempty"`
-	ContinuityContextFingerprint   string `json:"continuity_context_fingerprint,omitempty"`
+	RequestedBudget                *domain.Budget `json:"requested_budget,omitempty"`
+	ModelRoute                     string         `json:"model_route"`
+	Interactive                    bool           `json:"interactive"`
+	ProjectConfigFingerprint       string         `json:"project_config_fingerprint,omitempty"`
+	ProjectInstructionsFingerprint string         `json:"project_instructions_fingerprint,omitempty"`
+	ContinuityContextFingerprint   string         `json:"continuity_context_fingerprint,omitempty"`
 }
 
 type BudgetView struct {
@@ -1631,7 +1632,7 @@ func missionView(value domain.Mission) MissionView {
 func runView(value domain.Run) RunView {
 	return RunView{
 		ID: value.ID, MissionID: value.MissionID, SessionID: value.SessionID, Status: string(value.Status),
-		Config: RunConfigView{ModelRoute: value.Config.ModelRoute, Interactive: value.Config.Interactive,
+		Config: RunConfigView{ModelRoute: value.Config.ModelRoute, Interactive: value.Config.Interactive, RequestedBudget: value.Config.RequestedBudget,
 			ProjectConfigFingerprint:       value.Config.ProjectConfigFingerprint,
 			ProjectInstructionsFingerprint: value.Config.ProjectInstructionsFingerprint,
 			ContinuityContextFingerprint:   value.Config.ContinuityContextFingerprint},

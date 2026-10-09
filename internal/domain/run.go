@@ -48,8 +48,9 @@ func (s Scope) Validate() error {
 }
 
 type RunConfig struct {
-	ModelRoute  string `json:"model_route"`
-	Interactive bool   `json:"interactive"`
+	ModelRoute      string  `json:"model_route"`
+	Interactive     bool    `json:"interactive"`
+	RequestedBudget *Budget `json:"requested_budget,omitempty"`
 	// ProjectConfig is the immutable narrowing-only .prayu snapshot pinned at
 	// Run creation. Editing the project file later never changes this Run.
 	ProjectConfig            json.RawMessage `json:"project_config,omitempty"`
@@ -68,6 +69,11 @@ type RunConfig struct {
 }
 
 func (c RunConfig) Validate() error {
+	if c.RequestedBudget != nil {
+		if err := ValidateTaskBudget(*c.RequestedBudget); err != nil {
+			return err
+		}
+	}
 	if strings.TrimSpace(c.ModelRoute) == "" {
 		return errors.New("model route is required")
 	}
