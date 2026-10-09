@@ -120,7 +120,7 @@ def inspect_zip(path, version, revision, arch):
     numeric = re.match(r"v([0-9]+\.[0-9]+\.[0-9]+)", version).group(1)
     for key, value in {"CFBundleShortVersionString": numeric, "CFBundleVersion": numeric,
                        "CFBundleIdentifier": "workbench.prayu.desktop",
-                       "CFBundleExecutable": "cyberagent-desktop", "LSMinimumSystemVersion": "11.0.0"}.items():
+                       "CFBundleExecutable": "cyberagent-desktop", "LSMinimumSystemVersion": "12.0.0"}.items():
         require(plist.get(key) == value, "bundle identity differs: " + key)
     compat = read_json(contents["macos-compatibility.json"])
     for key, value in {"protocol_version": "macos_portable_compatibility.v1",

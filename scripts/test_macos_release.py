@@ -1,10 +1,14 @@
 """Archive corruption/identity tests. Fixtures are synthetic, not Mac GUI evidence."""
 import importlib.util
 import json
+import os
 from pathlib import Path
 import plistlib
+import re
+import shutil
 import stat
 import struct
+import subprocess
 import tempfile
 import unittest
 import zipfile
@@ -15,6 +19,36 @@ release = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(release)
 VERSION = "v1.0.0-rc.1"
 REVISION = "1234567890abcdef" * 2 + "12345678"
+
+
+class MacToolchainTest(unittest.TestCase):
+    def test_build_requires_the_exact_patched_toolchain(self):
+        root = Path(__file__).resolve().parents[1]
+        if os.name == "nt":
+            git = shutil.which("git")
+            bash = Path(git).parents[1] / "bin/bash.exe" if git else None
+        else:
+            bash = shutil.which("bash")
+        if not bash or not Path(bash).is_file():
+            self.skipTest("Bash is required for the macOS builder preflight")
+        source = (root / "scripts/build-desktop-darwin.sh").read_text(encoding="utf-8")
+        preflight = source[source.index('expectedGoVersion='):source.index('mkdir -p "$OutputDirectory"')]
+        module = (root / "go.mod").read_text(encoding="utf-8")
+        pinned = "go" + re.search(r"(?m)^go ([0-9]+\.[0-9]+\.[0-9]+)$", module).group(1)
+        shell = 'set -eu\ndie() { echo "$1" >&2; exit 1; }\ngo() { printf "%s\\n" "$TEST_GO_VERSION"; }\n'
+        with tempfile.TemporaryDirectory() as temporary:
+            # CRLF is a valid Go module file too; do not reject it as unpinned.
+            Path(temporary, "go.mod").write_bytes(module.replace("\n", "\r\n").encode())
+            for version in (pinned, "go1.26.8", "go1.27.0", "go1.27.1", "go1.27.2"):
+                with self.subTest(version=version):
+                    result = subprocess.run([str(bash), "-c", shell + preflight], cwd=temporary,
+                                            env=dict(os.environ, TEST_GO_VERSION=version),
+                                            capture_output=True, text=True)
+                    if version == pinned:
+                        self.assertEqual(result.returncode, 0, result.stderr)
+                    else:
+                        self.assertNotEqual(result.returncode, 0)
+                        self.assertIn("Desktop build requires " + pinned, result.stderr)
 
 
 class MacArchiveTest(unittest.TestCase):
@@ -52,7 +86,7 @@ class MacArchiveTest(unittest.TestCase):
         self.contents[release.APP + "/Contents/Info.plist"] = plistlib.dumps({
             "CFBundleShortVersionString": "1.0.0", "CFBundleVersion": "1.0.0",
             "CFBundleIdentifier": "workbench.prayu.desktop", "CFBundleExecutable": "cyberagent-desktop",
-            "LSMinimumSystemVersion": "11.0.0",
+            "LSMinimumSystemVersion": "12.0.0",
         })
 
     def write(self, modes=None, extra=None):
@@ -95,6 +129,16 @@ class MacArchiveTest(unittest.TestCase):
         self.write()
         with self.assertRaisesRegex(ValueError, "metadata differs: revision"):
             self.verify()
+
+    def test_incorrect_minimum_os_inside_rehashed_archive(self):
+        name = release.APP + "/Contents/Info.plist"
+        plist = plistlib.loads(self.contents[name])
+        for minimum in ("11.0.0", "13.0.0"):
+            with self.subTest(minimum=minimum):
+                self.contents[name] = plistlib.dumps({**plist, "LSMinimumSystemVersion": minimum})
+                self.write()
+                with self.assertRaisesRegex(ValueError, "bundle identity differs: LSMinimumSystemVersion"):
+                    self.verify()
 
     def test_wrong_cpu_even_when_metadata_claims_arm64(self):
         self.contents[release.BINARY] = bytes.fromhex("cffaedfe") + struct.pack("<I", 0x01000007)
