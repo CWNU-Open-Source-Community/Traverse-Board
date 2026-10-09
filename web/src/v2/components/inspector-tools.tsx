@@ -8,22 +8,26 @@ import { desktopBridgeAvailable } from "../../lib/desktop-bridge";
 import { threadActivityLabel } from "../../lib/thread-activity-label";
 import { useV2ThreadExecution } from "./thread-execution-control";
 import type { V2SettingsSection } from "./sidebar";
+import type { V2RunPane } from "../navigation";
 import "./inspector.css";
 
 // Advanced resource pages retain their exact scope and existing controls. They
 // use the same application navigation/settings, and never infer a stale Thread.
-export function V2InspectorTools({ client, tool, resourceID = "", threadID, onBack, onOpenSettings, onOpenRun }: {
+export function V2InspectorTools({ client, tool, resourceID = "", pane, threadID, onBack, onOpenSettings, onOpenRun }: {
   client: APIClient;
   tool: "run" | "session" | "schedule";
   resourceID?: string;
+  pane?: V2RunPane;
   threadID: string;
   onBack: () => void;
   onOpenSettings: (section: V2SettingsSection) => void;
   onOpenRun?: (runID: string) => void;
 }) {
-  const title = tool === "schedule" ? "定时观察" : tool === "run" ? "运行诊断" : "会话上下文";
+  const title = tool === "schedule" ? "定时观察" : tool === "session" ? "会话上下文"
+    : pane === "context" ? "续接与记忆" : pane === "checkpoints" ? "工作区恢复"
+      : pane === "ui-evidence" ? "界面观察证据" : "运行与工具";
   return <section className="v2-inspector-resource">
-    <header><button onClick={onBack} type="button"><ArrowLeft aria-hidden="true" size={16} />返回 Inspector</button>
+    <header><button onClick={onBack} type="button"><ArrowLeft aria-hidden="true" size={16} />返回任务观察</button>
       <strong>{title}</strong></header>
     <div className="v2-resource-scope">
       {tool !== "schedule" && <p>此页的高级操作仅针对当前记录；{threadID ? "任务权限设置仍针对来源对话。" : "未绑定对话，任务权限设置不可用。"}</p>}
@@ -36,11 +40,12 @@ export function V2InspectorTools({ client, tool, resourceID = "", threadID, onBa
     </div>
     <div className="v2-inspector-tool-body">
       {tool === "schedule" ? <ScheduledTasksWorkspace client={client} initialRunID={resourceID} />
-        : !resourceID ? <p role="alert">地址缺少记录标识，请返回 Inspector 重新选择。</p>
+        : !resourceID ? <p role="alert">地址缺少记录标识，请返回任务观察重新选择。</p>
           : <WorkbenchFrame client={client} desktop={desktopBridgeAvailable()} title={title}
             resourceKind={tool} runID={tool === "run" ? resourceID : ""}
             sessionID={tool === "session" ? resourceID : ""}>
-            {tool === "run" ? <RunWorkspace client={client} key={`run:${resourceID}`} runID={resourceID}
+            {tool === "run" ? <RunWorkspace client={client} key={`run:${resourceID}:${pane ?? "activity"}`} runID={resourceID}
+              initialTab={pane}
               onOpenPlugins={() => onOpenSettings("extensions")} onOpenRun={onOpenRun} />
               : <SessionWorkspace client={client} key={`session:${resourceID}`} sessionID={resourceID}
                 onOpenPlugins={() => onOpenSettings("extensions")} />}

@@ -29,6 +29,18 @@ function SettingRow({ title, detail, children }: { title: string; detail: string
     <div className="v2-setting-value">{children}</div></div>;
 }
 
+function ConnectionsSettings({ threadID, onSelect }: {
+  threadID: string; onSelect: (section: V2SettingsSection) => void;
+}) {
+  return <><h1>连接与环境</h1><p className="v2-settings-lead">配置模型、扩展与执行环境，再回到原任务继续。各连接的可用状态与任务授权分别由服务端核验。</p>
+    <nav className="v2-connection-navigation" aria-label="连接与环境设置">
+      <button onClick={() => onSelect("models")} type="button"><strong>模型连接</strong><span>接入服务、选择可用模型并检查资格。</span></button>
+      <button onClick={() => onSelect("extensions")} type="button"><strong>扩展与代码智能</strong><span>接入 MCP、Plugin 和语言服务，检查来源与使用范围。</span></button>
+      <button onClick={() => onSelect("permissions")} type="button"><strong>任务权限与执行环境</strong><span>{threadID ? "查看当前任务的权限、工作区信任与执行后端。" : "尚未选择任务；进入后可查看环境能力，任务设置需先打开对话。"}</span></button>
+      <button onClick={() => onSelect("about")} type="button"><strong>应用连接与诊断</strong><span>查看当前服务版本、网页能力和界面连接。</span></button>
+    </nav></>;
+}
+
 function FontLicenseControl() {
   const [open, setOpen] = useState(false);
   const [license, setLicense] = useState("");
@@ -316,6 +328,7 @@ export function V2Settings({ client, section, threadID, workspaces, onSelectSect
         <V2ExecutionSettings client={client} threadID={threadID} workspaces={workspaces} />
         <section className="v2-settings-section"><V2RuntimeCapabilityControl /></section></>}
       {section === "appearance" && <AppearanceSettings />}
+      {section === "connections" && <ConnectionsSettings threadID={threadID} onSelect={onSelectSection} />}
       {section === "archived" && <ArchivedSettings client={client} onOpenThread={onOpenThread} />}
       {(section === "models" || section === "advanced-models") &&
         <ModelSettingsPage client={client} initialAdvancedOpen={section === "advanced-models"}
@@ -330,7 +343,7 @@ export function V2Settings({ client, section, threadID, workspaces, onSelectSect
       </div>}
       {section === "inspector" && <V2InspectorPreferences onOpenInspector={onOpenInspector} />}
       {!(["general", "permissions", "appearance", "archived", "models", "inspector", "extensions", "plugins",
-        "skills", "advanced-models", "about", "shortcuts", "keyboard"] as V2SettingsSection[])
+        "skills", "advanced-models", "about", "shortcuts", "keyboard", "connections"] as V2SettingsSection[])
         .includes(section) && <PlaceholderSettings onOpenLegacy={onOpenInspector} section={section} />}
     </div></div>
   </main>;

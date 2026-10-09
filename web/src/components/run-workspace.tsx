@@ -227,14 +227,15 @@ export function RunWorkspaceTabs({ activeTab, ariaLabel, children, items, onSele
   </>;
 }
 
-export function RunWorkspace({ client, runID, onOpenPlugins, onOpenRun }: {
+export function RunWorkspace({ client, runID, onOpenPlugins, onOpenRun, initialTab = "activity" }: {
   client: APIClient;
   runID: string;
   onOpenPlugins?: () => void;
   onOpenRun?: (runID: string) => void;
+  initialTab?: RunTab;
 }) {
   const { t } = useLocale();
-  const [tab, setTab] = useState<RunTab>("activity");
+  const [tab, setTab] = useState<RunTab>(initialTab);
   const [inputOpen, setInputOpen] = useState(false);
   const [inputStatus, setInputStatus] = useState<SessionComposerStatus>({ pending: false, error: null });
   const showInputStatus = useCallback((status: SessionComposerStatus) => {

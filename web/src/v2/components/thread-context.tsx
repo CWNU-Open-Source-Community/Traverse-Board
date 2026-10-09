@@ -65,6 +65,8 @@ type ContextProps = {
   client: APIClient; threadID: string; detail: ThreadDetailView;
   onClose: () => void; onRequestChange: (content: string) => void;
   returnFocusRef?: RefObject<HTMLElement | null>;
+  onOpenRecovery?: (pane: "context" | "checkpoints") => void;
+  onOpenSession?: () => void;
 };
 
 export function V2ThreadContext(props: ContextProps) {
@@ -72,7 +74,7 @@ export function V2ThreadContext(props: ContextProps) {
   return <ThreadContextContent key={props.threadID} {...props} />;
 }
 
-function ThreadContextContent({ client, threadID, detail, onClose, onRequestChange, returnFocusRef }: ContextProps) {
+function ThreadContextContent({ client, threadID, detail, onClose, onRequestChange, returnFocusRef, onOpenRecovery, onOpenSession }: ContextProps) {
   const closeButton = useRef<HTMLButtonElement>(null);
   const dialog = useModalFocusTrap<HTMLElement>(true, onClose, false, closeButton, { isolateBackground: true, returnFocusRef });
   const [correction, setCorrection] = useState("");
@@ -115,6 +117,12 @@ function ThreadContextContent({ client, threadID, detail, onClose, onRequestChan
   return createPortal(<div className="v2-context-overlay">
     <section className="v2-thread-context" role="dialog" aria-modal="true" aria-label="任务上下文" ref={dialog}>
       <header><h2>任务上下文</h2><button type="button" ref={closeButton} aria-label="关闭任务上下文" onClick={onClose}><X size={18} /></button></header>
+      {(onOpenRecovery || onOpenSession) && <nav className="v2-context-workflows" aria-label="上下文与恢复工具">
+        {onOpenRecovery && <><button disabled={!bound} onClick={() => onOpenRecovery("context")} type="button">续接与记忆</button>
+          <button disabled={!bound} onClick={() => onOpenRecovery("checkpoints")} type="button">工作区恢复</button></>}
+        {onOpenSession && <button disabled={!bound} onClick={onOpenSession} type="button">会话原始记录</button>}
+      </nav>}
+      {onOpenRecovery && <p className="v2-context-help">续接与记忆保留对话来源；工作区恢复使用所选执行的文件检查点。恢复操作仍需预览和当前权限。</p>}
       <p className="v2-context-help">这里查看此执行已固定的项目指令、已附加的引用和已保存摘要，不是当前模型窗口的完整清单。</p>
       {!bound ? <p role="alert">任务与执行记录尚未对应，暂不显示上下文。</p> : <>
         <div className="v2-context-toolbar"><span>{detail.thread.title}</span><button type="button" disabled={busy} onClick={refresh}><RefreshCw size={15} />{busy ? "正在读取" : "重新读取"}</button></div>

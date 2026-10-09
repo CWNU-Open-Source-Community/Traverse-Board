@@ -101,20 +101,24 @@ it.each(["inspector", "conversation"] as const)("reveals the %s draft when reque
   expectNoWrites();
 });
 
-it("keeps global records directly available and discloses exact diagnostics without reopening the current Inspector", async () => {
+it("makes observation tools and exact context recovery directly reachable without writes", async () => {
   const { onOpenTool, onOpenInspectorHome, onOpenInspector, expectNoWrites } = setup();
   const user = userEvent.setup();
-  const nav = await screen.findByRole("navigation", { name: "高级检查" });
-  const disclosure = within(nav).getByText("诊断工具").closest("details")!;
-  expect(disclosure).not.toHaveAttribute("open");
-  expect(within(nav).getByRole("button", { name: "运行诊断与工具", hidden: true })).not.toBeVisible();
+  const nav = await screen.findByRole("navigation", { name: "执行观察工具" });
+  expect(within(nav).getByRole("button", { name: "运行与工具" })).toBeVisible();
   await user.click(within(nav).getByRole("button", { name: "全部运行与会话" }));
   expect(onOpenInspectorHome).toHaveBeenCalledOnce();
-  await user.click(within(nav).getByText("诊断工具"));
-  await user.click(within(nav).getByRole("button", { name: "运行诊断与工具" }));
-  await user.click(within(nav).getByRole("button", { name: "会话上下文" }));
+  await user.click(within(nav).getByRole("button", { name: "运行与工具" }));
+  await user.click(within(nav).getByRole("button", { name: "界面观察证据" }));
   await user.click(within(nav).getByRole("button", { name: "定时观察" }));
-  expect(onOpenTool.mock.calls).toEqual([["run", "run-thread-a"], ["session", "session-thread-a"], ["schedule", "run-thread-a"]]);
+  await user.click(screen.getByRole("button", { name: "查看上下文" }));
+  await user.click(await screen.findByRole("button", { name: "工作区恢复" }));
+  await user.click(screen.getByRole("button", { name: "查看上下文" }));
+  await user.click(await screen.findByRole("button", { name: "续接与记忆" }));
+  await user.click(screen.getByRole("button", { name: "查看上下文" }));
+  await user.click(await screen.findByRole("button", { name: "会话原始记录" }));
+  expect(onOpenTool.mock.calls).toEqual([["run", "run-thread-a"], ["run", "run-thread-a", "ui-evidence"],
+    ["schedule", "run-thread-a"], ["run", "run-thread-a", "checkpoints"], ["run", "run-thread-a", "context"], ["session", "session-thread-a"]]);
   await user.click(screen.getByRole("button", { name: "对话操作" }));
   expect(screen.queryByRole("menuitem", { name: "打开 Inspector" })).not.toBeInTheDocument();
   expect(screen.getByRole("menuitem", { name: "归档对话" })).toBeVisible();
@@ -128,7 +132,10 @@ it("retains the conversation-to-Inspector entry and consumes feedback focus befo
   await user.click(await screen.findByRole("button", { name: "对话操作" }));
   await user.click(screen.getByRole("menuitem", { name: "打开 Inspector" }));
   expect(onOpenInspector).toHaveBeenCalledWith(screen.getByRole("button", { name: "对话操作" }));
-  expect(screen.queryByRole("navigation", { name: "高级检查" })).not.toBeInTheDocument();
+  expect(screen.queryByRole("navigation", { name: "执行观察工具" })).not.toBeInTheDocument();
+  expect(screen.getByRole("navigation", { name: "任务工作区" })).toBeVisible();
+  await user.click(screen.getByRole("button", { name: "观察执行" }));
+  expect(onOpenInspector).toHaveBeenLastCalledWith(screen.getByRole("button", { name: "观察执行" }));
   await user.click(screen.getByRole("button", { name: "审阅改动" }));
   await user.click(await screen.findByRole("button", { name: "引用文件" }));
   const editor = container.querySelector<HTMLTextAreaElement>(".v2-shared-composer textarea")!;

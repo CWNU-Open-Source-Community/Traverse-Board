@@ -182,18 +182,18 @@ describe("V2Workbench inspector navigation", () => {
     render(<QueryClientProvider client={queryClient}><V2Workbench client={client} /></QueryClientProvider>);
     const user = userEvent.setup();
     await user.type(await screen.findByRole("textbox", { name: "任务草稿 fixture" }), "尚未发送的任务要求");
-    await user.click(screen.getByRole("button", { name: "Inspector" }));
+    await user.click(screen.getByRole("button", { name: "观察与记录" }));
     expect(screen.getByTestId("v2-conversation")).toHaveAttribute("data-view", "inspector");
     expect(window.location.hash).toBe(`#/threads/${createdThread.id}/inspector`);
     expect(screen.getByRole("textbox", { name: "任务草稿 fixture" })).toHaveValue("尚未发送的任务要求");
-    expect(screen.queryByRole("dialog", { name: "Inspector" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "观察与记录" })).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "设置" }));
     expect(screen.getByRole("heading", { name: "常规", level: 1 })).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "模型" }));
     expect(window.location.hash).toBe(`#/threads/${createdThread.id}/inspector/settings/models`);
     await user.click(screen.getByRole("button", { name: "返回应用" }));
     expect(await screen.findByTestId("v2-conversation")).toHaveAttribute("data-view", "inspector");
-    await user.click(screen.getByRole("button", { name: "Inspector" }));
+    await user.click(screen.getByRole("button", { name: "观察与记录" }));
     expect(screen.getByTestId("v2-conversation")).toHaveAttribute("data-view", "conversation");
     expect(screen.getByRole("textbox", { name: "任务草稿 fixture" })).toHaveValue("尚未发送的任务要求");
     expect(queryClient.getQueryData(v2FileReferenceKey(workspace.id, createdThread.id))).toEqual(files);
@@ -213,10 +213,10 @@ describe("V2Workbench inspector navigation", () => {
       await user.click(screen.getByRole("button", { name: "返回应用" }));
       expect(historyBack).not.toHaveBeenCalled();
       expect(window.location.hash).toBe(hash);
-      expect(screen.getByRole("button", { name: "Inspector" })).toHaveAttribute("aria-pressed", "true");
-      await user.click(screen.getByRole("button", { name: "Inspector" }));
+      expect(screen.getByRole("button", { name: "观察与记录" })).toHaveAttribute("aria-pressed", "true");
+      await user.click(screen.getByRole("button", { name: "观察与记录" }));
       expect(window.location.hash).toBe(hash.replace("/inspector", ""));
-      expect(screen.getByRole("button", { name: "Inspector" })).toHaveAttribute("aria-pressed", "false");
+      expect(screen.getByRole("button", { name: "观察与记录" })).toHaveAttribute("aria-pressed", "false");
       expectNoNavigationWrites(client);
     },
   );
@@ -231,12 +231,12 @@ describe("V2Workbench inspector navigation", () => {
     const user = userEvent.setup();
     await user.type(await screen.findByRole("textbox", { name: "开始新对话" }), "没有创建任务前的需求");
     await waitFor(() => expect(screen.getByRole("combobox", { name: "选择工作区" })).toHaveValue(workspace.id));
-    await user.click(screen.getByRole("button", { name: "Inspector" }));
+    await user.click(screen.getByRole("button", { name: "观察与记录" }));
     expect(window.location.hash).toBe("#/new/inspector");
     await user.click(screen.getByRole("button", { name: "设置" }));
     await user.click(screen.getByRole("button", { name: "返回应用" }));
     expect(window.location.hash).toBe("#/new/inspector");
-    await user.click(screen.getByRole("button", { name: "Inspector" }));
+    await user.click(screen.getByRole("button", { name: "观察与记录" }));
     expect(await screen.findByRole("textbox", { name: "开始新对话" })).toHaveValue("没有创建任务前的需求");
     expect(screen.getByRole("combobox", { name: "选择工作区" })).toHaveValue(workspace.id);
     expect(queryClient.getQueryData(v2FileReferenceKey(workspace.id, ""))).toEqual(files);
@@ -653,12 +653,12 @@ describe("V2Workbench first turn", () => {
 	  const user = userEvent.setup();
 	  await user.type(await screen.findByRole("textbox", { name: "开始新对话" }), "离开后也保留的首条草稿");
 	  await user.click(screen.getByRole("button", { name: "发送消息" }));
-	  await user.click(screen.getByRole("button", { name: "Inspector" }));
+	  await user.click(screen.getByRole("button", { name: "观察与记录" }));
 	  expect(window.location.hash).toBe("#/new/inspector");
 	  await act(async () => catalog.resolve({ ...selectableModelCatalog(), routes: [] }));
 	  await waitFor(() => expect(window.location.hash).toBe("#/new/inspector"));
 	  expect(createThread).not.toHaveBeenCalled();
-	  await user.click(screen.getByRole("button", { name: "Inspector" }));
+	  await user.click(screen.getByRole("button", { name: "观察与记录" }));
 	  expect(await screen.findByRole("textbox", { name: "开始新对话" })).toHaveValue("离开后也保留的首条草稿");
 	});
 

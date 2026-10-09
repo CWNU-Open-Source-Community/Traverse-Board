@@ -24,11 +24,12 @@ import type { WorkspaceView } from "../../api/types";
 import "./task-review.css";
 
 type ReviewTab = "overview" | "git" | "pr" | "tools" | "files" | "checks" | "records" | "restore" | "evidence";
-const historyTabs: [ReviewTab, string][] = [["files", "编辑明细"], ["checks", "检查与交付"],
+const historyTabs: [ReviewTab, string][] = [["files", "编辑明细"],
   ["records", "执行记录"], ["evidence", "参考资料"], ["restore", "撤销与恢复"]];
 const primaryTabs = [{ value: "overview", label: "查看改动", icon: FileDiff },
   { value: "git", label: "提交与推送", icon: GitCommitHorizontal },
   { value: "pr", label: "PR 状态", icon: GitPullRequest },
+  { value: "checks", label: "检查与交付", icon: FileDiff },
   { value: "tools", label: "更多交付工具", icon: Wrench }] as const;
 const executionStatusLabels: Record<string, string> = { created: "尚未开始", preparing: "准备中", running: "未结束",
   paused: "已暂停", waiting_approval: "等待批准", completed: "已完成",
@@ -74,7 +75,7 @@ export function V2TaskReview({ client, detail, working, onClose, onRequestChange
   const navigation = useRef<HTMLDivElement>(null);
   const selectTab = (value: ReviewTab, focusNavigation = false) => {
     setTab(value); setFilePath(null);
-    setShowHistory(!primaryTabs.some((item) => item.value === value));
+    setShowHistory((expanded) => value === "checks" ? expanded : !primaryTabs.some((item) => item.value === value));
     if (focusNavigation) requestAnimationFrame(() => navigation.current?.querySelector<HTMLButtonElement>(`[data-review-tab="${value}"]`)?.focus());
   };
   const [filePath, setFilePath] = useState<{ path: string; workspaceID: string } | null>(null);
@@ -200,7 +201,7 @@ export function V2TaskReview({ client, detail, working, onClose, onRequestChange
       <div className="v2-review-body" key={`${reviewedRunID}:${tab}`}>
         {!["overview", "git", "pr"].includes(tab) && <div className="v2-review-history-heading">
           <button onClick={() => selectTab("overview", true)} type="button"><ArrowLeft size={14} aria-hidden="true" />返回任务改动</button>
-          <h2>{tab === "tools" ? "更多交付工具" : historyTabs.find(([value]) => value === tab)?.[1]}</h2></div>}
+          <h2>{primaryTabs.find((item) => item.value === tab)?.label ?? historyTabs.find(([value]) => value === tab)?.[1]}</h2></div>}
         {tab === "overview" && <TaskOverview client={client} threadID={detail.thread.id} onFeedback={onRequestChange}
           onReviewFile={reviewFile} onGit={() => selectTab("git", true)}
           onPullRequest={() => selectTab("pr", true)}

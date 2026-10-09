@@ -16,7 +16,7 @@ import { useV2Client } from "./client-session";
 import { v2QueryKeys } from "./query-keys";
 import { registerV2RecoveredTurn, useV2RestoreTurns, useV2ThreadTurn, v2TurnFailed } from "./use-thread-turn";
 import { V2WorkspaceStart } from "./components/workspace-start";
-import { useV2Navigation } from "./navigation";
+import { useV2Navigation, type V2RunPane } from "./navigation";
 import { readDensity } from "../lib/ui-density";
 import { V2RecoveryProvider, useV2PersistentState, useV2PersistenceWarning, useV2RecoveryStore } from "./recovery-storage";
 import { useV2Drafts } from "./recovery-session";
@@ -394,9 +394,9 @@ function V2WorkbenchContent({ client }: { client: APIClient }) {
       document.querySelector<HTMLTextAreaElement>(".v2-new-conversation .v2-composer textarea")?.focus()));
   };
   const openInspector = () => changeView("inspector");
-  const openTool = (tool: "run" | "session" | "schedule", resourceID?: string) => navigate({
+  const openTool = (tool: "run" | "session" | "schedule", resourceID?: string, pane?: V2RunPane) => navigate({
     kind: selectedThreadID ? "thread" : "new", ...(selectedThreadID ? { threadID: selectedThreadID } : {}),
-    view: "inspector", tool, ...(resourceID ? { resourceID } : {}),
+    view: "inspector", tool, ...(resourceID ? { resourceID } : {}), ...(tool === "run" && pane ? { pane } : {}),
   });
   const openCreatedRun = (runID: string) => {
     // The mutation retains the callback from its source route. A later source
@@ -417,6 +417,7 @@ function V2WorkbenchContent({ client }: { client: APIClient }) {
         onSelect={setSettingsSection} section={settingsSection} /> : <V2Sidebar
           onArchive={setArchiveCandidate} onNewConversation={startNew} onOpenModels={() => openModels(newConversation)}
           onOpenSettings={openSettings}
+          onOpenConnections={() => setSettingsSection("connections")}
           onOpenInspector={() => changeView(view === "inspector" ? "conversation" : "inspector")}
           inspectorActive={view === "inspector"}
           onSearchOpen={(open) => {
@@ -450,7 +451,7 @@ function V2WorkbenchContent({ client }: { client: APIClient }) {
           ? <V2LazySurface resetKey="inspector-tools"
             loadingText="正在加载检查工具…" errorLabel="检查工具">
             <V2InspectorTools client={client} tool={route.tool} resourceID={route.resourceID}
-            threadID={selectedThreadID} onBack={openInspector} onOpenSettings={setSettingsSection}
+            threadID={selectedThreadID} pane={route.pane} onBack={openInspector} onOpenSettings={setSettingsSection}
             onOpenRun={openCreatedRun} /></V2LazySurface>
           : view === "inspector" && !selectedThreadID
           ? <V2LazySurface resetKey="inspector-home" loadingText="正在加载 Inspector…" errorLabel="Inspector">

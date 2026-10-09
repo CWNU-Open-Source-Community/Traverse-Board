@@ -38,7 +38,8 @@ it("reviews each task execution and carries exact edit context into a correction
     <V2TaskReview client={client} detail={detail} working={false} onClose={onClose}
       onRequestChange={onRequestChange} returnFocusRef={createRef()} />
   </QueryClientProvider>);
-  expect(within(screen.getByRole("group", { name: "交付流程" })).getAllByRole("button")).toHaveLength(4);
+  expect(within(screen.getByRole("group", { name: "交付流程" })).getAllByRole("button")).toHaveLength(5);
+  expect(screen.getByRole("button", { name: "检查与交付" })).toBeVisible();
   expect(screen.queryByRole("button", { name: "编辑明细" })).not.toBeInTheDocument();
   expect(screen.getByRole("button", { name: "查看改动" })).toHaveAttribute("aria-pressed", "true");
   await openHistory(user, "编辑明细");

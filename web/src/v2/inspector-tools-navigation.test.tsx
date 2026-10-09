@@ -21,12 +21,25 @@ function ResourceProbe({ kind, id }: { kind: string; id: string }) {
   </div>;
 }
 
-vi.mock("../components/run-workspace", () => ({ RunWorkspace: ({ runID }: { runID: string }) => <ResourceProbe kind="run" id={runID} /> }));
+vi.mock("../components/run-workspace", () => ({ RunWorkspace: ({ runID, initialTab }: { runID: string; initialTab?: string }) =>
+  <><output aria-label="Run entry pane">{initialTab ?? "activity"}</output><ResourceProbe kind="run" id={runID} /></> }));
 vi.mock("../components/session-workspace", () => ({ SessionWorkspace: ({ sessionID }: { sessionID: string }) => <ResourceProbe kind="session" id={sessionID} /> }));
 vi.mock("../components/workbench-frame", () => ({ WorkbenchFrame: ({ children }: { children: ReactNode }) => <div>{children}</div> }));
 vi.mock("../components/scheduled-tasks-workspace", () => ({ ScheduledTasksWorkspace: () => null }));
 
 afterEach(() => { cleanup(); submitResource.mockClear(); useConnectionStore.getState().disconnect(); });
+
+it.each(["context", "checkpoints", "tools", "ui-evidence"] as const)("opens the existing %s pane on the exact Run and refuses a missing identity", (pane) => {
+  const props = { client: {} as APIClient, tool: "run" as const, threadID: "", pane,
+    onBack: vi.fn(), onOpenSettings: vi.fn() };
+  const view = render(<V2InspectorTools {...props} resourceID="run-exact" />);
+  expect(screen.getByLabelText("Run entry pane")).toHaveTextContent(pane);
+  expect(screen.getByLabelText("Resource identity")).toHaveTextContent("run:run-exact");
+  view.rerender(<V2InspectorTools {...props} resourceID="" />);
+  expect(screen.getByRole("alert")).toHaveTextContent("地址缺少记录标识");
+  expect(screen.queryByLabelText("Resource identity")).not.toBeInTheDocument();
+  expect(submitResource).not.toHaveBeenCalled();
+});
 
 it.each(["run", "session"] as const)("does not transfer %s draft or uncertain operation state to another resource", (tool) => {
   const client = {} as APIClient;
@@ -56,25 +69,24 @@ it("keeps direct resource navigation unbound to a previously selected Thread and
   expect(screen.getByText("run-history")).toBeVisible();
   fireEvent.click(screen.getByRole("button", { name: "设置" }));
   expect(onOpenSettings).toHaveBeenCalledExactlyOnceWith("general");
-  fireEvent.click(screen.getByRole("button", { name: "返回 Inspector" }));
+  fireEvent.click(screen.getByRole("button", { name: "返回任务观察" }));
   expect(onBack).toHaveBeenCalledOnce();
   expect(submitResource).not.toHaveBeenCalled();
 });
 
-it("prioritizes saved record browsing and keeps auxiliary home destinations available on demand", () => {
+it("keeps saved records, scheduled observation and connections directly available without fetching", () => {
   const getPage = vi.fn(), onOpenTool = vi.fn(), onOpenSettings = vi.fn();
   render(<QueryClientProvider client={new QueryClient()}><V2InspectorHome client={{ getPage } as unknown as APIClient}
     onOpenTool={onOpenTool} onOpenSettings={onOpenSettings} /></QueryClientProvider>);
   expect(screen.getByRole("button", { name: "运行记录" })).toBeVisible();
   expect(screen.getByRole("button", { name: "会话记录" })).toBeVisible();
-  expect(screen.getByRole("button", { name: "定时观察" })).not.toBeVisible();
-  expect(screen.getByRole("button", { name: "连接与诊断" })).not.toBeVisible();
+  expect(screen.getByRole("button", { name: "定时观察" })).toBeVisible();
+  expect(screen.getByRole("button", { name: "连接与环境" })).toBeVisible();
   expect(getPage).not.toHaveBeenCalled();
-  fireEvent.click(screen.getByText("其他检查工具"));
   fireEvent.click(screen.getByRole("button", { name: "定时观察" }));
   expect(onOpenTool).toHaveBeenCalledExactlyOnceWith("schedule");
-  fireEvent.click(screen.getByRole("button", { name: "连接与诊断" }));
-  expect(onOpenSettings).toHaveBeenCalledExactlyOnceWith("about");
+  fireEvent.click(screen.getByRole("button", { name: "连接与环境" }));
+  expect(onOpenSettings).toHaveBeenCalledExactlyOnceWith("connections");
   expect(getPage).not.toHaveBeenCalled();
 });
 

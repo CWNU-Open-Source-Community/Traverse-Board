@@ -10,6 +10,7 @@
 .v2-thread-context button:disabled { opacity:.5; cursor:default; }
 .v2-thread-context button:focus-visible, .v2-thread-context summary:focus-visible, .v2-thread-context textarea:focus-visible { outline:2px solid var(--v2-accent, #6b91df); outline-offset:3px; }
 .v2-context-help { color:var(--v2-muted); font-size:13px; }
+.v2-context-workflows { display:flex; flex-wrap:wrap; gap:8px; margin:8px 0 12px; }
 .v2-context-toolbar { display:flex; align-items:center; justify-content:space-between; gap:12px; margin:14px 0; }
 .v2-context-toolbar > span { min-width:0; }
 .v2-context-toolbar button { flex-shrink:0; }

@@ -11,6 +11,20 @@ afterEach(() => {
   window.localStorage.removeItem("prayu.locale.v1");
 });
 
+it("routes connection and environment tasks directly without inspecting or changing a resource", async () => {
+  const onSelectSection = vi.fn();
+  const get = vi.fn(); const postControl = vi.fn();
+  render(<V2Settings client={{ get, postControl } as unknown as APIClient} section="connections"
+    threadID="thread-current" workspaces={[]} onSelectSection={onSelectSection} onOpenInspector={vi.fn()} />);
+  const nav = screen.getByRole("navigation", { name: "连接与环境设置" });
+  const user = userEvent.setup();
+  for (const label of ["模型连接", "扩展与代码智能", "任务权限与执行环境", "应用连接与诊断"]) {
+    await user.click(within(nav).getByRole("button", { name: new RegExp(label) }));
+  }
+  expect(onSelectSection.mock.calls).toEqual([["models"], ["extensions"], ["permissions"], ["about"]]);
+  expect(get).not.toHaveBeenCalled(); expect(postControl).not.toHaveBeenCalled();
+});
+
 function archivedThread(id: string, title: string, version: number): ThreadView {
   return {
     id, protocol_version: "thread.v1", workspace_id: `workspace-${id}`,
