@@ -1490,6 +1490,7 @@
         "full_cdp_preview_action.v1",
         "full_cdp_session.v1",
         "full_cdp_session_close.v1",
+        "mcp-credential.v1",
         "mode_policy.v1",
         "model_harness.v1",
         "model_harness_qualification.v1",
@@ -1547,6 +1548,7 @@
         "session_steering_revision.v1",
         "skill_package_installation.v1",
         "standard_code_preset.v1",
+        "task_configuration.v1",
         "thread.v1",
         "thread_activity_artifact.v1",
         "thread_activity_detail.v2",
@@ -2628,7 +2630,8 @@
             0,
             1,
             2,
-            3
+            3,
+            4
           ],
           "mode": "write-new"
         },
@@ -2649,7 +2652,8 @@
             0,
             1,
             2,
-            3
+            3,
+            4
           ],
           "status": "active"
         },
@@ -2699,6 +2703,7 @@
         "run_creation_request.v1",
         "run_creation_request.v2",
         "run_creation_request.v3",
+        "run_creation_request.v4",
         "run_lifecycle_operation.v1",
         "run_lifecycle_request.v1",
         "run_progress_guard.v1",

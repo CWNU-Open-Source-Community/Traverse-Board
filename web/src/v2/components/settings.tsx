@@ -372,7 +372,7 @@ export function V2Settings({ client, section, threadID, workspaces, onSelectSect
       </div>}
       {section === "inspector" && <V2InspectorPreferences onOpenInspector={onOpenInspector} />}
       {!(["general", "permissions", "appearance", "archived", "models", "inspector", "extensions", "plugins",
-        "skills", "advanced-models", "about", "shortcuts", "keyboard", "connections"] as V2SettingsSection[])
+        "skills", "advanced-models", "about", "shortcuts", "keyboard", "connections", "task-configuration"] as V2SettingsSection[])
         .includes(section) && <PlaceholderSettings onOpenLegacy={onOpenInspector} section={section} />}
     </div></div>
   </main>;

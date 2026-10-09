@@ -3,6 +3,7 @@ import type { APIClient } from "../../api/client";
 import type { RunDetailView, TaskBudgetSettings, ThreadDetailView } from "../../api/types";
 import { v2QueryKeys } from "../query-keys";
 import { TaskConfiguration } from "./task-configuration";
+import { useLocale } from "../../lib/locale";
 
 export function TaskConfigurationSettings({ client, threadID, sourceRunID, draftWorkspaceID = "", draftBudget,
   onDraftBudgetChange, onDraftValidityChange }: {
@@ -14,16 +15,17 @@ export function TaskConfigurationSettings({ client, threadID, sourceRunID, draft
   onDraftBudgetChange?: (budget: TaskBudgetSettings | undefined) => void;
   onDraftValidityChange?: (valid: boolean) => void;
 }) {
+  const { t } = useLocale();
   const thread = useQuery({ queryKey: v2QueryKeys.thread(threadID), enabled: Boolean(threadID),
     queryFn: async ({ signal }) => {
       const detail = await client.get<ThreadDetailView>(`/threads/${encodeURIComponent(threadID)}`, {}, signal);
-      if (detail?.thread.id !== threadID) throw new Error("任务配置来源不匹配。");
+      if (detail?.thread.id !== threadID) throw new Error(t("任务配置来源不匹配。", "The task configuration source does not match."));
       return detail;
     } });
   const standaloneRun = useQuery({ queryKey: ["run", sourceRunID], enabled: !threadID && Boolean(sourceRunID),
     queryFn: async ({ signal }) => {
       const detail = await client.get<RunDetailView>(`/runs/${encodeURIComponent(sourceRunID!)}`, {}, signal);
-      if (detail?.run.id !== sourceRunID || detail.run.mission_id !== detail.mission.id) throw new Error("执行配置来源不匹配。");
+      if (detail?.run.id !== sourceRunID || detail.run.mission_id !== detail.mission.id) throw new Error(t("执行配置来源不匹配。", "The execution configuration source does not match."));
       return detail;
     } });
   const detail = !thread.isError && thread.data?.thread.id === threadID ? thread.data : undefined;
@@ -35,14 +37,14 @@ export function TaskConfigurationSettings({ client, threadID, sourceRunID, draft
   const pinned = Boolean(threadID || sourceRunID);
   const source = threadID ? thread : standaloneRun;
   const workspaceID = threadID ? detail?.thread.workspace_id ?? "" : directRun?.mission.workspace_id ?? "";
-  return <><h1>任务预算与项目配置</h1><p className="v2-settings-lead">{pinned
-    ? "查看所选执行创建时保存的预算和项目配置。每次执行使用固定快照。"
-    : "为当前项目的新任务设置预算。设置随草稿保留，项目配置由服务端在创建时再次核对。"}</p>
+  return <><h1>{t("任务预算与项目配置", "Task budget and project configuration")}</h1><p className="v2-settings-lead">{pinned
+    ? t("查看所选执行创建时保存的预算和项目配置。每次执行使用固定快照。", "View the budget and project configuration saved when the selected execution was created. Each execution uses a pinned snapshot.")
+    : t("为当前项目的新任务设置预算。设置随草稿保留，项目配置由服务端在创建时再次核对。", "Set the budget for new tasks in this project. Settings stay with the draft; the server checks project configuration again at creation.")}</p>
     {pinned ? run && workspaceID ? <TaskConfiguration key={`run:${run.id}`} client={client} workspaceID={workspaceID} run={run} />
       : <div className="v2-notice" role={source.isPending ? "status" : "alert"}>
-        {source.isPending ? "正在核对任务与执行配置来源…" : source.isError ? "无法读取所选执行的配置来源，请重试。"
-          : "所选执行或其工作区尚未找到，无法读取固定配置。请返回任务并明确选择执行记录。"}
-        {!source.isPending && <button onClick={() => void source.refetch()} type="button">重试执行配置来源</button>}
+        {source.isPending ? t("正在核对任务与执行配置来源…", "Checking the task and execution source…") : source.isError ? t("无法读取所选执行的配置来源，请重试。", "Could not read the selected execution source. Try again.")
+          : t("所选执行或其工作区尚未找到，无法读取固定配置。请返回任务并明确选择执行记录。", "The selected execution or workspace was not found. Return to the task and select an execution to read its pinned configuration.")}
+        {!source.isPending && <button onClick={() => void source.refetch()} type="button">{t("重试执行配置来源", "Retry execution source")}</button>}
       </div>
       : <TaskConfiguration key={`draft:${draftWorkspaceID}`} client={client} workspaceID={draftWorkspaceID} profile="code"
         budget={draftBudget} onBudgetChange={onDraftBudgetChange} onValidityChange={onDraftValidityChange}

@@ -23,7 +23,7 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 | [docker-attach-process-session](#docker-attach-process-session) | `ephemeral` | Docker runtime transport maintainers | 1 | false |
 | [exported-evidence-and-handoff](#exported-evidence-and-handoff) | `external-durable` | Evidence, verification, report, and handoff maintainers | 35 | true |
 | [extension-package-contracts](#extension-package-contracts) | `external-durable` | Skill, Plugin, Hook, and extension maintainers | 48 | true |
-| [http-openapi-contract](#http-openapi-contract) | `external-durable` | HTTP/OpenAPI and generated-client maintainers | 114 | true |
+| [http-openapi-contract](#http-openapi-contract) | `external-durable` | HTTP/OpenAPI and generated-client maintainers | 116 | true |
 | [in-memory-token-session](#in-memory-token-session) | `ephemeral` | Credential and bootstrap maintainers | 1 | false |
 | [lsp-process-session](#lsp-process-session) | `ephemeral` | Code intelligence maintainers | 1 | false |
 | [mcp-interchange](#mcp-interchange) | `external-durable` | MCP client/server maintainers | 6 | true |
@@ -38,7 +38,7 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 | [standard-code-delivery-ledger](#standard-code-delivery-ledger) | `external-durable` | Standard Code delivery and public projection maintainers | 8 | true |
 | [supervisor-input-delivery-projection](#supervisor-input-delivery-projection) | `projection` | Supervisor input and context maintainers | 1 | true |
 | [supervisor-tool-rejection-diagnostics](#supervisor-tool-rejection-diagnostics) | `internal-durable` | Supervisor terminal accounting and private diagnostic maintainers | 1 | true |
-| [thread-run-session-ledgers](#thread-run-session-ledgers) | `internal-durable` | Thread, Run, Session, context, and message maintainers | 51 | true |
+| [thread-run-session-ledgers](#thread-run-session-ledgers) | `internal-durable` | Thread, Run, Session, context, and message maintainers | 52 | true |
 | [thread-transcript-projection](#thread-transcript-projection) | `projection` | Thread transcript maintainers | 1 | true |
 | [tool-mutation-ledgers](#tool-mutation-ledgers) | `internal-durable` | Tool gateway, file edit, Git, and mutation maintainers | 41 | true |
 | [ui-reference-testing-contracts](#ui-reference-testing-contracts) | `projection` | React workbench and visual-regression maintainers | 4 | true |
@@ -874,7 +874,7 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 - Readers:
   - `http-openapi-contract-reader` (`v0, v1, v2`, active) at `web/src/api`
 
-<details><summary>114 active identifiers</summary>
+<details><summary>116 active identifiers</summary>
 
 - `agent-code-tools.v1`
 - `agent_browser_close.v1`
@@ -909,6 +909,7 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 - `full_cdp_preview_action.v1`
 - `full_cdp_session.v1`
 - `full_cdp_session_close.v1`
+- `mcp-credential.v1`
 - `mode_policy.v1`
 - `model_harness.v1`
 - `model_harness_qualification.v1`
@@ -966,6 +967,7 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 - `session_steering_revision.v1`
 - `skill_package_installation.v1`
 - `standard_code_preset.v1`
+- `task_configuration.v1`
 - `thread.v1`
 - `thread_activity_artifact.v1`
 - `thread_activity_detail.v2`
@@ -1581,13 +1583,13 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 - Compatibility rule: Add versions without rewriting identity/history; retain every reader needed by supported databases and exports. The observed_browser_controls marker is a semantic progress hash domain, not an executable payload or authority. Retain sealed original tool receipts and the meaning of persisted progress counters when evolving its observation projection.
 - Retirement gate (`migration-or-retention`): ADR-backed retirement decision and rollback path; Old-version fixtures remain until every supported source is migrated or retained; Reader history is append-only; retirement requires migration or retention evidence
 - Writers:
-  - `thread-run-session-ledgers-writer` (`v0, v1, v2, v3`, write-new) at `internal/application`
+  - `thread-run-session-ledgers-writer` (`v0, v1, v2, v3, v4`, write-new) at `internal/application`
   - `thread-local-recovery-writer` (`v1`, write-new) at `web/src/v2`
 - Readers:
-  - `thread-run-session-ledgers-reader` (`v0, v1, v2, v3`, active) at `internal/store`
+  - `thread-run-session-ledgers-reader` (`v0, v1, v2, v3, v4`, active) at `internal/store`
   - `thread-local-recovery-reader` (`v1`, active) at `web/src/v2`
 
-<details><summary>51 active identifiers</summary>
+<details><summary>52 active identifiers</summary>
 
 - `context_memory.v1`
 - `continuity_context.v1`
@@ -1614,6 +1616,7 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 - `run_creation_request.v1`
 - `run_creation_request.v2`
 - `run_creation_request.v3`
+- `run_creation_request.v4`
 - `run_lifecycle_operation.v1`
 - `run_lifecycle_request.v1`
 - `run_progress_guard.v1`
