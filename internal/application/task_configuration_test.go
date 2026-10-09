@@ -124,3 +124,23 @@ func TestTaskConfigurationRejectsWholeCreationAndDoesNotLeakDecodeErrors(t *test
 		t.Fatalf("rejected configuration created Run: %v %v", runs, err)
 	}
 }
+
+func TestTaskConfigurationLegacySnapshotPreservesUnboundedAndLargerLimits(t *testing.T) {
+	budget := domain.Budget{MaxTurns: 20_000, MaxTokens: 2_000_000_000, MaxToolCalls: 0, MaxCostUSD: 200_000, TimeoutSeconds: 1_000_000}
+	if err := budget.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	view, err := application.PinnedTaskConfiguration(domain.Run{Budget: budget}, "workspace-legacy", domain.ProfileCode)
+	if err != nil || view.Budget != budget || view.RequestedBudget != budget {
+		t.Fatalf("legacy snapshot=%#v err=%v", view, err)
+	}
+	for _, source := range view.Sources {
+		if source.Source != "snapshot" {
+			t.Fatalf("fabricated operator source=%#v", source)
+		}
+	}
+	raw, err := json.Marshal(view)
+	if err != nil || bytes.Contains(raw, []byte(`"max_tool_calls"`)) {
+		t.Fatalf("legacy zero tool dimension must remain omitted: %s err=%v", raw, err)
+	}
+}

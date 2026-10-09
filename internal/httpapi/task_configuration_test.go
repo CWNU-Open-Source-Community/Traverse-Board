@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"cyberagent-workbench/internal/application"
+	"cyberagent-workbench/internal/domain"
 )
 
 func previewConfigurationRequest(api *API, token, body string) *httptest.ResponseRecorder {
@@ -60,5 +61,27 @@ func TestTaskConfigurationHTTPReadOnlyPreviewAndPinnedCreation(t *testing.T) {
 	assertAPIError(t, performControlPathRequest(t, fixture.api, ThreadCollectionPath, "http-config-budget-0002", strings.NewReader(createBody)), http.StatusPreconditionFailed, "FAILED_PRECONDITION")
 	for _, budget := range []string{`null`, `{"max_tokens":null}`, `{"max_cost_usd":null}`, `{"timeout_seconds":null}`, `{"max_turns":0}`, `{"max_tool_calls":0}`, `{"max_turns":10001}`, `{"max_tokens":-1}`, `{"timeout_seconds":604801}`, `{"max_cost_usd":0.0000001}`, `{"max_turns":20,"max_turns":21}`, `{"credential":"forbidden"}`} {
 		assertAPIError(t, previewConfigurationRequest(fixture.api, testAccessToken, `{"workspace_id":"`+fixture.workspace.ID+`","budget":`+budget+`}`), http.StatusBadRequest, "INVALID_ARGUMENT")
+	}
+}
+
+func TestTaskConfigurationHTTPLegacyRunKeepsZeroToolLimit(t *testing.T) {
+	fixture := newAPIFixture(t)
+	budget := domain.Budget{MaxTurns: 20_000, MaxTokens: 2_000_000_000, MaxCostUSD: 200_000, TimeoutSeconds: 1_000_000}
+	_, run, err := application.NewRunService(fixture.store).Create(t.Context(), application.CreateRunRequest{
+		Goal: "read legacy CLI ceilings", WorkspaceID: fixture.workspace.ID, Profile: "review", Budget: budget,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	var pinned application.TaskConfigurationView
+	response := fixture.get(t, "/api/v1/runs/"+run.ID+"/task-configuration")
+	decodeData(t, response, &pinned)
+	if pinned.Budget != budget || pinned.RequestedBudget != budget || strings.Contains(response.Body.String(), `"max_tool_calls"`) {
+		t.Fatalf("legacy snapshot was reinterpreted: %s", response.Body.String())
+	}
+	for _, source := range pinned.Sources {
+		if source.Source != "snapshot" {
+			t.Fatalf("legacy source=%#v", source)
+		}
 	}
 }

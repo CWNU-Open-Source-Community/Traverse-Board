@@ -8158,7 +8158,7 @@ export class APIClient {
 
   async getRunTaskConfiguration(runID: string, signal?: AbortSignal): Promise<import("./types").TaskConfigurationView> {
     if (!boundedIdentity(runID) || runID.trim() !== runID) throw new Error("A normalized Run identity is required");
-    return parseTaskConfiguration(await this.get<unknown>(`/runs/${encodeURIComponent(runID)}/task-configuration`, {}, signal));
+    return parseTaskConfiguration(await this.get<unknown>(`/runs/${encodeURIComponent(runID)}/task-configuration`, {}, signal), undefined, undefined, "snapshot");
   }
 
   async createRun(body: RunCreationControlRequestView, idempotencyKey: string,

@@ -42,6 +42,31 @@ describe("task configuration contract", () => {
     ]) expect(() => parseTaskConfiguration(invalid)).toThrow();
   });
 
+  it("rejects explicit null response budget fields instead of treating them as zero", () => {
+    const view = configurationFixture();
+    for (const section of ["budget", "requested_budget"] as const) {
+      for (const field of ["max_turns", "max_tokens", "max_tool_calls", "max_cost_usd", "timeout_seconds"]) {
+        expect(() => parseTaskConfiguration({ ...view, [section]: { ...view[section], [field]: null } })).toThrow();
+      }
+    }
+  });
+
+  it("reads legacy snapshot ceilings without product defaults and rejects them as creation input", async () => {
+    for (const toolLimit of [undefined, 0]) {
+      const saved = { max_turns: 20_000, max_tokens: 2_000_000_000, max_cost_usd: 200_000, timeout_seconds: 1_000_000,
+        ...(toolLimit === undefined ? {} : { max_tool_calls: toolLimit }) };
+      const legacy = { ...configurationFixture(), requested_budget: saved, budget: saved,
+        sources: configurationFixture().sources.map((source) => ({ ...source, source: "snapshot" as const })),
+        project_disposition: "absent" as const, project: undefined, project_fingerprint: undefined };
+      vi.stubGlobal("fetch", vi.fn().mockImplementation(() => Promise.resolve(response(legacy))));
+      await expect(new APIClient("read-token", "/api/v1").getRunTaskConfiguration("run-legacy")).resolves.toEqual(legacy);
+      expect(() => parseTaskConfiguration(legacy)).toThrow();
+      expect(() => normalizedTaskBudget(saved)).toThrow();
+      expect(() => parseTaskConfiguration({ ...legacy, budget: { ...saved, max_tokens: saved.max_tokens + 1 } }, undefined, undefined, "snapshot")).toThrow();
+      expect(() => parseTaskConfiguration({ ...legacy, budget: { ...saved, max_tool_calls: null } }, undefined, undefined, "snapshot")).toThrow();
+    }
+  });
+
   it("validates explicit budgets before sending and canonicalizes finite micro-USD limits", async () => {
     const fetch = vi.fn(); vi.stubGlobal("fetch", fetch);
     const client = new APIClient("read-token", "/api/v1");

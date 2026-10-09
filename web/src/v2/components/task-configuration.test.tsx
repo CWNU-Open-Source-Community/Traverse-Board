@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { useState } from "react";
+import { useLayoutEffect, useState } from "react";
 import type { APIClient } from "../../api/client";
 import type { RunView, TaskBudgetSettings, TaskConfigurationView } from "../../api/types";
 import { TaskConfiguration } from "./task-configuration";
@@ -59,5 +59,20 @@ describe("TaskConfiguration presentation fixtures", () => {
     expect(client.previewTaskConfiguration).not.toHaveBeenCalled();
     expect(screen.queryByRole("spinbutton")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "恢复默认预算" })).not.toBeInTheDocument();
+  });
+
+  it("hides the previous connection snapshot on the first render with a different client", async () => {
+    const first = clientFixture(), second = clientFixture(), displayed: boolean[] = [];
+    second.getRunTaskConfiguration.mockImplementation(() => new Promise<TaskConfigurationView>(() => {}));
+    function Host({ client }: { client: APIClient }) {
+      useLayoutEffect(() => { displayed.push(Boolean(screen.queryByText("已保存的执行上限"))); }, [client]);
+      return <TaskConfiguration client={client} workspaceID="workspace-1" run={{ id: "run-pinned" } as RunView} />;
+    }
+    const { rerender } = render(<Host client={first as unknown as APIClient} />);
+    await screen.findByText("已保存的执行上限");
+    rerender(<Host client={second as unknown as APIClient} />);
+    expect(displayed.at(-1)).toBe(false);
+    expect(screen.queryByText("已保存的执行上限")).not.toBeInTheDocument();
+    await waitFor(() => expect(second.getRunTaskConfiguration).toHaveBeenCalledTimes(1));
   });
 });

@@ -66,12 +66,19 @@ Malformed JSON, unknown/duplicate fields and unsupported bounds fail closed.
 Sources describe normalized effective values: product defaults, operator
 overrides or project restrictions. Historical Runs without a retained operator
 ceiling use `snapshot` provenance rather than inventing their input history.
+Their read projection preserves legal historical CLI ceilings, including zero
+or omitted tool limits and values above current product input bounds. The
+renderer validates these saved numbers independently of creation inputs and
+requires requested/effective snapshot values to match; explicit JSON null is
+never a zero/default value. Preview responses cannot claim snapshot provenance.
 The configuration fingerprint includes the safe projection and full project
 snapshot digest; later file edits do not alter it.
 
 The standalone React `TaskConfiguration` component edits draft request fields
 and shows the Go preview, or reads an existing Run snapshot without edits. Reads
 are aborted on task changes and late results cannot replace the current view.
+Connection identity also gates the first render so a replacement API client
+cannot briefly expose the previous connection's saved configuration.
 Draft inputs and validity belong to the workspace's parent draft state so closing
 the panel cannot silently revert an invalid attempted budget to defaults.
 Creation rechecks the file in Go; a preview is never admission authority.

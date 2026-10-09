@@ -21,9 +21,16 @@ export function normalizedTaskBudget(input?: TaskBudgetSettings): NormalizedTask
 }
 
 function validTaskBudget(value: unknown): value is NormalizedTaskBudget {
-  return record(value) && keys(value, budgetKeys) && integer(value.max_turns, 1, 10_000) && integer(value.max_tool_calls, 1, 1_000_000) &&
-    integer(value.max_tokens ?? 0, 0, 1_000_000_000) && integer(value.timeout_seconds ?? 0, 0, 604_800) &&
-    typeof (value.max_cost_usd ?? 0) === "number" && Number.isFinite(value.max_cost_usd ?? 0) && Number(value.max_cost_usd ?? 0) >= 0 && Number(value.max_cost_usd ?? 0) <= 100_000;
+  return validStoredBudget(value) && integer(value.max_turns, 1, 10_000) && integer(value.max_tool_calls, 1, 1_000_000) &&
+    integer(value.max_tokens ?? 0, 0, 1_000_000_000) && integer(value.timeout_seconds ?? 0, 0, 604_800) && Number(value.max_cost_usd ?? 0) <= 100_000;
+}
+
+// Historical CLI Runs may have zero/omitted tool limits and larger ceilings.
+// Read their saved values without applying product-creation defaults or bounds.
+function validStoredBudget(value: unknown): value is NormalizedTaskBudget {
+  return record(value) && keys(value, budgetKeys) && Object.values(value).every((item) => typeof item === "number" && Number.isFinite(item)) &&
+    integer(value.max_turns, 1, Number.MAX_SAFE_INTEGER) && integer(value.max_tokens ?? 0, 0, Number.MAX_SAFE_INTEGER) &&
+    integer(value.max_tool_calls ?? 0, 0, Number.MAX_SAFE_INTEGER) && integer(value.timeout_seconds ?? 0, 0, 9_223_372_036) && Number(value.max_cost_usd ?? 0) >= 0;
 }
 
 function sameBudget(actual: unknown, expected: NormalizedTaskBudget): boolean {
@@ -41,11 +48,10 @@ export function creationBudgetMatches(actual: unknown, config: Record<string, un
   return !narrowed || digest(config.project_config_fingerprint);
 }
 
-export function parseTaskConfiguration(value: unknown, workspaceID?: string, profile?: string): TaskConfigurationView {
+export function parseTaskConfiguration(value: unknown, workspaceID?: string, profile?: string, readMode: "preview" | "snapshot" = "preview"): TaskConfigurationView {
   if (!record(value) || !keys(value, ["version", "workspace_id", "profile", "requested_budget", "budget", "sources", "project_disposition", "project", "project_fingerprint", "rejections", "fingerprint", "capability_grant"]) ||
     value.version !== "task_configuration.v1" || value.capability_grant !== false || typeof value.workspace_id !== "string" ||
     (workspaceID !== undefined && value.workspace_id !== workspaceID) || !profiles.includes(String(value.profile)) || (profile !== undefined && value.profile !== profile) ||
-    !validTaskBudget(value.requested_budget) || !validTaskBudget(value.budget) ||
     !Array.isArray(value.sources) || value.sources.length > 11 || !Array.isArray(value.rejections) || value.rejections.length > 16 ||
     !["absent", "applied", "rejected"].includes(String(value.project_disposition))) throw new Error("任务配置响应的格式或来源不匹配。");
   const seen = new Set<string>();
@@ -54,6 +60,11 @@ export function parseTaskConfiguration(value: unknown, workspaceID?: string, pro
       seen.has(source.field) || !["default", "operator", "project", "snapshot"].includes(String(source.source))) throw new Error("任务配置字段来源无效。");
     seen.add(source.field);
   }
+  const legacySnapshot = value.sources.length > 0 && value.sources.every((source) => (source as Record<string, unknown>).source === "snapshot");
+  const budgetValidator = readMode === "snapshot" && legacySnapshot ? validStoredBudget : validTaskBudget;
+  const requestedBudget = value.requested_budget, actualBudget = value.budget;
+  if (!budgetValidator(requestedBudget) || !budgetValidator(actualBudget) ||
+    value.sources.some((source) => (source as Record<string, unknown>).source === "snapshot") && (readMode !== "snapshot" || !legacySnapshot)) throw new Error("任务预算绑定无效。");
   for (const rejection of value.rejections) {
     if (!record(rejection) || !keys(rejection, ["field", "reason"]) || typeof rejection.field !== "string" ||
       ![...configurationFields, "project_config"].includes(rejection.field) || typeof rejection.reason !== "string" || rejection.reason.length > 256) throw new Error("任务配置拒绝记录无效。");
@@ -61,8 +72,10 @@ export function parseTaskConfiguration(value: unknown, workspaceID?: string, pro
   if (value.project_disposition === "rejected") {
     if (value.rejections.length === 0 || value.project !== undefined || value.fingerprint !== undefined || value.project_fingerprint !== undefined || value.sources.length !== 0) throw new Error("拒绝的配置包含部分生效记录。");
   } else {
-    if (value.rejections.length !== 0 || !digest(value.fingerprint) || budgetKeys.some((key) => !seen.has(`budget.${key}`)) ||
-      !creationBudgetMatches(value.budget, { project_config_fingerprint: value.project_fingerprint }, value.requested_budget as TaskBudgetSettings)) throw new Error("任务预算绑定无效。");
+    const budgetsMatch = legacySnapshot
+      ? budgetKeys.every((key) => (actualBudget[key] ?? 0) === (requestedBudget[key] ?? 0))
+      : creationBudgetMatches(actualBudget, { project_config_fingerprint: value.project_fingerprint }, requestedBudget as TaskBudgetSettings);
+    if (value.rejections.length !== 0 || !digest(value.fingerprint) || budgetKeys.some((key) => !seen.has(`budget.${key}`)) || !budgetsMatch) throw new Error("任务预算绑定无效。");
     if (value.project_disposition === "applied") {
       const project = value.project;
       if (!digest(value.project_fingerprint) || !record(project) || !keys(project, ["protocol", "read_only", "allowed_profiles", "excluded_path_count", "skill_suggestion_count", "test_command_id", "format_command_id"]) ||

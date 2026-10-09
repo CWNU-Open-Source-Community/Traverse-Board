@@ -28,17 +28,17 @@ const fieldLabels: Record<string, string> = {
   read_only: "项目只读", allowed_profiles: "允许的任务类型", exclude_paths: "排除路径", skill_suggestions: "技能建议",
   test_command_id: "测试动作", format_command_id: "格式化动作", project_config: "项目配置文件",
 };
-type ReadState = { key: string; view?: TaskConfigurationView; error?: string; loading?: boolean };
+type ReadState = { key: string; client: APIClient; view?: TaskConfigurationView; error?: string; loading?: boolean };
 
 // Go owns effective configuration and admission. This component only edits
 // bounded draft inputs and presents safe read projections; previews grant no authority.
 export function TaskConfiguration({ client, workspaceID, profile = "code", budget, onBudgetChange, onValidityChange, run, disabled }: TaskConfigurationProps) {
   const [refresh, setRefresh] = useState(0);
-  const [state, setState] = useState<ReadState>({ key: "" });
+  const [state, setState] = useState<ReadState>({ key: "", client });
   const requestKey = JSON.stringify([run?.id ?? "", workspaceID, profile, budget ?? {}, refresh]);
   let inputError = "";
   try { if (!run) normalizedTaskBudget(budget); } catch (error) { inputError = error instanceof Error ? error.message : "预算无效。"; }
-  const current = state.key === requestKey ? state : undefined;
+  const current = state.key === requestKey && state.client === client ? state : undefined;
   const view = current?.view;
   const valid = !inputError && (!view || view.project_disposition !== "rejected");
   useEffect(() => { onValidityChange?.(valid); }, [onValidityChange, valid]);
@@ -46,16 +46,16 @@ export function TaskConfiguration({ client, workspaceID, profile = "code", budge
   useEffect(() => {
     if (!workspaceID || inputError) return;
     const abort = new AbortController();
-    setState({ key: requestKey, loading: true });
+    setState({ key: requestKey, client, loading: true });
     // Debounce draft edits; a task change aborts the old read and hides its view
     // immediately, even when a transport cannot cancel its pending response.
     const timer = setTimeout(() => {
       const read = run ? client.getRunTaskConfiguration(run.id, abort.signal)
         : client.previewTaskConfiguration({ workspace_id: workspaceID, profile, budget }, abort.signal);
       void read.then((result) => {
-        if (!abort.signal.aborted) setState({ key: requestKey, view: result });
+        if (!abort.signal.aborted) setState({ key: requestKey, client, view: result });
       }, (error: unknown) => {
-        if (!abort.signal.aborted) setState({ key: requestKey, error: error instanceof Error ? error.message : "无法读取任务配置。" });
+        if (!abort.signal.aborted) setState({ key: requestKey, client, error: error instanceof Error ? error.message : "无法读取任务配置。" });
       });
     }, run ? 0 : 200);
     return () => { clearTimeout(timer); abort.abort(); };
