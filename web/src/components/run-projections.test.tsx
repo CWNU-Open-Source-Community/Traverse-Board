@@ -10,6 +10,36 @@ function provider(children: React.ReactNode) {
 }
 
 describe("Run projection panels", () => {
+  it.each([false, true])("keeps batch host validation separate from batch control when enabled=%s", async (enabled) => {
+    const client = { hasBatchDeliveryControl: true, hasBatchDeliveryHostValidation: enabled,
+      getRunBatchDeliveries: vi.fn().mockResolvedValue({ items: [] }),
+    } as unknown as APIClient;
+    const { container } = render(provider(<BatchDeliveriesPanel client={client} runID="run-1" />));
+    await screen.findByText("No batch-delivery.v1 plans");
+    expect(container.textContent).toContain("selected Run");
+    expect(container.textContent).toContain("current Full process activation");
+    if (enabled) {
+      expect(container.textContent).toContain("is not an OS sandbox");
+    } else {
+      expect(container.textContent).toContain("--enable-batch-validation-execution");
+      expect(container.textContent).toContain("--enable-permission-control");
+      expect(container.textContent).toContain("--enable-danger-full-access");
+      expect(container.textContent).toContain("control credential");
+      expect(container.textContent).toContain("operator approval");
+    }
+    expect(screen.queryByRole("button", { name: "Merge in DAG order" })).not.toBeInTheDocument();
+  });
+
+  it("explains the independent Desktop batch control switch while preserving read access", async () => {
+    const getRunBatchDeliveries = vi.fn().mockResolvedValue({ items: [] });
+    const client = { hasBatchDeliveryControl: false, hasBatchDeliveryHostValidation: false,
+      getRunBatchDeliveries } as unknown as APIClient;
+    render(provider(<BatchDeliveriesPanel client={client} runID="run-1" />));
+    expect(await screen.findByText(/--enable-batch-delivery-control/)).toBeInTheDocument();
+    expect(getRunBatchDeliveries).toHaveBeenCalledWith("run-1", expect.any(AbortSignal));
+    expect(screen.queryByRole("button", { name: "Accept" })).not.toBeInTheDocument();
+  });
+
   it("renders bounded external Skill metadata without a mutation control", () => {
     const projection: ExternalSkillProjectionView = {
       protocol_version: "external_skill_projection.v1",

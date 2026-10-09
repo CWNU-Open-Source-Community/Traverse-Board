@@ -23,15 +23,9 @@ export function capabilityReadinessFixture(
     run_id: runID,
     capability_grant: false,
     permissions: [
-      option("conservative", true),
-      option("workspace_access", false, false, false, {
-        blocked_by: ["startup_gate_closed", "sandbox_unproven"],
-        remediation: ["restart_with_startup_gate", "verify_sandbox"],
-        restart_required: true,
-      }),
-      option("approval", false),
-      option("full_access", false),
-      option("debug", false, false, false, {
+      option("ask", true),
+      option("auto", false),
+      option("full", false, false, false, {
         blocked_by: ["startup_gate_closed"],
         remediation: ["restart_with_startup_gate"], restart_required: true,
       }),

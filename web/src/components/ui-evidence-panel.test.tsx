@@ -1,7 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import type { APIClient } from "../api/client";
+import { APIRequestError, type APIClient } from "../api/client";
 import type { UIEvidenceAttempt } from "../api/types";
 import { UIEvidencePanel } from "./ui-evidence-panel";
 
@@ -68,7 +68,7 @@ describe("UIEvidencePanel", () => {
   it("keeps not_run neutral and reserves the success treatment for passed", async () => {
     const notRun = attempt("not_run", "attempt-not-run");
     const passed = attempt("passed", "attempt-passed");
-    const client = { hasUIEvidence: false,
+    const client = { hasUIEvidence: false, uiEvidenceUnavailableReason: "ui_evidence_disabled",
       uiEvidence: vi.fn().mockResolvedValue([notRun, passed]),
       uiEvidenceBundle: vi.fn().mockResolvedValue({ attempt: notRun, steps: [], artifacts: [] }),
     } as unknown as APIClient;
@@ -83,12 +83,57 @@ describe("UIEvidencePanel", () => {
     }
     expect(screen.getByText("通过")).toHaveClass("status-passed");
     expect(screen.getByText(/页面内容与下载产物均不可信/)).toBeInTheDocument();
+    expect(client.uiEvidence).toHaveBeenCalledWith("run-1", expect.any(AbortSignal));
+    expect(client.uiEvidenceBundle).toHaveBeenCalledWith("attempt-not-run", expect.any(AbortSignal));
+    expect(screen.queryByText(/历史状态未知/)).not.toBeInTheDocument();
+  });
+
+  it("explains an unavailable backend history endpoint without treating 404 as an empty history", async () => {
+    const uiEvidence = vi.fn().mockRejectedValue(new APIRequestError(
+      "HTTP API endpoint was not found", "NOT_FOUND", 404));
+    const client = { hasUIEvidence: false, uiEvidenceUnavailableReason: "ui_evidence_disabled",
+      uiEvidence } as unknown as APIClient;
+    const user = userEvent.setup();
+    renderPanel(client);
+    expect(await screen.findByText(/当前后端无法提供所选执行的 UI 取证读取/)).toHaveTextContent("历史状态未知");
+    expect(screen.getByText(/当前后端无法提供/)).toHaveTextContent("Windows Desktop");
+    expect(screen.queryByText("HTTP API endpoint was not found")).not.toBeInTheDocument();
+    expect(screen.queryByText("尚未创建 UI 验证 Attempt")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "刷新 UI 证据" }));
+    await waitFor(() => expect(uiEvidence).toHaveBeenCalledTimes(2));
+    expect(uiEvidence).toHaveBeenCalledWith("run-1", expect.any(AbortSignal));
+  });
+
+  it.each([
+    [false, new APIRequestError("UI evidence service failed", "INTERNAL", 500)],
+    [false, new APIRequestError("UI evidence authentication failed", "UNAUTHORIZED", 401)],
+    [false, new APIRequestError("Unexpected error code", "OTHER_ERROR", 404)],
+    [true, new APIRequestError("Enabled endpoint missing", "NOT_FOUND", 404)],
+  ])("keeps other history errors visible with hasUIEvidence=%s", async (enabled, error) => {
+    renderPanel({ hasUIEvidence: enabled, uiEvidenceUnavailableReason: enabled ? null : "ui_evidence_disabled",
+      uiEvidence: vi.fn().mockRejectedValue(error) } as unknown as APIClient);
+    expect(await screen.findByRole("alert")).toHaveTextContent(error.message);
+    expect(screen.queryByText(/历史状态未知/)).not.toBeInTheDocument();
+    expect(screen.queryByText("尚未创建 UI 验证 Attempt")).not.toBeInTheDocument();
+  });
+
+  it("does not keep declaring empty history when a later refresh cannot read the endpoint", async () => {
+    const uiEvidence = vi.fn().mockResolvedValueOnce([]).mockRejectedValueOnce(new APIRequestError(
+      "HTTP API endpoint was not found", "NOT_FOUND", 404));
+    const client = { hasUIEvidence: false, uiEvidenceUnavailableReason: "ui_evidence_disabled",
+      uiEvidence } as unknown as APIClient;
+    const user = userEvent.setup();
+    renderPanel(client);
+    await screen.findByText("尚未创建 UI 验证 Attempt");
+    await user.click(screen.getByRole("button", { name: "刷新 UI 证据" }));
+    await screen.findByText(/历史状态未知/);
+    expect(screen.queryByText("尚未创建 UI 验证 Attempt")).not.toBeInTheDocument();
   });
 
   it("requires exact-manifest review before starting", async () => {
     const created = attempt("not_run", "attempt-created");
     const startUIEvidence = vi.fn().mockResolvedValue(created);
-    const client = { hasUIEvidence: true, startUIEvidence,
+    const client = { hasUIEvidence: true, uiEvidenceUnavailableReason: null, startUIEvidence,
       uiEvidence: vi.fn().mockResolvedValue([]),
       uiEvidenceBundle: vi.fn().mockResolvedValue({ attempt: created, steps: [], artifacts: [] }),
     } as unknown as APIClient;
@@ -110,5 +155,30 @@ describe("UIEvidencePanel", () => {
       failure_policy: { fail_on_console_error: true, fail_on_page_error: true,
         fail_on_request_error: true, fail_on_http_status: true },
     }));
+  });
+
+  it.each([
+    ["missing_control_credential", "当前连接缺少控制凭证"],
+    ["ui_evidence_disabled", "当前进程未启用 UI 取证能力"],
+    ["run_execution_disabled", "当前进程未启用 Run 执行能力"],
+    ["browser_cdp_control_disabled", "当前进程未启用浏览器 CDP 控制能力"],
+    [undefined, "当前连接未满足 UI 取证的独立控制条件"],
+  ])("explains unavailable UI evidence accurately for %s and keeps launch disabled", async (reason, message) => {
+    const startUIEvidence = vi.fn();
+    const client = { hasUIEvidence: false, uiEvidenceUnavailableReason: reason,
+      uiEvidence: vi.fn().mockResolvedValue([]), startUIEvidence,
+    } as unknown as APIClient;
+    const user = userEvent.setup();
+    const { container } = renderPanel(client);
+    expect(screen.getByText(new RegExp(message, "u"))).toBeInTheDocument();
+    expect(screen.getByText(/现有执行入口是 Windows Desktop/)).toBeInTheDocument();
+    expect(container.textContent).toContain("--enable-ui-evidence");
+    expect(container.textContent).toContain("--enable-run-execution");
+    expect(container.textContent).toContain("--enable-browser-cdp-control");
+    expect(container.textContent).not.toContain("当前连接为只读");
+    await user.click(screen.getByText("审阅并启动精确清单"));
+    expect(screen.getByRole("button", { name: "载入本仓库模板" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "启动真实浏览器验证" })).toBeDisabled();
+    expect(startUIEvidence).not.toHaveBeenCalled();
   });
 });

@@ -1,11 +1,18 @@
 package httpapi
 
 import (
+	"encoding/json"
 	"net/http"
+	"os"
+	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
 	"cyberagent-workbench/internal/application"
+	"cyberagent-workbench/internal/commandruntimeadapter"
+	"cyberagent-workbench/internal/domain"
+	"cyberagent-workbench/internal/store"
 )
 
 func TestRunCapabilityReadinessHTTPProjectsSameStableGoFacts(t *testing.T) {
@@ -46,6 +53,98 @@ func TestRunCapabilityReadinessHTTPProjectsSameStableGoFacts(t *testing.T) {
 	assertAPIError(t, performSessionMessageRequest(t, fixture.api, http.MethodGet,
 		path+"?debug=true", testAccessToken, "", "", nil),
 		http.StatusBadRequest, "INVALID_ARGUMENT")
+}
+
+func TestRunCapabilityReadinessHTTPCurrentFixtureMatchesGoProjection(t *testing.T) {
+	state, err := store.Open(filepath.Join(t.TempDir(), "readiness-contract.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = state.Close() })
+	runs := application.NewRunService(state)
+	_, run, err := runs.Create(t.Context(), application.CreateRunRequest{
+		Goal: "read paused Plan readiness", Profile: "code", Surface: "code",
+		Phase: "plan", Budget: domain.Budget{MaxTurns: 2},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := application.NewRunExecutionProfileService(state).Change(t.Context(),
+		application.ChangeRunExecutionProfileRequest{RunID: run.ID, Profile: "local",
+			OperationKey: "readiness-contract-local-profile", RequestedBy: "test_operator",
+			Reason: "project selected installed adapter without execution"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runs.Start(t.Context(), run.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := runs.Pause(t.Context(), run.ID); err != nil {
+		t.Fatal(err)
+	}
+	capabilities := domain.ExecutionPermissionRuntimeCapabilities{
+		OperatorApprovalEnabled: true, WorkspaceSandboxEnabled: true,
+	}
+	adapters := []commandruntimeadapter.Identity{commandruntimeadapter.SandboxedWorkspace(
+		application.CommandRuntimeLocalSandboxBackend, "readiness-fixture-local", strings.Repeat("a", 64))}
+	runtime := application.CapabilityReadinessRuntime{
+		RunControlEnabled: true, ExecutionPermissionControlEnabled: true,
+		ExecutionPermissionCapabilities: capabilities,
+		LocalSandboxInstalled:           true, LocalSandboxProven: true, LocalBackendReady: true,
+		CommandRuntimeAdapters: adapters,
+	}
+	api, err := New(state, Config{
+		AccessToken: testAccessToken, ControlToken: testControlToken,
+		RunControlEnabled: true, ExecutionPermissionControlEnabled: true,
+		ExecutionPermissionCapabilities: capabilities, CommandRuntimeAdapters: adapters,
+		CapabilityReadinessRuntime: &runtime,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	response := performSessionMessageRequest(t, api, http.MethodGet,
+		"/api/v1/runs/"+run.ID+"/capability-readiness", testAccessToken, "", "", nil)
+	var view RunCapabilityReadinessView
+	decodeDataStatus(t, response, http.StatusOK, &view)
+	if len(view.Permissions) != 3 || view.Permissions[0].Value != "ask" ||
+		view.Permissions[1].Value != "auto" || view.Permissions[2].Value != "full" ||
+		!view.Permissions[0].Selected || view.CapabilityGrant ||
+		!view.CommandRuntime.AdapterInstalled || !view.CommandRuntime.AdapterReady ||
+		view.CommandRuntime.CurrentRunGranted || view.CommandRuntime.AdapterKind != "sandboxed_workspace" ||
+		view.CommandRuntime.Backend != application.CommandRuntimeLocalSandboxBackend {
+		t.Fatalf("current readiness contract changed: %#v", view)
+	}
+
+	// Capture the real HTTP envelope, normalizing only generated request/Run IDs.
+	// Compare every public field in ordinary Go runs so a manually maintained TS
+	// specimen cannot hide a backend contract change. The optional export follows
+	// the existing TRAVERSE_TEST_*_OUTPUT cross-language acceptance convention.
+	var captured map[string]any
+	if err := json.Unmarshal(response.Body.Bytes(), &captured); err != nil {
+		t.Fatal(err)
+	}
+	captured["request_id"] = "req-readiness-current"
+	captured["data"].(map[string]any)["run_id"] = "run-readiness-current"
+	data, err := json.MarshalIndent(captured, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if output := os.Getenv("TRAVERSE_TEST_READINESS_OUTPUT"); output != "" {
+		if err := os.WriteFile(output, append(data, '\n'), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	fixturePath := filepath.Join("..", "..", "web", "src", "test", "fixtures", "readiness-paused-plan-current.json")
+	fixture, err := os.ReadFile(fixturePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var expected map[string]any
+	if err := json.Unmarshal(fixture, &expected); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(captured, expected) {
+		t.Fatalf("current readiness fixture drifted from the Go HTTP response; regenerate with TRAVERSE_TEST_READINESS_OUTPUT=%s\n%s", fixturePath, data)
+	}
 }
 
 func readinessHTTPOption(t *testing.T, options []CapabilityReadinessOptionView,

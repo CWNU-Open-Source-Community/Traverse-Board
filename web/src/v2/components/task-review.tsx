@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ArrowLeft, ChevronDown, FileDiff, GitCommitHorizontal, GitPullRequest, X } from "lucide-react";
+import { ArrowLeft, ChevronDown, FileDiff, GitCommitHorizontal, GitPullRequest, Wrench, X } from "lucide-react";
 import type { APIClient } from "../../api/client";
 import type { RunDetailView, StandardCodeDeliveryRecordRequestView, StandardCodeDeliveryView, SupervisorToolRoundView, ThreadDetailView } from "../../api/types";
 import { FileEditPanel, type FileEditReviewTarget } from "../../components/file-edit-panel";
@@ -19,15 +19,17 @@ import { v2QueryKeys } from "../query-keys";
 import { TaskOverview } from "./task-overview";
 import { TaskGit } from "./task-git";
 import { TaskPullRequest } from "./task-pull-request";
+import { TaskReviewTools, type TaskReviewToolReviews } from "./task-review-tools";
 import type { WorkspaceView } from "../../api/types";
 import "./task-review.css";
 
-type ReviewTab = "overview" | "git" | "pr" | "files" | "checks" | "records" | "restore" | "evidence";
+type ReviewTab = "overview" | "git" | "pr" | "tools" | "files" | "checks" | "records" | "restore" | "evidence";
 const historyTabs: [ReviewTab, string][] = [["files", "编辑明细"], ["checks", "检查与交付"],
   ["records", "执行记录"], ["evidence", "参考资料"], ["restore", "撤销与恢复"]];
 const primaryTabs = [{ value: "overview", label: "查看改动", icon: FileDiff },
   { value: "git", label: "提交与推送", icon: GitCommitHorizontal },
-  { value: "pr", label: "PR 状态", icon: GitPullRequest }] as const;
+  { value: "pr", label: "PR 状态", icon: GitPullRequest },
+  { value: "tools", label: "更多交付工具", icon: Wrench }] as const;
 const executionStatusLabels: Record<string, string> = { created: "尚未开始", preparing: "准备中", running: "未结束",
   paused: "已暂停", waiting_approval: "等待批准", completed: "已完成",
   failed: "执行失败", cancelled: "已停止" };
@@ -52,7 +54,15 @@ export function V2TaskReview({ client, detail, working, onClose, onRequestChange
 }) {
   const queryClient = useQueryClient();
   const currentRun = detail.active_run ?? detail.last_run;
-  const [selectedRunID, setSelectedRunID] = useState(initialFileTarget?.runID ?? currentRun.id);
+  const toolReviews = useRef(new Map<string, TaskReviewToolReviews>());
+  const [runSelection, setRunSelection] = useState({ threadID: detail.thread.id,
+    runID: initialFileTarget?.runID ?? currentRun.id });
+  const selectedRunID = runSelection.threadID === detail.thread.id
+    ? runSelection.runID : initialFileTarget?.runID ?? currentRun.id;
+  const setSelectedRunID = (runID: string) => {
+    if (runID !== selectedRunID || runSelection.threadID !== detail.thread.id) toolReviews.current.clear();
+    setRunSelection({ threadID: detail.thread.id, runID });
+  };
   const [fileTarget, setFileTarget] = useState<FileEditReviewTarget | undefined>(initialFileTarget);
   const [tab, setTab] = useState<ReviewTab>(initialFileTarget ? "files" : "overview");
   const [showHistory, setShowHistory] = useState(Boolean(initialFileTarget));
@@ -73,8 +83,13 @@ export function V2TaskReview({ client, detail, working, onClose, onRequestChange
     { isolateBackground: true, returnFocusRef });
   const keys = useRef(new Map<string, string>());
   const selectedRun = detail.runs.find(({ run }) => run.id === selectedRunID)?.run
-    ?? (fileTarget && selectedRunID !== currentRun.id ? undefined : currentRun);
+    ?? (selectedRunID === currentRun.id ? currentRun : undefined);
   const reviewedRunID = selectedRun?.id ?? selectedRunID;
+  const toolReviewKey = `${detail.thread.id}:${reviewedRunID}`;
+  const retainToolReview = <T extends keyof TaskReviewToolReviews>(kind: T, value: TaskReviewToolReviews[T]) => {
+    toolReviews.current.set(toolReviewKey, { git: null, github: null,
+      ...toolReviews.current.get(toolReviewKey), [kind]: value });
+  };
   const reviewFile = (target: FileEditReviewTarget) => {
     setSelectedRunID(target.runID); setFileTarget(target); setFilePath(null);
     setTab("files"); setShowHistory(true);
@@ -185,7 +200,7 @@ export function V2TaskReview({ client, detail, working, onClose, onRequestChange
       <div className="v2-review-body" key={`${reviewedRunID}:${tab}`}>
         {!["overview", "git", "pr"].includes(tab) && <div className="v2-review-history-heading">
           <button onClick={() => selectTab("overview", true)} type="button"><ArrowLeft size={14} aria-hidden="true" />返回任务改动</button>
-          <h2>{historyTabs.find(([value]) => value === tab)?.[1]}</h2></div>}
+          <h2>{tab === "tools" ? "更多交付工具" : historyTabs.find(([value]) => value === tab)?.[1]}</h2></div>}
         {tab === "overview" && <TaskOverview client={client} threadID={detail.thread.id} onFeedback={onRequestChange}
           onReviewFile={reviewFile} onGit={() => selectTab("git", true)}
           onPullRequest={() => selectTab("pr", true)}
@@ -193,7 +208,13 @@ export function V2TaskReview({ client, detail, working, onClose, onRequestChange
           currentRunDetail={currentPlanQuery.data} />}
         {tab === "git" && <TaskGit client={client} threadID={detail.thread.id} working={working} onFeedback={onRequestChange} onPullRequest={() => selectTab("pr", true)} onOpenWorktree={onOpenWorktree} />}
         {tab === "pr" && <TaskPullRequest client={client} threadID={detail.thread.id} working={working} onFeedback={onRequestChange} onGit={() => selectTab("git", true)} />}
-        {!["overview", "git", "pr"].includes(tab) && !selectedRun && <p role="alert">无法找到目标执行记录 {selectedRunID}，尚未打开文件提案。请刷新任务后重试，或明确选择另一次执行。</p>}
+        {!["overview", "git", "pr"].includes(tab) && !selectedRun && <p role="alert">无法找到目标执行记录 {selectedRunID}，尚未打开审阅工具。请刷新任务后重试，或明确选择另一次执行。</p>}
+        {tab === "tools" && selectedRun && <TaskReviewTools client={client} runID={reviewedRunID}
+          key={`${detail.thread.id}:${reviewedRunID}`} threadID={detail.thread.id}
+          retainedReviews={toolReviews.current.get(toolReviewKey)}
+          onGitReviewChange={(review) => retainToolReview("git", review)}
+          onGithubReviewChange={(review) => retainToolReview("github", review)}
+          onOpenDelivery={() => selectTab("checks", true)} />}
         {tab === "files" && selectedRun && <>
           <p>{selectedRun.id === currentRun.id ? "下面是当前执行的文件提案与编辑记录。" : "下面是所选历史执行的文件提案与编辑记录。"}当前执行目录与历史原目录分别标明；尚未应用的提案需批准后应用。历史记录不代表来源项目的当前内容。</p>
           <FileEditPanel client={client} runID={reviewedRunID} runStatus={selectedRun.status} initialTarget={fileTarget} onChanged={() => refresh()}

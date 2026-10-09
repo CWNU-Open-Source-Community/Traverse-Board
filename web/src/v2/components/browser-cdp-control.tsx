@@ -37,7 +37,7 @@ function statusCopy({ runID, mode, permission, loading, failed, controlEnabled,
 }): string {
   if (!runID) return mode === null ? "先打开一个任务。" : "当前任务还没有可配置的执行。";
   if (!allowsFullCDP(mode)) {
-    return "高风险 CDP 仅完全访问或调试模式可开启；受限导航、DOM 与截图不受影响。";
+    return "高风险 CDP 需要在当前任务确认并激活完全访问；受限导航、DOM 与截图不受影响。";
   }
   if (!controlEnabled || !fullCDPEnabled) return "当前运行时未提供完整 CDP 控制。";
   if (loading) return "正在读取当前执行的浏览器权限…";
@@ -50,7 +50,7 @@ function statusCopy({ runID, mode, permission, loading, failed, controlEnabled,
       : "已选择，但当前运行时尚未授权。";
   }
   if (!executionRuntimeAvailable) {
-    return "先重新确认并激活当前任务的完全访问或调试权限。";
+    return "先重新确认并激活当前任务的完全访问权限。";
   }
   return "当前关闭；内置隔离浏览器仍可导航、读取 DOM 和截图，重新开启需确认高风险控制。";
 }

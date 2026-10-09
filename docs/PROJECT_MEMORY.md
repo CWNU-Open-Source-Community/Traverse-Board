@@ -17,6 +17,13 @@
 > The nightly full matrix and blocking vulnerability audit remain enabled;
 > see [CI security baseline](ci.md#go-security-baseline) for scan evidence limits.
 
+> 2026-10-07 permission/capability alignment (#287): the frontend consumes the
+> current Ask / Auto / Full readiness contract, with a Go HTTP fixture checked by
+> both Go and the real APIClient. Task review exposes existing Run-bound delivery
+> tools and explains independent startup gates. Historical permission readers and
+> all Go authority checks remain in place. See
+> [implementation and verification scope](FRONTEND_CAPABILITY_ALIGNMENT_287.md).
+
 > 2026-10-07 extension onboarding checkpoint (#276): shared Web/Desktop settings
 > stage manual MCP descriptors, import pinned Plugin ZIPs and stage/review LSP
 > configuration through Go-owned services. Backend capability flags, source/scope,

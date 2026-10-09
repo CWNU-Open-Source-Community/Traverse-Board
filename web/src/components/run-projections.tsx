@@ -421,10 +421,14 @@ export function BatchDeliveriesPanel({ client, runID }: ProjectionProps) {
         <span>{t(`${formatNumber(query.data.items.length)} 个计划`, `${formatNumber(query.data.items.length)} plans`)}</span>
       </div>
       <p className="projection-placeholder">{client.hasBatchDeliveryHostValidation
-        ? t("宿主 Go/npm 验证已由操作者以 full-access 显式启用；它不是 OS 沙箱。",
-          "Host Go/npm validation was explicitly enabled with full access; it is not an OS sandbox.")
-        : t("仅允许不执行仓库代码的 Git diff 检查；Go/npm 验证失败关闭。",
-          "Only non-executing Git diff checks are available; Go/npm validation fails closed.")}</p>
+        ? t("宿主 Go/npm 验证的启动能力已启用；实际检查仍要求所选 Run 正在运行、当前 Full 进程激活及后端权限检查。此验证会在宿主执行仓库代码，不是 OS 沙箱。",
+          "Host Go/npm validation startup capability is enabled. Each check still requires the selected Run to be running, current Full process activation, and backend authorization. It executes repository code on the host and is not an OS sandbox.")
+        : t("宿主 Go/npm 验证未满足独立启用条件；当前仅允许不执行仓库代码的 Git diff 检查。操作者须显式配置 --enable-batch-validation-execution、--enable-permission-control 与 --enable-danger-full-access，并具备批量交付控制、控制凭证和操作员审批能力。检查开始时所选 Run 仍须正在运行且具有当前 Full 进程激活。",
+          "Host Go/npm validation requires independent enablement; only non-executing Git diff checks are available. The operator must explicitly configure --enable-batch-validation-execution, --enable-permission-control, and --enable-danger-full-access, with batch delivery control, a control credential, and operator approval capability. At each check start, the selected Run must still be running with current Full process activation.")}</p>
+      {!client.hasBatchDeliveryControl && <p className="projection-placeholder">{t(
+        "批量交付验收、返工、合并与恢复控制不可用。Desktop 须独立启用 --enable-batch-delivery-control 并连接控制凭证；Go/npm 验证还需上述单独配置。",
+        "Batch acceptance, rework, merge, and recovery controls are unavailable. Desktop requires the independent --enable-batch-delivery-control flag and a control credential; Go/npm validation additionally requires the separate configuration above.",
+      )}</p>}
       {query.data.items.length === 0 ?
         <EmptyState>{t("暂无 batch-delivery.v1 计划", "No batch-delivery.v1 plans")}</EmptyState> :
         <div className="projection-stack">
