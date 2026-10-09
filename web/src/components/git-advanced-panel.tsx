@@ -61,6 +61,11 @@ export function GitAdvancedPanel({ client, runID, onOpenApprovals,
   const [cherryCommits, setCherryCommits] = useState("");
   const [bisectGood, setBisectGood] = useState("");
   const [bisectBad, setBisectBad] = useState("");
+  const [bisectRecipe, setBisectRecipe] = useState<"go_test" | "npm_test">("go_test");
+  const [bisectSteps, setBisectSteps] = useState("32");
+  const [bisectTimeout, setBisectTimeout] = useState("120");
+  const validBisectLimits = /^[1-9][0-9]*$/u.test(bisectSteps) && Number(bisectSteps) <= 128 &&
+    /^[1-9][0-9]*$/u.test(bisectTimeout) && Number(bisectTimeout) <= 900;
   const [worktreeName, setWorktreeName] = useState("");
   const [worktreeBranch, setWorktreeBranch] = useState("");
 
@@ -257,10 +262,26 @@ export function GitAdvancedPanel({ client, runID, onOpenApprovals,
               key={mark} onClick={() => reviewSpec(createSpec(`bisect_${mark}` as GitAdvancedOperation,
                 { sequence_id: sequence.id, expected_current: sequence.current_head }))}
               type="button">{mark}</button>)}
-            <button disabled={!canMutate} onClick={() => reviewSpec(createSpec("bisect_run", {
+            <label>{t("验证模板", "Verification template")}
+              <select aria-label={t("Bisect 验证模板", "Bisect verification template")} disabled={!canMutate}
+                value={bisectRecipe} onChange={(event) => { setReview(null); setBisectRecipe(event.target.value as "go_test" | "npm_test"); }}>
+                <option value="go_test">Go · go test</option><option value="npm_test">NPM · npm test</option>
+              </select>
+            </label>
+            <label>{t("最多步骤", "Maximum steps")}
+              <input aria-label={t("Bisect 最多步骤", "Bisect maximum steps")} type="number" min={1} max={128} step={1}
+                disabled={!canMutate} value={bisectSteps} onChange={(event) => { setReview(null); setBisectSteps(event.target.value); }} />
+            </label>
+            <label>{t("每步超时（秒）", "Timeout per step (seconds)")}
+              <input aria-label={t("Bisect 每步超时", "Bisect step timeout")} type="number" min={1} max={900} step={1}
+                disabled={!canMutate} value={bisectTimeout} onChange={(event) => { setReview(null); setBisectTimeout(event.target.value); }} />
+            </label>
+            <button disabled={!canMutate || !validBisectLimits} onClick={() => reviewSpec(createSpec("bisect_run", {
               sequence_id: sequence.id, expected_current: sequence.current_head,
-              recipe: { name: "go_test", max_steps: 32, timeout_seconds: 120 },
-            }))} type="button">go test</button>
+              recipe: { name: bisectRecipe, max_steps: Number(bisectSteps), timeout_seconds: Number(bisectTimeout) },
+            }))} type="button">{t("预览自动定位", "Preview automatic bisect")}</button>
+            {!validBisectLimits && <small role="alert">{t("步骤必须为 1–128，单步超时必须为 1–900 秒。",
+              "Use 1–128 steps and a timeout of 1–900 seconds per step.")}</small>}
             <button disabled={!canMutate} onClick={() => reviewSpec(createSpec("bisect_reset",
               { sequence_id: sequence.id }))} type="button">reset</button>
           </>}

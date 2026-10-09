@@ -1,0 +1,11 @@
+.github-review-thread {
+  padding: 10px 0;
+  border-top: 1px solid var(--border);
+  overflow-wrap: anywhere;
+}
+
+.github-review-thread summary { cursor: pointer; }
+.github-review-thread article { margin: 10px 0 10px 12px; }
+.github-review-thread p { white-space: pre-wrap; }
+.github-review-form label { display: flex; flex-direction: column; gap: 4px; }
+.github-review-preview-summary { flex-basis: 100%; overflow-wrap: anywhere; }

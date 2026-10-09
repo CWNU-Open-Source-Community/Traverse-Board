@@ -2,7 +2,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { APIRequestError, type APIClient } from "../api/client";
-import type { GitHubReviewConnectionView, GitHubReviewWriteReviewResultView } from "../api/types";
+import type { GitHubReviewConnectionView, GitHubReviewWriteReviewResultView, GitHubReviewWriteSpecView } from "../api/types";
 import { standardCodeDeliveryFixture } from "../test/standard-code-delivery";
 import { GitHubReviewPanel } from "./github-review-panel";
 
@@ -54,6 +54,23 @@ function credentialView(selected = connection(), configured = true) {
     credential: { ...projection(selected).credential, configured } };
 }
 
+function threadProjection(resolved = false) {
+  const value = projection();
+  return { ...value, snapshots: [{ ...value.snapshots[0], threads: [{
+    id: "thread-current", resolved, outdated: false, path: "src/pagination.ts", line: 7,
+    comments: [{ node_id: "comment-1", author: "reviewer", created_at: now, updated_at: now,
+      body: { text: "Please retain the final page.", truncated: false, original_bytes: 29 },
+      position: { path: "src/pagination.ts", line: 7, side: "RIGHT" } }],
+  }] }] };
+}
+
+function reviewedOperation(spec: GitHubReviewWriteSpecView) {
+  const value = reviewedWrite();
+  const nextPreview = { ...value.preview, operation: spec.operation, target_id: spec.target_id,
+    review_event: spec.review_event, body_summary: spec.body, reviewers: spec.reviewers };
+  return { ...value, preview: nextPreview, operation: { ...value.operation, preview: nextPreview } };
+}
+
 function reviewedWrite(selected = connection(), runID = "run-1"): GitHubReviewWriteReviewResultView {
   const preview = { protocol_version: "github-review-write.v1", operation: "submit_review",
     approval_fingerprint: digest, identity: projection(selected).snapshots[0].identity,
@@ -92,6 +109,94 @@ function deferred<T>() {
 }
 
 describe("GitHubReviewPanel", () => {
+  it.each([
+    { operation: "reply", resolved: false },
+    { operation: "resolve", resolved: false },
+    { operation: "unresolve", resolved: true },
+  ])("previews $operation for a discussion from the exact current PR", async ({ operation, resolved }) => {
+    const user = userEvent.setup();
+    const source = threadProjection(resolved);
+    const reviewGitHubWrite = vi.fn().mockImplementation(async (_runID: string, body: { spec: GitHubReviewWriteSpecView }) =>
+      reviewedOperation(body.spec));
+    const executeGitHubWrite = vi.fn();
+    renderPanel(mockClient([connection()], { githubReviewProjection: vi.fn().mockResolvedValue(source),
+      reviewGitHubWrite, executeGitHubWrite }));
+    await user.selectOptions(await screen.findByLabelText("Review action"), operation);
+    expect(screen.getByRole("button", { name: "Create exact preview" })).toBeDisabled();
+    await user.selectOptions(screen.getByLabelText("Target discussion"), "thread-current");
+    if (operation === "reply") await user.type(screen.getByLabelText("Reply body"), "Fixed with a boundary test.");
+    await user.click(screen.getByRole("button", { name: "Create exact preview" }));
+    await waitFor(() => expect(reviewGitHubWrite).toHaveBeenCalledTimes(1));
+    const request = reviewGitHubWrite.mock.calls[0][1];
+    expect(request).toMatchObject({ connection_id: "connection-1", snapshot_id: "snapshot-1",
+      spec: { operation, target_id: "thread-current", reviewers: [],
+        identity: source.snapshots[0].identity, capability_generation: digest } });
+    expect(request.spec.review_event).toBeUndefined();
+    expect(request.spec.body).toBe(operation === "reply" ? "Fixed with a boundary test." : undefined);
+    expect(await screen.findByRole("button", { name: "Open approvals" })).toBeEnabled();
+    expect(executeGitHubWrite).not.toHaveBeenCalled();
+  });
+
+  it("retains a reply across approval navigation when overall review permission is absent", async () => {
+    const user = userEvent.setup();
+    const source = threadProjection();
+    source.snapshots[0].capability.review = false;
+    const reviewGitHubWrite = vi.fn().mockImplementation(async (_runID: string, body: { spec: GitHubReviewWriteSpecView }) =>
+      reviewedOperation(body.spec));
+    const executeGitHubWrite = vi.fn().mockResolvedValue({ receipt: { status: "succeeded" } });
+    const client = mockClient([connection()], { githubReviewProjection: vi.fn().mockResolvedValue(source),
+      reviewGitHubWrite, executeGitHubWrite });
+    const retainedChanges = vi.fn();
+    const first = renderPanel(client, undefined, vi.fn(), retainedChanges);
+    await user.selectOptions(await screen.findByLabelText("Review action"), "reply");
+    await user.selectOptions(screen.getByLabelText("Target discussion"), "thread-current");
+    await user.type(screen.getByLabelText("Reply body"), "Boundary fixed.");
+    await createPreview(user);
+    const retained = retainedChanges.mock.calls.at(-1)![0];
+    first.unmount();
+    renderPanel(client, retained);
+    await waitFor(() => expect(screen.getByRole("button", { name: "Execute approved write" })).toBeEnabled());
+    expect(screen.getByText("Boundary fixed.")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Execute approved write" }));
+    await waitFor(() => expect(executeGitHubWrite).toHaveBeenCalledWith("run-1", "write-1", "approval-1"));
+  });
+
+  it("normalizes reviewer names and requires a separate approval before requesting them", async () => {
+    const user = userEvent.setup();
+    const reviewGitHubWrite = vi.fn().mockImplementation(async (_runID: string, body: { spec: GitHubReviewWriteSpecView }) =>
+      reviewedOperation(body.spec));
+    const executeGitHubWrite = vi.fn();
+    renderPanel(mockClient([connection()], { reviewGitHubWrite, executeGitHubWrite }));
+    await user.selectOptions(await screen.findByLabelText("Review action"), "request_reviewer");
+    expect(screen.getByRole("button", { name: "Create exact preview" })).toBeDisabled();
+    await user.type(screen.getByLabelText("Reviewer usernames"), "zoe, ada zoe");
+    await createPreview(user);
+    expect(reviewGitHubWrite.mock.calls[0][1].spec).toMatchObject({ operation: "request_reviewer", reviewers: ["ada", "zoe"] });
+    expect(reviewGitHubWrite.mock.calls[0][1].spec.body).toBeUndefined();
+    expect(executeGitHubWrite).not.toHaveBeenCalled();
+    await user.type(screen.getByLabelText("Reviewer usernames"), ", @invalid");
+    expect(screen.getByRole("button", { name: "Create exact preview" })).toBeDisabled();
+    expect(screen.queryByRole("button", { name: "Execute approved write" })).not.toBeInTheDocument();
+  });
+
+  it("shows discussion evidence for a read-only connection without exposing write controls", async () => {
+    const selected = { ...connection(), network: { ...connection().network, write_enabled: false } };
+    renderPanel(mockClient([selected], { githubReviewProjection: vi.fn().mockResolvedValue({ ...threadProjection(), connection: selected }) }));
+    expect(await screen.findByText("Please retain the final page.")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Review action")).not.toBeInTheDocument();
+  });
+
+  it("does not offer resolve for an already resolved discussion or unsupported reviewer requests", async () => {
+    const user = userEvent.setup();
+    const source = threadProjection(true);
+    source.snapshots[0].capability.request_reviewer = false;
+    renderPanel(mockClient([connection()], { githubReviewProjection: vi.fn().mockResolvedValue(source) }));
+    await user.selectOptions(await screen.findByLabelText("Review action"), "resolve");
+    expect(screen.getByRole("option", { name: "Request reviewers" })).toBeDisabled();
+    expect(screen.getByRole("option", { name: /src\/pagination.ts:7/ })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Create exact preview" })).toBeDisabled();
+  });
+
   it("retains the original exact preview across approval-panel unmount and remount", async () => {
     const user = userEvent.setup();
     const onOpenDelivery = vi.fn();

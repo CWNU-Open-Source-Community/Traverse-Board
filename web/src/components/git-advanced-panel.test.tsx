@@ -62,7 +62,57 @@ function projection() {
   };
 }
 
+function activeBisectProjection() {
+  return { ...projection(),
+    conflict: { active: false, kind: "bisect", can_continue: true, can_skip: false, can_abort: true, files: [] },
+    sequence: { id: "sequence-1", protocol_version: "git-advanced-sequence.v1",
+      run_id: "run-1", workspace_id: "workspace-1", kind: "bisect", status: "active",
+      repository_sha256: sha, original_head: otherOID, original_branch: "feature",
+      sequencer_sha256: sha, current_head: oid, generation: 1,
+      started_operation_id: "operation-start", last_operation_id: "operation-start",
+      created_at: now, updated_at: now },
+  };
+}
+
 describe("GitAdvancedPanel", () => {
+  it("previews an NPM bisect with operator-selected bounds through the registered recipe", async () => {
+    const user = userEvent.setup();
+    const reviewGitAdvanced = vi.fn().mockReturnValue(new Promise(() => undefined));
+    const executeGitAdvanced = vi.fn();
+    renderPanel({ hasGitAdvancedControl: true, gitAdvancedProjection: vi.fn().mockResolvedValue(activeBisectProjection()),
+      reviewGitAdvanced, executeGitAdvanced } as unknown as APIClient);
+    await user.selectOptions(await screen.findByLabelText("Bisect verification template"), "npm_test");
+    await user.clear(screen.getByLabelText("Bisect maximum steps"));
+    await user.type(screen.getByLabelText("Bisect maximum steps"), "12");
+    await user.clear(screen.getByLabelText("Bisect step timeout"));
+    await user.type(screen.getByLabelText("Bisect step timeout"), "45");
+    await user.click(screen.getByRole("button", { name: "Preview automatic bisect" }));
+    await waitFor(() => expect(reviewGitAdvanced).toHaveBeenCalledWith("run-1", expect.objectContaining({
+      spec: { protocol_version: "git-advanced.v1", operation: "bisect_run", sequence_id: "sequence-1",
+        expected_current: oid, recipe: { name: "npm_test", max_steps: 12, timeout_seconds: 45 } },
+    })));
+    expect(executeGitAdvanced).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    { label: "Bisect maximum steps", value: "0" },
+    { label: "Bisect maximum steps", value: "129" },
+    { label: "Bisect maximum steps", value: "1.5" },
+    { label: "Bisect step timeout", value: "901" },
+    { label: "Bisect step timeout", value: "" },
+  ])("rejects invalid bisect limits: $label=$value", async ({ label, value }) => {
+    const user = userEvent.setup();
+    const reviewGitAdvanced = vi.fn();
+    renderPanel({ hasGitAdvancedControl: true, gitAdvancedProjection: vi.fn().mockResolvedValue(activeBisectProjection()),
+      reviewGitAdvanced } as unknown as APIClient);
+    const input = await screen.findByLabelText(label);
+    await user.clear(input);
+    if (value) await user.type(input, value);
+    expect(screen.getByRole("button", { name: "Preview automatic bisect" })).toBeDisabled();
+    expect(screen.getByRole("alert")).toHaveTextContent("Use 1–128 steps");
+    expect(reviewGitAdvanced).not.toHaveBeenCalled();
+  });
+
   it("shows the fail-closed startup gate without issuing requests", () => {
     const gitAdvancedProjection = vi.fn();
     renderPanel({ hasGitAdvancedControl: false, gitAdvancedProjection } as unknown as APIClient);
