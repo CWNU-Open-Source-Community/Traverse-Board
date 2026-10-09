@@ -33,7 +33,21 @@ it("keeps incomplete numeric input invalid after persistence, unmount and reopen
   expect(reopened.result.current.valid).toBe(false);
   act(() => reopened.result.current.onBudgetChange(undefined));
   expect(reopened.result.current.budget).toBeUndefined();
+  expect(reopened.result.current.valid).toBe(false);
+  act(() => reopened.result.current.onValidityChange(true));
   expect(reopened.result.current.valid).toBe(true);
+});
+
+it("preserves a known project rejection through valid budget edits and restoring defaults until a completed preview clears it", () => {
+  const view = renderHook(() => useV2DraftTaskConfiguration("workspace-first"), { wrapper });
+  act(() => view.result.current.onValidityChange(false));
+  act(() => view.result.current.onBudgetChange({ max_turns: 20 }));
+  expect(view.result.current.budget).toEqual({ max_turns: 20 });
+  expect(view.result.current.valid).toBe(false);
+  act(() => view.result.current.onBudgetChange(undefined));
+  expect(view.result.current.valid).toBe(false);
+  act(() => view.result.current.onValidityChange(true));
+  expect(view.result.current.valid).toBe(true);
 });
 
 it("also retains per-workspace draft settings when durable recovery is unavailable", () => {

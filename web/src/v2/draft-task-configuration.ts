@@ -35,9 +35,15 @@ export function useV2DraftTaskConfiguration(workspaceID: string) {
   const onBudgetChange = useCallback((budget: TaskBudgetSettings | undefined) => {
     const encoded = budget ? Object.fromEntries(Object.entries(budget).map(([key, value]) =>
       [key, typeof value === "number" && Number.isFinite(value) ? value : "invalid"])) : undefined;
-    setSaved((previous: unknown) => ({ ...(record(previous) ? previous : {}), [workspaceID]: {
-      ...(encoded ? { budget: encoded } : {}), valid: numericValidity(budget),
-    } }));
+    setSaved((previous: unknown) => {
+      const entries = record(previous) ? previous : {};
+      const current = record(previous)
+        ? readConfiguration(Object.hasOwn(entries, workspaceID) ? entries[workspaceID] : undefined) : invalid();
+      // Editing a valid number or resetting defaults cannot clear an already
+      // observed rejection. Only a completed preview may confirm availability.
+      return { ...entries, [workspaceID]: { ...(encoded ? { budget: encoded } : {}),
+        valid: current.valid && numericValidity(budget) } };
+    });
   }, [setSaved, workspaceID]);
   const onValidityChange = useCallback((valid: boolean) => {
     setSaved((previous: unknown) => {

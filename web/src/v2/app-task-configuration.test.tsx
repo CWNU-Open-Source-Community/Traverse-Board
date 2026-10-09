@@ -5,6 +5,7 @@ import type { APIClient } from "../api/client";
 import type { TaskBudgetSettings, ThreadView, WorkspaceView } from "../api/types";
 import { normalizedTaskBudget } from "../api/task-configuration";
 import { useConnectionStore } from "../state/connection";
+import { LocaleProvider } from "../lib/locale";
 import { V2Workbench } from "./app";
 
 vi.mock("./components/conversation", () => ({ V2Conversation: ({ threadID }: { threadID: string }) => <div>Created task {threadID}</div> }));
@@ -30,7 +31,7 @@ function fixture() {
 function mount(client: ReturnType<typeof fixture>) {
   window.history.replaceState({}, "", "#/new");
   return render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } })}>
-    <V2Workbench client={client as unknown as APIClient} /></QueryClientProvider>);
+    <LocaleProvider><V2Workbench client={client as unknown as APIClient} /></LocaleProvider></QueryClientProvider>);
 }
 afterEach(() => { cleanup(); useConnectionStore.getState().disconnect(); window.history.replaceState({}, "", "/"); window.localStorage.clear(); });
 
@@ -69,6 +70,7 @@ it("keeps invalid budget submission blocked after leaving configuration while th
   await user.click(screen.getByRole("button", { name: "修正任务配置" }));
   expect(await screen.findByRole("spinbutton", { name: "回合上限" })).toHaveValue(0);
   await user.click(screen.getByRole("button", { name: "恢复默认预算" }));
+  await screen.findByText("生效的执行上限");
   await user.click(screen.getByRole("button", { name: "返回应用" }));
   expect(await screen.findByRole("button", { name: "发送消息" })).toBeEnabled();
 });
@@ -90,4 +92,35 @@ it("keeps project rejections scoped to their own workspace after preview unmount
   expect(screen.getByRole("textbox", { name: "开始新对话" })).toHaveValue("第一项目草稿");
   expect(screen.getByRole("button", { name: "发送消息" })).toBeDisabled();
   expect(client.createThread).not.toHaveBeenCalled();
+});
+
+it.each(["close immediately", "edit a valid number", "preview read fails"])("retains a known project rejection when configuration reopens and %s", async (action) => {
+  const client = fixture();
+  client.previewTaskConfiguration.mockResolvedValueOnce({ ...preview("workspace-first"),
+    project_disposition: "rejected", rejections: [{ field: "project_config", reason: "fixture project rejected" }] } as never);
+  if (action === "preview read fails") client.previewTaskConfiguration.mockRejectedValue(new Error("fixture preview unavailable"));
+  else client.previewTaskConfiguration.mockImplementation(() => new Promise(() => undefined));
+  mount(client); const user = userEvent.setup();
+  await user.type(await screen.findByRole("textbox", { name: "开始新对话" }), "已知拒绝时保留草稿");
+  await user.click(screen.getByRole("button", { name: "任务预算与项目配置" }));
+  expect(await screen.findByRole("alert")).toHaveTextContent("fixture project rejected");
+  await user.click(screen.getByRole("button", { name: "返回应用" }));
+  expect(await screen.findByRole("button", { name: "发送消息" })).toBeDisabled();
+  await user.click(screen.getByRole("button", { name: "修正任务配置" }));
+  const turns = await screen.findByRole("spinbutton", { name: "回合上限" });
+  if (action === "edit a valid number") fireEvent.change(turns, { target: { value: "20" } });
+  if (action === "preview read fails") expect(await screen.findByRole("alert")).toHaveTextContent("fixture preview unavailable");
+  await user.click(screen.getByRole("button", { name: "返回应用" }));
+  const composer = await screen.findByRole("textbox", { name: "开始新对话" });
+  expect(composer).toHaveValue("已知拒绝时保留草稿");
+  expect(screen.getByRole("button", { name: "发送消息" })).toBeDisabled();
+  fireEvent.submit(composer.closest("form")!);
+  expect(client.createThread).not.toHaveBeenCalled();
+  if (action === "preview read fails") {
+    client.previewTaskConfiguration.mockImplementation(async ({ workspace_id, budget }) => preview(workspace_id, budget));
+    await user.click(screen.getByRole("button", { name: "修正任务配置" }));
+    await screen.findByText("生效的执行上限");
+    await user.click(screen.getByRole("button", { name: "返回应用" }));
+    expect(await screen.findByRole("button", { name: "发送消息" })).toBeEnabled();
+  }
 });

@@ -1,6 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen } from "@testing-library/react";
 import type { APIClient } from "../../api/client";
+import { LocaleProvider } from "../../lib/locale";
 import { TaskConfigurationSettings } from "./task-configuration-settings";
 
 const configuration = { version: "task_configuration.v1", workspace_id: "workspace-source", profile: "code",
@@ -13,8 +14,8 @@ function fixture() {
 }
 function mount(client: ReturnType<typeof fixture>, sourceRunID = "run-history", threadID = "thread-source") {
   return render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
-    <TaskConfigurationSettings client={client as unknown as APIClient} threadID={threadID} sourceRunID={sourceRunID}
-      draftWorkspaceID="workspace-unrelated" draftBudget={{ max_turns: 5 }} onDraftBudgetChange={vi.fn()} />
+    <LocaleProvider><TaskConfigurationSettings client={client as unknown as APIClient} threadID={threadID} sourceRunID={sourceRunID}
+      draftWorkspaceID="workspace-unrelated" draftBudget={{ max_turns: 5 }} onDraftBudgetChange={vi.fn()} /></LocaleProvider>
   </QueryClientProvider>);
 }
 
