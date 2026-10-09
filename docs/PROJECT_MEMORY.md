@@ -1,7 +1,8 @@
 # Prayu Project Memory
 
 > 2026-10-09 Go security baseline (#289): Go 1.26.9 is the minimum compiler;
-> CI tracks the 1.26 patch line and release builders pin 1.26.9. The x/net
+> CI and release builders read the exact version from go.mod. Local desktop
+> builders require that same patched compiler. The x/net
 > dependency includes the October HTTP/2 fixes. Native macOS packaging now
 > declares and verifies macOS 12, matching the compiler's actual support floor.
 > The nightly full matrix and blocking vulnerability audit remain enabled;

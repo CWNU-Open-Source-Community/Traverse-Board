@@ -30,12 +30,17 @@ successful aggregate result. Unclassified build inputs select full checks.
 
 ## Go security baseline
 
-The minimum toolchain is Go **1.26.9**, enforced by `go.mod`. Central CI selects
-the latest Go 1.26 patch; release builders pin 1.26.9 for reproducible artifacts.
+The supported build toolchain is Go **1.26.9**, pinned by `go.mod`. Both central
+CI and release builders read that exact version with `go-version-file`.
+This avoids selecting an older patch while the setup-go version catalog lags
+behind a new Go security release. Local desktop builders require the same
+version; set `GOTOOLCHAIN=go1.26.9` when another Go toolchain is installed.
+The module's minimum version alone cannot exclude vulnerable newer release
+branches, such as Go 1.27.0 and 1.27.1; a larger version is not security evidence.
 The Windows fixed-toolchain fixture must match the exact version selected by
 `setup-go` and retains its official archive and executable hash checks.
-Update the module floor, CI release family, release pin and fixture guard
-together when moving to another supported Go release.
+Update the module pin and fixture guard together when moving to another
+supported Go release, then rerun the full matrix and current vulnerability audit.
 
 `govulncheck` uses the current Go vulnerability database. A successful scan is
 evidence for its recorded toolchain, source revision and database timestamp;

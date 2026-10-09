@@ -41,6 +41,16 @@ repositoryRoot="$(cd "$(dirname "$0")/.." && pwd -P)"
 cd "$repositoryRoot"
 repositoryFull="$(pwd -P)"
 
+# Match the exact compiler used by CI, including its security patch level.
+expectedGoVersion="$(tr -d '\r' < go.mod | sed -nE 's/^go ([0-9]+\.[0-9]+\.[0-9]+)$/go\1/p')"
+if [ -z "$expectedGoVersion" ]; then
+    die "Pinned Go toolchain is unavailable in go.mod"
+fi
+goVersion="$(go env GOVERSION)"
+if [ "$goVersion" != "$expectedGoVersion" ]; then
+    die "Desktop build requires $expectedGoVersion from go.mod. Set GOTOOLCHAIN=$expectedGoVersion."
+fi
+
 mkdir -p "$OutputDirectory"
 outputRoot="$(cd "$OutputDirectory" && pwd -P)"
 case "$outputRoot" in
@@ -116,10 +126,6 @@ fi
 cgoEnabled="$(go env CGO_ENABLED)"
 if [ "$cgoEnabled" != "1" ]; then
     die "Desktop macOS build requires CGO_ENABLED=1 (go-sqlite3 and Wails need cgo)"
-fi
-goVersion="$(go env GOVERSION)"
-if ! printf '%s' "$goVersion" | grep -Eq '^go[0-9]+.[0-9]+'; then
-    die "Go version build metadata is invalid"
 fi
 targetOS="$(go env GOOS)"
 if [ "$targetOS" != "darwin" ]; then
