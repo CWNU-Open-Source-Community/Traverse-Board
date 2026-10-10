@@ -122,6 +122,8 @@ export function StandardCodeDeliveryPanel({ client, runID, onOpenCheckpoints,
             <div className="delivery-truth-list">{report.verifications.map((verification) =>
               <div key={verification.job_id}><span><strong>{shortID(verification.job_id)}</strong>
                 <small>{verification.state} · exit {verification.exit_code ?? "—"} · {t("重试", "retries")} {verification.retry_count}</small>
+                {verification.executable_identity_kind === "template_path_sha256" &&
+                  <small>{t("sbx 固定模板与来宾命令路径绑定摘要", "sbx pinned template and guest command path digest")} · <code>{verification.executable_sha256}</code></small>}
                 {verification.output_truncated && <small className="inline-warning">{t("输出已截断", "output truncated")}</small>}
                 {verification.artifacts.length > 0 && <button className="link-button"
                   aria-controls={outputRegionID} aria-expanded={openOutputKey === `${report.id}:${verification.job_id}`}

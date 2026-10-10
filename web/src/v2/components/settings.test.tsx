@@ -5,10 +5,25 @@ import type { APIClient } from "../../api/client";
 import type { ThreadView } from "../../api/types";
 import { V2Settings } from "./settings";
 import { LocaleProvider } from "../../lib/locale";
+import { sandboxEnvironmentFixture } from "../../test/sandbox-environment";
 
 afterEach(() => {
   vi.unstubAllGlobals();
   window.localStorage.removeItem("prayu.locale.v1");
+});
+
+it("mounts real environment settings from the production settings section and reads all backends", async () => {
+  const getSandboxEnvironment = vi.fn().mockResolvedValue(sandboxEnvironmentFixture());
+  const saveSandboxEnvironment = vi.fn();
+  render(<QueryClientProvider client={new QueryClient()}><V2Settings client={{ hasControl: true,
+    getSandboxEnvironment, saveSandboxEnvironment,
+  } as unknown as APIClient} section="environment" threadID="" workspaces={[]} onSelectSection={vi.fn()}
+    onOpenInspector={vi.fn()} /></QueryClientProvider>);
+  const panel = await screen.findByRole("region", { name: "执行环境设置" });
+  const picker = await within(panel).findByRole("group", { name: "Coding backend" });
+  expect(within(picker).getAllByRole("button")).toHaveLength(3);
+  expect(getSandboxEnvironment).toHaveBeenCalledOnce();
+  expect(saveSandboxEnvironment).not.toHaveBeenCalled();
 });
 
 it("routes connection and environment tasks directly without inspecting or changing a resource", async () => {
@@ -21,10 +36,10 @@ it("routes connection and environment tasks directly without inspecting or chang
     onOpenTask={onOpenTask} /></QueryClientProvider>);
   const nav = screen.getByRole("navigation", { name: "连接与环境设置" });
   const user = userEvent.setup();
-  for (const label of ["模型连接", "任务预算与项目配置", "扩展与代码智能", "任务权限与执行环境", "应用连接与诊断"]) {
+  for (const label of ["模型连接", "任务预算与项目配置", "扩展与代码智能", "执行环境设置", "任务权限与执行环境", "应用连接与诊断"]) {
     await user.click(within(nav).getByRole("button", { name: new RegExp(label) }));
   }
-  expect(onSelectSection.mock.calls).toEqual([["models"], ["task-configuration"], ["extensions"], ["permissions"], ["about"]]);
+  expect(onSelectSection.mock.calls).toEqual([["models"], ["task-configuration"], ["extensions"], ["environment"], ["permissions"], ["about"]]);
   await user.click(screen.getByRole("button", { name: "开始任务" }));
   expect(onOpenTask).toHaveBeenCalledExactlyOnceWith();
   expect(get).not.toHaveBeenCalled(); expect(postControl).not.toHaveBeenCalled();

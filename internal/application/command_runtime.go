@@ -1187,6 +1187,8 @@ func commandRuntimeExecutionProfile(adapter commandruntimeadapter.Identity) doma
 			return domain.RunExecutionProfileLocal
 		case "docker_standard_code":
 			return domain.RunExecutionProfileDocker
+		case "docker_sandboxes":
+			return domain.RunExecutionProfileSBX
 		}
 	}
 	return ""
@@ -1225,6 +1227,11 @@ func commandRuntimeWorkspaceBoundaryKey(action, operationKey string) string {
 }
 
 func (s *CommandRuntimeService) normalizeCommandRuntimeSpec(spec runner.CommandRuntimeSpec, root string) (runner.CommandRuntimeResolvedSpec, error) {
+	if normalizer, ok := s.sandbox.(interface {
+		NormalizeCommandRuntimeSpec(runner.CommandRuntimeSpec, string) (runner.CommandRuntimeResolvedSpec, error)
+	}); ok {
+		return normalizer.NormalizeCommandRuntimeSpec(spec, root)
+	}
 	if s.adapter.Backend == CommandRuntimeLocalSandboxBackend {
 		return runner.NormalizeLocalSandboxCommandRuntimeSpec(spec, root)
 	}

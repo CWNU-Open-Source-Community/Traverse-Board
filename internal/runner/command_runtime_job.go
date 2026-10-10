@@ -459,42 +459,44 @@ func CommandRuntimeOperationIdentity(runID, operationKey string) (string, string
 }
 
 type CommandRuntimeJobSnapshot struct {
-	ID                    string                         `json:"id"`
-	Adapter               commandruntimeadapter.Identity `json:"adapter"`
-	State                 CommandRuntimeJobState         `json:"state"`
-	Profile               CommandRuntimeProfile          `json:"profile"`
-	ExecutablePath        string                         `json:"executable_path"`
-	ExecutableSHA256      string                         `json:"executable_sha256"`
-	WorkingDirectory      string                         `json:"working_directory"`
-	EnvironmentSHA256     string                         `json:"environment_sha256"`
-	Network               CommandRuntimeNetwork          `json:"network"`
-	Credentials           CommandRuntimeCredentialPolicy `json:"credentials"`
-	PID                   int                            `json:"pid,omitempty"`
-	ProcessGroup          int                            `json:"process_group,omitempty"`
-	ExitCode              *int                           `json:"exit_code,omitempty"`
-	OutputCursor          uint64                         `json:"output_cursor"`
-	OutputBaseCursor      uint64                         `json:"output_base_cursor"`
-	StdoutSHA256          string                         `json:"stdout_sha256,omitempty"`
-	StderrSHA256          string                         `json:"stderr_sha256,omitempty"`
-	StdoutObservedBytes   int64                          `json:"stdout_observed_bytes"`
-	StderrObservedBytes   int64                          `json:"stderr_observed_bytes"`
-	TruncationReason      string                         `json:"truncation_reason,omitempty"`
-	TreeReaped            bool                           `json:"tree_reaped"`
-	JobAssignedAtCreation bool                           `json:"job_assigned_at_creation"`
-	StdinPolicy           CommandRuntimeStdinPolicy      `json:"stdin_policy"`
-	StdinClosed           bool                           `json:"stdin_closed"`
-	Version               int64                          `json:"record_version"`
-	CreatedAt             time.Time                      `json:"created_at"`
-	StartedAt             *time.Time                     `json:"started_at,omitempty"`
-	CompletedAt           *time.Time                     `json:"completed_at,omitempty"`
+	ID                     string                         `json:"id"`
+	Adapter                commandruntimeadapter.Identity `json:"adapter"`
+	State                  CommandRuntimeJobState         `json:"state"`
+	Profile                CommandRuntimeProfile          `json:"profile"`
+	ExecutablePath         string                         `json:"executable_path"`
+	ExecutableSHA256       string                         `json:"executable_sha256"`
+	ExecutableIdentityKind string                         `json:"executable_identity_kind,omitempty"`
+	WorkingDirectory       string                         `json:"working_directory"`
+	EnvironmentSHA256      string                         `json:"environment_sha256"`
+	Network                CommandRuntimeNetwork          `json:"network"`
+	Credentials            CommandRuntimeCredentialPolicy `json:"credentials"`
+	PID                    int                            `json:"pid,omitempty"`
+	ProcessGroup           int                            `json:"process_group,omitempty"`
+	ExitCode               *int                           `json:"exit_code,omitempty"`
+	OutputCursor           uint64                         `json:"output_cursor"`
+	OutputBaseCursor       uint64                         `json:"output_base_cursor"`
+	StdoutSHA256           string                         `json:"stdout_sha256,omitempty"`
+	StderrSHA256           string                         `json:"stderr_sha256,omitempty"`
+	StdoutObservedBytes    int64                          `json:"stdout_observed_bytes"`
+	StderrObservedBytes    int64                          `json:"stderr_observed_bytes"`
+	TruncationReason       string                         `json:"truncation_reason,omitempty"`
+	TreeReaped             bool                           `json:"tree_reaped"`
+	JobAssignedAtCreation  bool                           `json:"job_assigned_at_creation"`
+	StdinPolicy            CommandRuntimeStdinPolicy      `json:"stdin_policy"`
+	StdinClosed            bool                           `json:"stdin_closed"`
+	Version                int64                          `json:"record_version"`
+	CreatedAt              time.Time                      `json:"created_at"`
+	StartedAt              *time.Time                     `json:"started_at,omitempty"`
+	CompletedAt            *time.Time                     `json:"completed_at,omitempty"`
 }
 
 func ProjectCommandRuntimeJob(job CommandRuntimeJob) CommandRuntimeJobSnapshot {
 	return CommandRuntimeJobSnapshot{
 		ID: job.ID, Adapter: job.Adapter, State: job.State, Profile: job.Profile,
 		ExecutablePath: job.ExecutablePath, ExecutableSHA256: job.ExecutableSHA256,
-		WorkingDirectory:  job.WorkingDirectory,
-		EnvironmentSHA256: job.EnvironmentSHA256, Network: job.Network,
+		ExecutableIdentityKind: CommandRuntimeExecutableIdentityKind(job.Adapter),
+		WorkingDirectory:       job.WorkingDirectory,
+		EnvironmentSHA256:      job.EnvironmentSHA256, Network: job.Network,
 		Credentials: job.Credentials,
 		PID:         job.PID, ProcessGroup: job.ProcessGroup, ExitCode: cloneInt(job.ExitCode),
 		OutputCursor: job.OutputCursor, OutputBaseCursor: job.OutputBaseCursor,
@@ -651,6 +653,7 @@ func (m *CommandRuntimeManager) Start(ctx context.Context,
 	m.startMu.Lock()
 	defer m.startMu.Unlock()
 	if request.Spec.Spec.Version != CommandRuntimeProtocolVersion ||
+		request.Spec.ExecutableIdentityKind != CommandRuntimeExecutableIdentityKind(request.Scope.Adapter) ||
 		request.Spec.WorkspaceRootSHA256 != request.Scope.WorkspaceRootSHA256 ||
 		!request.Spec.Spec.Network.Valid() ||
 		(request.Spec.Spec.Network == CommandRuntimeNetworkHost &&
@@ -765,7 +768,7 @@ func (m *CommandRuntimeManager) Start(ctx context.Context,
 			return ProjectCommandRuntimeJob(stored), true, nil
 		}
 		if entry := m.entry(jobID); entry != nil {
-			return entry.snapshot(), true, nil
+			return entry.snapshot(), true, entry.persistError()
 		}
 		return ProjectCommandRuntimeJob(stored), true, ErrCommandRuntimeUncertain
 	}
@@ -951,10 +954,8 @@ func (m *CommandRuntimeManager) Wait(ctx context.Context, jobID string,
 		if err != nil {
 			return CommandRuntimeJobSnapshot{}, CommandRuntimeOutputPage{}, err
 		}
-		if snapshot.State.Terminal() {
-			if terminalErr := entry.persistError(); terminalErr != nil {
-				return snapshot, page, terminalErr
-			}
+		if terminalErr := entry.persistError(); terminalErr != nil {
+			return snapshot, page, terminalErr
 		}
 		if len(page.Frames) > 0 || snapshot.State.Terminal() || wait == 0 ||
 			time.Now().After(deadline) {
@@ -1150,11 +1151,9 @@ func (m *CommandRuntimeManager) Shutdown(ctx context.Context) (result error) {
 	}
 	m.startMu.Lock()
 	m.mu.Lock()
-	if m.closed {
-		m.mu.Unlock()
-		m.startMu.Unlock()
-		return nil
-	}
+	// A timed-out caller can return while output and durable completion still
+	// drain. Later shutdown calls must join those same entries before the store
+	// owner releases SQLite.
 	m.closed = true
 	entries := make([]*commandRuntimeEntry, 0, len(m.entries))
 	for _, entry := range m.entries {
@@ -1337,6 +1336,11 @@ func (m *CommandRuntimeManager) renewOwnership(ctx context.Context,
 ) error {
 	entry.persistMu.Lock()
 	defer entry.persistMu.Unlock()
+	select {
+	case <-entry.done:
+		return nil
+	default:
+	}
 	entry.mu.Lock()
 	defer entry.mu.Unlock()
 	if entry.record.State.Terminal() {
@@ -1362,6 +1366,10 @@ func (m *CommandRuntimeManager) renewOwnership(ctx context.Context,
 
 func (m *CommandRuntimeManager) wait(entry *commandRuntimeEntry) {
 	exitCode, waitErr := entry.process.Wait()
+	treeReaped := true
+	if proof, ok := entry.process.(interface{ TreeReaped() bool }); ok {
+		treeReaped = proof.TreeReaped()
+	}
 	_ = entry.process.CloseStdin()
 	<-entry.stdoutDone
 	<-entry.stderrDone
@@ -1385,11 +1393,18 @@ func (m *CommandRuntimeManager) wait(entry *commandRuntimeEntry) {
 	record.CompletedAt = &now
 	record.UpdatedAt = now
 	record.Version++
-	record.TreeReaped = true
+	record.TreeReaped = treeReaped
+	if !treeReaped {
+		// The local CLI may have exited while its owned VM still exists.
+		// Preserve the active-job fence until startup cleanup confirms removal.
+		record.State = CommandRuntimeJobStopping
+		record.ExitCode = nil
+		record.CompletedAt = nil
+	}
 	record.StdinClosed = true
-	record.TimedOut = state == CommandRuntimeJobTimedOut
-	record.Cancelled = state == CommandRuntimeJobCancelled
-	record.Killed = state == CommandRuntimeJobKilled
+	record.TimedOut = record.State == CommandRuntimeJobTimedOut
+	record.Cancelled = record.State == CommandRuntimeJobCancelled
+	record.Killed = record.State == CommandRuntimeJobKilled
 	record.OutputCursor = entry.ring.next
 	record.OutputBaseCursor = entry.ring.base
 	record.OutputFramesJSON = entry.ring.json()
@@ -1409,6 +1424,9 @@ func (m *CommandRuntimeManager) wait(entry *commandRuntimeEntry) {
 	if persistErr == nil {
 		entry.mu.Lock()
 		entry.record = updated
+		if !treeReaped {
+			entry.terminalErr = errors.Join(ErrCommandRuntimeUncertain, waitErr)
+		}
 		entry.mu.Unlock()
 	} else {
 		entry.mu.Lock()
@@ -1419,7 +1437,7 @@ func (m *CommandRuntimeManager) wait(entry *commandRuntimeEntry) {
 	_ = entry.process.Close()
 	entry.signal()
 	close(entry.done)
-	if persistErr == nil {
+	if persistErr == nil && treeReaped {
 		m.removeEntry(record.ID, entry)
 	}
 }

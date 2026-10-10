@@ -108,6 +108,8 @@ func (e *LocalSandboxCommandRuntimeExecutor) ExecuteSandboxCommand(ctx context.C
 	scope runner.CommandRuntimeScope, spec runner.CommandRuntimeResolvedSpec,
 	stdin io.ReadCloser,
 ) (runner.CommandRuntimeSandboxResult, error) {
+	// All returns before Run/RunWithStdin precede native process dispatch.
+	noProcess := runner.CommandRuntimeSandboxResult{ExitCode: 125, TreeReaped: true}
 	if ctx == nil || ctx.Err() != nil || !e.Available() ||
 		scope.Validate() != nil || !scope.Adapter.SameBackend(e.identity) ||
 		!e.identity.AllowsPermission(scope.PermissionMode) ||
@@ -116,40 +118,40 @@ func (e *LocalSandboxCommandRuntimeExecutor) ExecuteSandboxCommand(ctx context.C
 		(spec.Spec.StdinPolicy == runner.CommandRuntimeStdinPipe && stdin == nil) ||
 		(spec.Spec.StdinPolicy != runner.CommandRuntimeStdinClosed &&
 			spec.Spec.StdinPolicy != runner.CommandRuntimeStdinPipe) {
-		return runner.CommandRuntimeSandboxResult{}, runner.ErrCommandRuntimeBoundary
+		return noProcess, runner.ErrCommandRuntimeBoundary
 	}
 	if spec.Spec.Profile == runner.CommandRuntimePowerShell &&
 		!strings.EqualFold(filepath.Base(spec.ExecutablePath), "pwsh.exe") {
-		return runner.CommandRuntimeSandboxResult{}, runner.ErrCommandRuntimeLocalPowerShell
+		return noProcess, runner.ErrCommandRuntimeLocalPowerShell
 	}
 	workspace, found, err := readRunFileDrydock(ctx, e.store, scope.RunID)
 	if err != nil || !found {
-		return runner.CommandRuntimeSandboxResult{}, errors.Join(err,
+		return noProcess, errors.Join(err,
 			runner.ErrCommandRuntimeBoundary)
 	}
 	profile, err := e.store.GetRunExecutionProfile(ctx, scope.RunID)
 	if err != nil {
-		return runner.CommandRuntimeSandboxResult{}, err
+		return noProcess, err
 	}
 	permission, err := e.store.GetRunExecutionPermission(ctx, scope.RunID)
 	if err != nil {
-		return runner.CommandRuntimeSandboxResult{}, err
+		return noProcess, err
 	}
 	interaction, err := e.store.GetRunExecutionInteraction(ctx, scope.RunID)
 	if err != nil {
-		return runner.CommandRuntimeSandboxResult{}, err
+		return noProcess, err
 	}
 	lease, leaseFound, err := e.store.GetRunExecutionLease(ctx, scope.RunID)
 	if err != nil {
-		return runner.CommandRuntimeSandboxResult{}, err
+		return noProcess, err
 	}
 	rootSHA256, err := runner.CommandRuntimeWorkspaceRootSHA256(workspace.Path)
 	if err != nil {
-		return runner.CommandRuntimeSandboxResult{}, err
+		return noProcess, err
 	}
 	bound, bindErr := commandRuntimeDrydockBound(ctx, e.store, workspace, scope.RunID, scope.MissionID, scope.SessionID, scope.WorkspaceID)
 	if bindErr != nil {
-		return runner.CommandRuntimeSandboxResult{}, bindErr
+		return noProcess, bindErr
 	}
 	if !leaseFound || !bound ||
 		(workspace.State != runworktree.StateReady && workspace.State != runworktree.StateDelivered) ||
@@ -162,31 +164,34 @@ func (e *LocalSandboxCommandRuntimeExecutor) ExecuteSandboxCommand(ctx context.C
 		interaction.Mode != domain.RunExecutionInteractionControlled ||
 		lease.LeaseID != scope.LeaseID || lease.Generation != scope.LeaseGeneration ||
 		lease.OwnerID != scope.LeaseOwnerID || lease.Status != domain.RunExecutionLeaseActive {
-		return runner.CommandRuntimeSandboxResult{}, runner.ErrCommandRuntimeBoundary
+		return noProcess, runner.ErrCommandRuntimeBoundary
 	}
 
 	request, err := e.compile(scope, spec, workspace, profile, permission,
 		interaction, lease)
 	if err != nil {
-		return runner.CommandRuntimeSandboxResult{}, err
+		return noProcess, err
 	}
 	var value sandbox.LocalExecutionResult
 	var runErr error
 	if err := runner.CheckCommandRuntimeDispatch(ctx, spec); err != nil {
-		return runner.CommandRuntimeSandboxResult{}, err
+		return noProcess, err
 	}
 	if spec.Spec.StdinPolicy == runner.CommandRuntimeStdinPipe {
 		value, runErr = e.backend.RunWithStdin(ctx, request, stdin)
 	} else {
 		value, runErr = e.backend.Run(ctx, request)
 	}
-	if validateErr := value.Validate(request); validateErr != nil {
-		return runner.CommandRuntimeSandboxResult{}, errors.Join(runErr, validateErr)
-	}
-	return runner.CommandRuntimeSandboxResult{ExitCode: value.ExitCode,
+	result := runner.CommandRuntimeSandboxResult{ExitCode: value.ExitCode,
 		Stdout:     append([]byte(nil), value.Stdout.Data...),
 		Stderr:     append([]byte(nil), value.Stderr.Data...),
-		TreeReaped: value.TreeReaped}, runErr
+		TreeReaped: value.TreeReaped}
+	if validateErr := value.Validate(request); validateErr != nil {
+		// Validation can fail after dispatch or while cleanup is unresolved.
+		// Preserve its tree proof without exposing an unvalidated output body.
+		return runner.CommandRuntimeSandboxResult{ExitCode: 125, TreeReaped: value.TreeReaped}, errors.Join(runErr, validateErr)
+	}
+	return result, runErr
 }
 
 func (e *LocalSandboxCommandRuntimeExecutor) compile(scope runner.CommandRuntimeScope,

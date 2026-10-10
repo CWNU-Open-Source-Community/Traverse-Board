@@ -181,6 +181,45 @@ describe("desktop native bridge", () => {
     expect(restart).not.toHaveBeenCalled();
   });
 
+  it("reads saved sandbox settings through the fixed native restart request only", async () => {
+    const result = { protocol_version: "desktop_sandbox_restart.v1", status: "cancelled",
+      restart_required: true, arbitrary_arguments_accepted: false, persistent_runtime_grant: false };
+    const restart = vi.fn().mockResolvedValue(result);
+    installBridge({ Bootstrap: vi.fn().mockResolvedValue(restartBootstrap), RestartWithSandboxSettings: restart });
+    const module = await import("./desktop-bridge");
+    await module.loadDesktopBootstrap();
+    expect(module.desktopSandboxRestartEnabled()).toBe(true);
+    await expect(module.restartDesktopWithSandboxSettings()).resolves.toEqual(result);
+    expect(restart).toHaveBeenCalledExactlyOnceWith({ protocol_version: "desktop_sandbox_restart.v1" });
+    for (const invalid of [
+      { ...result, argv: ["--danger-full-access"] },
+      { ...result, arbitrary_arguments_accepted: true },
+      { ...result, persistent_runtime_grant: true },
+      { ...result, restart_required: false },
+      { ...result, status: "started" },
+    ]) {
+      restart.mockResolvedValueOnce(invalid);
+      await expect(module.restartDesktopWithSandboxSettings()).rejects.toThrow("result was rejected");
+    }
+  });
+
+  it("requires both bootstrap restart capability and the sandbox restart native method", async () => {
+    installBridge({ Bootstrap: vi.fn().mockResolvedValue(restartBootstrap) });
+    let module = await import("./desktop-bridge");
+    await module.loadDesktopBootstrap();
+    expect(module.desktopSandboxRestartEnabled()).toBe(false);
+    await expect(module.restartDesktopWithSandboxSettings()).rejects.toThrow("unavailable");
+
+    vi.resetModules();
+    const restart = vi.fn();
+    installBridge({ Bootstrap: vi.fn().mockResolvedValue(bootstrap), RestartWithSandboxSettings: restart });
+    module = await import("./desktop-bridge");
+    await module.loadDesktopBootstrap();
+    expect(module.desktopSandboxRestartEnabled()).toBe(false);
+    await expect(module.restartDesktopWithSandboxSettings()).rejects.toThrow("unavailable");
+    expect(restart).not.toHaveBeenCalled();
+  });
+
   it("rejects non-closed Debug restart results", async () => {
     const valid = {
       protocol_version: "desktop_risk_restart.v1",
@@ -915,6 +954,7 @@ function installBridge(overrides: Partial<{
   GetDebugTerminalAgentInput: (runID: string) => Promise<unknown>;
   RevokeDebugTerminalAgentInput: (request: unknown) => Promise<void>;
   RestartWithRiskProfile: (request: unknown) => Promise<unknown>;
+  RestartWithSandboxSettings: (request: unknown) => Promise<unknown>;
 }>) {
   window.go = {
     desktop: {

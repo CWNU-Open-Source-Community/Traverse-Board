@@ -45,6 +45,7 @@ const (
 	ExecutionInteractionGateNone              ExecutionInteractionGate = "none"
 	ExecutionInteractionGateLocalOSSandbox    ExecutionInteractionGate = "local_os_sandbox_gate"
 	ExecutionInteractionGateDockerSandbox     ExecutionInteractionGate = "docker_sandbox_gate"
+	ExecutionInteractionGateSBXMicroVM        ExecutionInteractionGate = "sbx_microvm_gate"
 	ExecutionInteractionGateDebugAgentLease   ExecutionInteractionGate = "debug_agent_input_lease"
 	ExecutionInteractionGateCyberContainerPTY ExecutionInteractionGate = "cyber_container_terminal_gate"
 )
@@ -172,6 +173,9 @@ func newRunExecutionInteractionSnapshot(id string, runID string, missionID strin
 		profile.Profile == RunExecutionProfileDocker {
 		executionProfile = RunExecutionProfileDocker
 		requiredGate = ExecutionInteractionGateDockerSandbox
+	} else if interactionMode == RunExecutionInteractionControlled && profile.Profile == RunExecutionProfileSBX {
+		executionProfile = RunExecutionProfileSBX
+		requiredGate = ExecutionInteractionGateSBXMicroVM
 	}
 	return RunExecutionInteractionSnapshot{
 		ID: strings.TrimSpace(id), RunID: runID, MissionID: missionID, Revision: revision,
@@ -222,6 +226,9 @@ func (s RunExecutionInteractionSnapshot) Validate() error {
 		s.ExecutionProfile == RunExecutionProfileDocker {
 		expectedProfile = RunExecutionProfileDocker
 		expectedGate = ExecutionInteractionGateDockerSandbox
+	} else if s.Mode == RunExecutionInteractionControlled && s.ExecutionProfile == RunExecutionProfileSBX {
+		expectedProfile = RunExecutionProfileSBX
+		expectedGate = ExecutionInteractionGateSBXMicroVM
 	}
 	if s.ExecutionProfile != expectedProfile || s.WorkspaceTrust != definition.Trust ||
 		s.CommandForm != definition.CommandForm ||

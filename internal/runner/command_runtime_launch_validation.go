@@ -7,7 +7,7 @@ import "fmt"
 // It shares the Host launch/normalization checks; it does not lock the executable
 // or attest the contents of the surrounding toolchain directory.
 func ValidateCommandRuntimeLaunchSpec(spec CommandRuntimeResolvedSpec) error {
-	if spec.Spec.Version != CommandRuntimeProtocolVersion || !spec.ExecutablePinned {
+	if spec.Spec.Version != CommandRuntimeProtocolVersion || !spec.ExecutablePinned || spec.ExecutableIdentityKind != "" {
 		return ErrCommandRuntimeBoundary
 	}
 	if err := validateCommandRuntimeLaunchDirectory(spec); err != nil {

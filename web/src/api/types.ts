@@ -54,6 +54,10 @@ export type PriceSnapshotImportRequestView = components["schemas"]["PriceSnapsho
 export type PriceSnapshotImportView = components["schemas"]["PriceSnapshotImportView"];
 export type DockerSandboxStatusView = components["schemas"]["DockerSandboxStatusView"];
 export type DockerEnvironmentView = components["schemas"]["DockerEnvironmentView"];
+export type SandboxEnvironmentSettingsView = components["schemas"]["SandboxEnvironmentSettingsView"];
+export type SandboxEnvironmentControlRequestView = components["schemas"]["SandboxEnvironmentControlRequestView"];
+export type SandboxEnvironmentView = components["schemas"]["SandboxEnvironmentView"];
+export type SandboxEnvironmentBackendView = components["schemas"]["SandboxEnvironmentBackendView"];
 export type DockerSandboxAdmissionRequestView = components["schemas"]["DockerSandboxAdmissionRequestView"];
 export type DockerSandboxAdmissionView = components["schemas"]["DockerSandboxAdmissionView"];
 export type DockerSandboxStartRequestView = components["schemas"]["DockerSandboxStartRequestView"];
@@ -128,7 +132,9 @@ export type RunCapabilityReadinessView =
 export type StandardCodePresetControlRequestView =
   components["schemas"]["StandardCodePresetControlRequestView"];
 export type StandardCodePresetControlView =
-  components["schemas"]["StandardCodePresetControlView"];
+  Omit<components["schemas"]["StandardCodePresetControlView"], "sbx_readiness"> & {
+    sbx_readiness?: components["schemas"]["StandardCodeBackendReadinessView"];
+  };
 export type StandardCodeDeliveryView =
   components["schemas"]["StandardCodeDeliveryReportView"];
 export type StandardCodeDeliveryOutputSourceView =

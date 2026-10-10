@@ -32,13 +32,26 @@ func (r CommandRuntimeSandboxResult) Validate(maximum int) error {
 
 // CommandRuntimeSandboxExecutor adapts an already-isolated backend without
 // exposing backend choice to the model-facing command-runtime.v2 schema.
-// Execute must return only after the complete owned process/container tree has
-// stopped; cancellation is delivered through ctx.
+// Execute reports TreeReaped only after confirming the complete owned tree has
+// stopped. An uncertain cleanup retains a stopping Job for recovery. Cancellation
+// is delivered through ctx.
 type CommandRuntimeSandboxExecutor interface {
 	Identity() commandruntimeadapter.Identity
 	Available() bool
 	ExecuteSandboxCommand(context.Context, CommandRuntimeScope,
 		CommandRuntimeResolvedSpec, io.ReadCloser) (CommandRuntimeSandboxResult, error)
+}
+
+// ReconcileSandboxCommandRuntimeStartup is a recovery-only entry point. The
+// composition root must first verify removal of all owned backend resources.
+// No executor is installed and disabled backends gain no launch capability.
+func ReconcileSandboxCommandRuntimeStartup(ctx context.Context, store CommandRuntimeStore,
+	identity commandruntimeadapter.Identity,
+) (int, error) {
+	if ctx == nil || store == nil || identity.Kind != commandruntimeadapter.KindSandboxedWorkspace || !identity.Executable() {
+		return 0, ErrCommandRuntimeBoundary
+	}
+	return (&CommandRuntimeManager{store: store, adapter: identity}).ReconcileStartup(ctx)
 }
 
 // NewSandboxCommandRuntimeManager reuses the mature Run-owned Job state
@@ -108,6 +121,7 @@ type commandRuntimeSandboxProcess struct {
 	mu           sync.Mutex
 	exitCode     int
 	waitErr      error
+	treeReaped   bool
 }
 
 func newCommandRuntimeSandboxProcess(parent context.Context, executor CommandRuntimeSandboxExecutor,
@@ -164,8 +178,15 @@ func (p *commandRuntimeSandboxProcess) execute(ctx context.Context,
 	p.mu.Lock()
 	p.exitCode = result.ExitCode
 	p.waitErr = err
+	p.treeReaped = result.TreeReaped
 	p.mu.Unlock()
 	close(p.done)
+}
+
+func (p *commandRuntimeSandboxProcess) TreeReaped() bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.treeReaped
 }
 
 func (*commandRuntimeSandboxProcess) Ownership() CommandRuntimeProcessOwnership {

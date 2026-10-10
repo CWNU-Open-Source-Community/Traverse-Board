@@ -172,6 +172,7 @@ type Verification struct {
 	ExitCode                *int       `json:"exit_code,omitempty"`
 	SpecSHA256              string     `json:"spec_sha256"`
 	ExecutableSHA256        string     `json:"executable_sha256"`
+	ExecutableIdentityKind  string     `json:"executable_identity_kind,omitempty"`
 	EnvironmentSHA256       string     `json:"environment_sha256"`
 	PermissionRevision      int64      `json:"permission_revision"`
 	Backend                 string     `json:"backend"`
@@ -505,6 +506,13 @@ func (r Report) Validate() error {
 }
 
 func (v Verification) Validate() error {
+	wantIdentityKind := ""
+	if v.Backend == "docker_sandboxes" {
+		wantIdentityKind = "template_path_sha256"
+	}
+	if v.ExecutableIdentityKind != wantIdentityKind {
+		return errors.New("Standard Code delivery executable identity does not match its backend")
+	}
 	if !validIdentity(v.JobID) || !v.Conclusion.Valid() ||
 		v.Conclusion == StatusNotRun || !validText(v.ReasonCode, 128, false) ||
 		!validVerificationState(v.State) || !validDigest(v.SpecSHA256) ||

@@ -11,12 +11,14 @@ const DesktopRiskRestartProtocolVersion = "desktop_risk_restart.v1"
 type DesktopRiskProfile string
 
 const (
-	DesktopRiskProfileFullAccess DesktopRiskProfile = "full_access"
-	DesktopRiskProfileDebug      DesktopRiskProfile = "debug"
+	DesktopRiskProfileFullAccess   DesktopRiskProfile = "full_access"
+	DesktopRiskProfileDebug        DesktopRiskProfile = "debug"
+	DesktopRiskProfileSandbox      DesktopRiskProfile = "sandbox_settings"
+	DesktopRiskProfileSandboxDebug DesktopRiskProfile = "sandbox_settings_debug"
 )
 
 func (p DesktopRiskProfile) Valid() bool {
-	return p == DesktopRiskProfileDebug
+	return p == DesktopRiskProfileDebug || p == DesktopRiskProfileSandbox || p == DesktopRiskProfileSandboxDebug
 }
 
 type DesktopRiskRestartStatus string
@@ -57,7 +59,7 @@ func (b *DesktopBridge) RestartWithRiskProfile(
 		return DesktopRiskRestartResult{}, apperror.New(apperror.CodeNotFound,
 			"desktop risk-profile restart is disabled")
 	}
-	if request.ProtocolVersion != DesktopRiskRestartProtocolVersion || !request.Profile.Valid() {
+	if request.ProtocolVersion != DesktopRiskRestartProtocolVersion || request.Profile != DesktopRiskProfileDebug {
 		return DesktopRiskRestartResult{}, apperror.New(apperror.CodeInvalidArgument,
 			"desktop risk-profile restart request is invalid")
 	}

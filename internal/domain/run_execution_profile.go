@@ -19,6 +19,7 @@ type RunExecutionProfile string
 const (
 	RunExecutionProfilePreview RunExecutionProfile = "preview"
 	RunExecutionProfileDocker  RunExecutionProfile = "docker"
+	RunExecutionProfileSBX     RunExecutionProfile = "sbx"
 	RunExecutionProfileLocal   RunExecutionProfile = "local"
 )
 
@@ -27,6 +28,7 @@ type ExecutionBackend string
 const (
 	ExecutionBackendNoop   ExecutionBackend = "noop"
 	ExecutionBackendDocker ExecutionBackend = "docker"
+	ExecutionBackendSBX    ExecutionBackend = "sbx"
 	ExecutionBackendLocal  ExecutionBackend = "local"
 )
 
@@ -62,6 +64,7 @@ const (
 	ExecutionGateNone                  ExecutionRequiredGate = "none"
 	ExecutionGateDockerProductionStart ExecutionRequiredGate = "docker_production_start_gate"
 	ExecutionGateLocalOSSandbox        ExecutionRequiredGate = "local_os_sandbox_gate"
+	ExecutionGateSBXMicroVM            ExecutionRequiredGate = "sbx_microvm_gate"
 )
 
 type runExecutionProfileDefinition struct {
@@ -88,6 +91,11 @@ var runExecutionProfileDefinitions = map[RunExecutionProfile]runExecutionProfile
 		Backend: ExecutionBackendLocal, ApprovalPolicy: ExecutionApprovalAlways,
 		FilesystemScope: ExecutionFilesystemWorkspace, NetworkScope: ExecutionNetworkDisabled,
 		RiskTier: ExecutionRiskHigh, RequiredGate: ExecutionGateLocalOSSandbox,
+	},
+	RunExecutionProfileSBX: {
+		Backend: ExecutionBackendSBX, ApprovalPolicy: ExecutionApprovalAlways,
+		FilesystemScope: ExecutionFilesystemWorkspace, NetworkScope: ExecutionNetworkDisabled,
+		RiskTier: ExecutionRiskElevated, RequiredGate: ExecutionGateSBXMicroVM,
 	},
 }
 

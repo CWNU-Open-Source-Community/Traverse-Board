@@ -1,0 +1,21 @@
+.sandbox-environment-panel { min-width: 0; overflow-wrap: anywhere; }
+.sandbox-environment-panel .section-heading { align-items: start; gap: 16px; }
+.sandbox-environment-panel p { color: var(--prayu-muted); line-height: 1.6; }
+.sandbox-environment-observations { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); margin: 20px 0 28px; gap: 16px; }
+.sandbox-environment-observations article { min-width: 0; border-top: 1px solid var(--prayu-border); padding: 14px 0; }
+.sandbox-environment-observations strong, .sandbox-environment-observations span { display: block; }
+.sandbox-environment-observations span { font-size: 12px; margin-top: 8px; }
+.sandbox-environment-observations p { font-size: 12px; margin: 8px 0 0; }
+.sandbox-environment-form { border: 1px solid var(--prayu-border); border-radius: 16px; padding: 20px; min-width: 0; background: var(--prayu-glass-fill-strong); }
+.sandbox-environment-form legend { padding: 0 8px; font-weight: 600; }
+.sandbox-environment-form .sandbox-backend-selector { margin: 16px 0 24px; }
+.sandbox-environment-fields { display: grid; gap: 12px; }
+.sandbox-environment-fields label { display: grid; min-width: 0; gap: 8px; }
+.sandbox-environment-fields input:not([type="checkbox"]) { width: 100%; min-width: 0; border: 1px solid var(--prayu-border); border-radius: 9px; padding: 10px 12px; color: var(--prayu-text); background: var(--prayu-surface-solid); }
+.sandbox-environment-fields .sandbox-environment-toggle { display: flex; align-items: center; gap: 9px; }
+.sandbox-environment-fields p { margin: 0 0 14px; font-size: 12px; }
+.sandbox-environment-restart { margin-top: 20px; padding-top: 12px; border-top: 1px solid var(--prayu-border); }
+.sandbox-environment-panel button { display: inline-flex; align-items: center; gap: 7px; }
+.sandbox-backend-selector > button > span { min-width: 0; overflow-wrap: anywhere; }
+.sandbox-environment-panel pre { overflow: auto; max-width: 100%; }
+@media (max-width: 600px) { .sandbox-environment-observations, .sandbox-environment-panel .sandbox-backend-selector { grid-template-columns: minmax(0, 1fr); } .sandbox-environment-form { padding: 14px; } }

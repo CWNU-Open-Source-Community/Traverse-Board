@@ -3,6 +3,17 @@ import { parseGitHubProjection } from "./github-review";
 import { parseStandardCodeDelivery } from "./standard-code-delivery";
 
 describe("Standard Code delivery projection", () => {
+  it("accepts a guest template/path digest only for the sbx backend while retaining legacy evidence", () => {
+    const report = standardCodeDeliveryFixture();
+    expect(parseStandardCodeDelivery(report, "run-1").verifications[0]?.executable_identity_kind).toBeUndefined();
+    const sbx = { ...report, verifications: report.verifications.map((value) => ({ ...value,
+      backend: "docker_sandboxes", executable_identity_kind: "template_path_sha256" })) };
+    expect(parseStandardCodeDelivery(sbx, "run-1").verifications[0]?.executable_identity_kind).toBe("template_path_sha256");
+    for (const patch of [{ backend: "local" }, { executable_identity_kind: "host_binary_sha256" },
+      { executable_identity_kind: null }]) {
+      expect(() => parseStandardCodeDelivery({ ...sbx, verifications: sbx.verifications.map((value) => ({ ...value, ...patch })) }, "run-1")).toThrow();
+    }
+  });
   it("accepts optional read-source facts without changing the sealed verification conclusion", () => {
     const report = standardCodeDeliveryFixture();
     const available = { job_id: "verification-1", artifact_id: "artifact-stdout", status: "available",

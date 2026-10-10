@@ -18,7 +18,7 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 | [cli-headless-contract](#cli-headless-contract) | `external-durable` | CLI and headless surface maintainers | 2 | true |
 | [control-plane-ledgers](#control-plane-ledgers) | `internal-durable` | Core Go control-plane maintainers | 111 | true |
 | [credential-provider-ledgers](#credential-provider-ledgers) | `internal-durable` | Credential, provider, model-route, and pricing maintainers | 23 | true |
-| [desktop-risk-restart-session](#desktop-risk-restart-session) | `ephemeral` | Desktop shell lifecycle maintainers | 1 | false |
+| [desktop-risk-restart-session](#desktop-risk-restart-session) | `ephemeral` | Desktop shell lifecycle maintainers | 2 | false |
 | [desktop-web-presentation-state](#desktop-web-presentation-state) | `projection` | Desktop and React workbench maintainers | 15 | true |
 | [docker-attach-process-session](#docker-attach-process-session) | `ephemeral` | Docker runtime transport maintainers | 1 | false |
 | [exported-evidence-and-handoff](#exported-evidence-and-handoff) | `external-durable` | Evidence, verification, report, and handoff maintainers | 35 | true |
@@ -34,7 +34,8 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 | [registry-governance-contract](#registry-governance-contract) | `external-durable` | Protocol and Surface governance maintainers | 2 | true |
 | [release-and-packaging-contracts](#release-and-packaging-contracts) | `external-durable` | Desktop release and packaging maintainers | 4 | true |
 | [report-summary-projections](#report-summary-projections) | `projection` | Finding, repository, and summary maintainers | 5 | true |
-| [sandbox-docker-lifecycle](#sandbox-docker-lifecycle) | `internal-durable` | Sandbox and Docker lifecycle maintainers | 200 | true |
+| [sandbox-docker-lifecycle](#sandbox-docker-lifecycle) | `internal-durable` | Sandbox and Docker lifecycle maintainers | 202 | true |
+| [sandbox-environment-settings](#sandbox-environment-settings) | `internal-durable` | Desktop sandbox environment maintainers | 1 | true |
 | [standard-code-delivery-ledger](#standard-code-delivery-ledger) | `external-durable` | Standard Code delivery and public projection maintainers | 8 | true |
 | [supervisor-input-delivery-projection](#supervisor-input-delivery-projection) | `projection` | Supervisor input and context maintainers | 1 | true |
 | [supervisor-tool-rejection-diagnostics](#supervisor-tool-rejection-diagnostics) | `internal-durable` | Supervisor terminal accounting and private diagnostic maintainers | 1 | true |
@@ -665,7 +666,7 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 
 - Class: `ephemeral`
 - Owner: Desktop shell lifecycle maintainers
-- Source of truth: `cmd/cyberagent-desktop`
+- Source of truth: `cmd/cyberagent-desktop`, `internal/desktop`
 - Persistence/export boundary: The parent/helper readiness channel exists only for one same-executable restart attempt and grants no durable authority.
 - Compatibility rule: Fail closed unless the helper proves the expected parent and exact readiness protocol before the parent exits.
 - Retirement gate (`restart-non-persistence`): Restart tests prove no handle, token, stream, or authority is adopted; Runtime metadata cannot substitute for a fresh admission; Shutdown and crash recovery discard process-local state
@@ -675,9 +676,10 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 - Readers:
   - `desktop-risk-restart-session-reader` (`v1`, active) at `cmd/cyberagent-desktop`
 
-<details><summary>1 active identifiers</summary>
+<details><summary>2 active identifiers</summary>
 
 - `desktop_risk_restart.ready.v1`
+- `desktop_sandbox_restart.v1`
 
 </details>
 
@@ -1308,7 +1310,7 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
   - `sandbox-docker-lifecycle-reader` (`v1, v2`, active) at `internal/store`
   - `local-sandbox-owner-recovery-reader` (`v1, v2, v3`, active) at `internal/sandbox`
 
-<details><summary>200 active identifiers</summary>
+<details><summary>202 active identifiers</summary>
 
 - `docker-standard-code.v1`
 - `docker_sandbox_admission.v1`
@@ -1507,9 +1509,31 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 - `sandbox_scope_binding.v1`
 - `sandbox_validation.v1`
 - `sandbox_workspace_binding.v1`
+- `sbx-command-runtime.v1`
+- `sbx-readiness.v1`
 - `windows_appcontainer_policy.v1`
 - `windows_appcontainer_policy.v2`
 - `windows_appcontainer_policy.v3`
+
+</details>
+
+### sandbox-environment-settings
+
+- Class: `internal-durable`
+- Owner: Desktop sandbox environment maintainers
+- Source of truth: `internal/application`, `internal/desktop`
+- Persistence/export boundary: The Go-owned application home retains revision-bound sandbox preferences; HTTP exports saved and active settings separately.
+- Compatibility rule: Retain versioned settings readers, preserve compare-and-swap revisions, reject unknown backend values, and establish fresh runtime readiness after restart. Preferences never grant execution.
+- Retirement gate (`migration-or-retention`): ADR-backed retirement decision and rollback path; Old-version fixtures remain until every supported source is migrated or retained; Reader history is append-only; retirement requires migration or retention evidence
+- Writers:
+  - `sandbox-environment-settings-writer` (`v1`, write-current) at `internal/application`
+- Readers:
+  - `sandbox-environment-settings-reader` (`v1`, active) at `internal/application`
+  - `sandbox-environment-settings-ui-reader` (`v1`, active) at `web/src/api`
+
+<details><summary>1 active identifiers</summary>
+
+- `sandbox_environment.v1`
 
 </details>
 
@@ -1886,6 +1910,7 @@ These identifiers remain inside the scan. Each exemption is bound to exact files
 | `runner_evidence_set_receipt_golden_vectors.v1` | `golden-vector` | `internal/runner/evidence_set_receipt_golden_test.go`, `internal/runner/testdata/evidence_set_receipt_vectors.json` | Test-only or golden/negative-vector identifier; exact source binding prevents production classification. |
 | `runner_exit_evidence.v2` | `test-fixture` | `internal/runner/testdata/evidence_set_receipt_compatibility_vectors.json` | Test-only or golden/negative-vector identifier; exact source binding prevents production classification. |
 | `sandbox_docker_lifecycle_store_test.v1` | `test-fixture` | `internal/store/docker_container_lifecycle_test.go` | Test-only or golden/negative-vector identifier; exact source binding prevents production classification. |
+| `sandbox_environment.v2` | `test-fixture` | `internal/httpapi/sandbox_environment_test.go` | Rejects an unsupported future settings protocol before any mutation. |
 | `sandbox_output_fixture.v1` | `test-fixture` | `configs/sandbox-output-fixture.example.json`, `internal/app/sandbox_command_test.go`, `internal/sandbox/output_simulation.go`, `internal/sandbox/output_simulation_test.go` | Explicit sandbox output-simulation fixture input; it grants no production execution authority. |
 | `scheduled-store-observation.v1` | `test-fixture` | `internal/store/scheduled_jobs_concurrency_test.go` | Test-only or golden/negative-vector identifier; exact source binding prevents production classification. |
 | `skill.v2` | `test-fixture` | `internal/skills/manifest_test.go` | Test-only or golden/negative-vector identifier; exact source binding prevents production classification. |

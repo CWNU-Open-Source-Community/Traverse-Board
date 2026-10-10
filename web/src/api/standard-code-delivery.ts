@@ -147,12 +147,14 @@ function verification(value: unknown): boolean {
     "retry_count", "revision_sha256", "spec_sha256", "started_at", "state",
     "stderr_observed_bytes", "stderr_sha256", "stdout_observed_bytes", "stdout_sha256",
     "tree_reaped"];
-  const optional = ["completed_at", "exit_code"];
+  const optional = ["completed_at", "exit_code", "executable_identity_kind"];
   if (!exact(value, required.filter((key) => key !== "started_at"),
     [...optional, "started_at"]) || !identity(value.job_id) ||
     !verificationStatuses.has(String(value.conclusion)) || !jobStates.has(String(value.state)) ||
     !text(value.reason_code, 128) || !sha256(value.spec_sha256) ||
     !sha256(value.executable_sha256) || !sha256(value.environment_sha256) ||
+    (value.executable_identity_kind !== undefined &&
+      (value.executable_identity_kind !== "template_path_sha256" || value.backend !== "docker_sandboxes")) ||
     !safeInteger(value.permission_revision, 1) || !text(value.backend, 128) ||
     !sha256(value.backend_generation_sha256) || !identity(value.checkpoint_id) ||
     !sha256(value.revision_sha256) || typeof value.current_revision !== "boolean" ||

@@ -4,6 +4,10 @@
 
 ## Docker 编码环境
 
+普通桌面版现在可从侧栏「执行环境」保存 Local、Docker Engine、Docker Sandboxes
+偏好，并通过固定重启流程应用。默认选择 Local；官方 sbx 的生产执行门控状态和
+准备要求见 [执行环境选择](sandbox-environments.md)。下述 Docker 工作流继续复用同一执行链。
+
 在任务设置展开「准备 Docker 编码环境」，读取固定镜像、Docker Engine 和当前任务的实际状态。界面分别给出启用启动选项、准备镜像、启动 Linux Engine、刷新或重启以装配运行时的下一步。镜像构建与离线工具链要求见 [Standard Code Docker](standard-code-docker.md)。
 
 环境就绪后，在当前任务选择「使用 Docker 开始编码」，核对 Go 返回的工作区来源摘要并确认。该入口复用 Standard Code 原子预设、暂停后的静止检查、来源信任和原请求恢复；自动使用当前 Run 与任务标识。配置完成后回到任务发送要执行的工作。已经配置并进入 Deliver 的任务沿用现有计划与后端；修改环境需使用已有重新配置或新任务流程。

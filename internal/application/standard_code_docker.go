@@ -374,6 +374,9 @@ func (s *StandardCodeDockerService) execute(ctx context.Context,
 	executionContext, cancel := context.WithCancel(ctx)
 	done := make(chan struct{})
 	go s.monitorCurrentAuthority(executionContext, done, scope, cancel)
+	if output := dockerCommandRuntimeOutputFromContext(ctx); output != nil {
+		output.noteDispatchPossible()
+	}
 	started, startErr := s.docker.Start(executionContext, DockerSandboxStartRequest{
 		AdmissionID:  admission.Admission.ID,
 		OperationKey: standardCodeStageKey(request.OperationKey, "start"),
@@ -382,6 +385,11 @@ func (s *StandardCodeDockerService) execute(ctx context.Context,
 	cancel()
 	if started.Record.Receipt == nil {
 		return result, startErr
+	}
+	if output := dockerCommandRuntimeOutputFromContext(ctx); output != nil {
+		if err := output.confirmCleanup(started.Record); err != nil {
+			return result, errors.Join(startErr, err)
+		}
 	}
 	common, finalizeErr := s.finalize(ctx, started.Record, scope,
 		request.RequestedBy)
@@ -474,7 +482,22 @@ func (s *StandardCodeDockerService) loadTerminalReplay(ctx context.Context,
 	admission, found, err := s.store.GetDockerSandboxAdmissionByOperation(ctx,
 		operationDigest)
 	if err != nil || !found {
+		if err != nil {
+			if output := dockerCommandRuntimeOutputFromContext(ctx); output != nil {
+				// A failed lookup cannot exclude a previous dispatch of this
+				// exact operation. Do not invent an absence receipt.
+				output.noteDispatchPossible()
+			}
+		}
 		return StandardCodeDockerExecuteResult{}, false, apperror.Normalize(err)
+	}
+	record, err := s.store.GetDockerSandboxRecord(ctx, admission.ID)
+	if output := dockerCommandRuntimeOutputFromContext(ctx); output != nil &&
+		(err != nil || record.Start != nil || record.Launch != nil) {
+		output.noteDispatchPossible()
+	}
+	if err != nil {
+		return StandardCodeDockerExecuteResult{}, true, apperror.Normalize(err)
 	}
 	manifest, err := sandbox.DecodeManifest([]byte(admission.ManifestJSON))
 	if err != nil {
@@ -508,12 +531,13 @@ func (s *StandardCodeDockerService) loadTerminalReplay(ctx context.Context,
 			apperror.CodeConflict,
 			"Standard Code replay Run lease changed")
 	}
-	record, err := s.store.GetDockerSandboxRecord(ctx, admission.ID)
-	if err != nil {
-		return StandardCodeDockerExecuteResult{}, true, apperror.Normalize(err)
-	}
 	if record.Receipt == nil {
 		return StandardCodeDockerExecuteResult{}, false, nil
+	}
+	if output := dockerCommandRuntimeOutputFromContext(ctx); output != nil {
+		if err := output.confirmCleanup(record); err != nil {
+			return StandardCodeDockerExecuteResult{}, true, err
+		}
 	}
 	readiness, err := s.docker.StandardCodeReadiness(ctx, manifest)
 	if err != nil {

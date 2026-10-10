@@ -1070,7 +1070,8 @@
       "class": "ephemeral",
       "owner": "Desktop shell lifecycle maintainers",
       "source_of_truth": [
-        "cmd/cyberagent-desktop"
+        "cmd/cyberagent-desktop",
+        "internal/desktop"
       ],
       "writers": [
         {
@@ -1105,7 +1106,8 @@
       },
       "restart_persistence_proof": "Every restart creates a fresh one-shot readiness channel; the helper cannot reuse a prior channel or carry authority across attempts.",
       "active_identifiers": [
-        "desktop_risk_restart.ready.v1"
+        "desktop_risk_restart.ready.v1",
+        "desktop_sandbox_restart.v1"
       ],
       "retired_identifiers": []
     },
@@ -2454,9 +2456,63 @@
         "sandbox_scope_binding.v1",
         "sandbox_validation.v1",
         "sandbox_workspace_binding.v1",
+        "sbx-command-runtime.v1",
+        "sbx-readiness.v1",
         "windows_appcontainer_policy.v1",
         "windows_appcontainer_policy.v2",
         "windows_appcontainer_policy.v3"
+      ],
+      "retired_identifiers": []
+    },
+    {
+      "id": "sandbox-environment-settings",
+      "class": "internal-durable",
+      "owner": "Desktop sandbox environment maintainers",
+      "source_of_truth": [
+        "internal/application",
+        "internal/desktop"
+      ],
+      "writers": [
+        {
+          "id": "sandbox-environment-settings-writer",
+          "source": "internal/application",
+          "versions": [
+            1
+          ],
+          "mode": "write-current"
+        }
+      ],
+      "readers": [
+        {
+          "id": "sandbox-environment-settings-reader",
+          "source": "internal/application",
+          "versions": [
+            1
+          ],
+          "status": "active"
+        },
+        {
+          "id": "sandbox-environment-settings-ui-reader",
+          "source": "web/src/api",
+          "versions": [
+            1
+          ],
+          "status": "active"
+        }
+      ],
+      "persisted_or_exported": true,
+      "persistence_boundary": "The Go-owned application home retains revision-bound sandbox preferences; HTTP exports saved and active settings separately.",
+      "compatibility_rule": "Retain versioned settings readers, preserve compare-and-swap revisions, reject unknown backend values, and establish fresh runtime readiness after restart. Preferences never grant execution.",
+      "retirement_gate": {
+        "mode": "migration-or-retention",
+        "requirements": [
+          "ADR-backed retirement decision and rollback path",
+          "Old-version fixtures remain until every supported source is migrated or retained",
+          "Reader history is append-only; retirement requires migration or retention evidence"
+        ]
+      },
+      "active_identifiers": [
+        "sandbox_environment.v1"
       ],
       "retired_identifiers": []
     },
@@ -3736,6 +3792,14 @@
         "internal/store/docker_container_lifecycle_test.go"
       ],
       "reason": "Test-only or golden/negative-vector identifier; exact source binding prevents production classification."
+    },
+    {
+      "identifier": "sandbox_environment.v2",
+      "kind": "test-fixture",
+      "sources": [
+        "internal/httpapi/sandbox_environment_test.go"
+      ],
+      "reason": "Rejects an unsupported future settings protocol before any mutation."
     },
     {
       "identifier": "sandbox_output_fixture.v1",

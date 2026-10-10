@@ -50,6 +50,7 @@ type StandardCodePresetControlView struct {
 	SelectionReason      domain.StandardCodeSelectionReason         `json:"selection_reason,omitempty"`
 	LocalReadiness       StandardCodeBackendReadinessView           `json:"local_readiness"`
 	DockerReadiness      StandardCodeBackendReadinessView           `json:"docker_readiness"`
+	SBXReadiness         StandardCodeBackendReadinessView           `json:"sbx_readiness"`
 	BlockedBy            []application.CapabilityReadinessBlocker   `json:"blocked_by"`
 	NextSteps            []application.StandardCodeNextStep         `json:"next_steps"`
 	TrustRequired        bool                                       `json:"trust_required"`
@@ -166,6 +167,7 @@ func (a *API) standardCodePresetControlView(
 		SelectedBackend: result.SelectedBackend, SelectionReason: result.SelectionReason,
 		LocalReadiness:  standardCodeBackendReadinessView(result.LocalReadiness),
 		DockerReadiness: standardCodeBackendReadinessView(result.DockerReadiness),
+		SBXReadiness:    standardCodeBackendReadinessView(result.SBXReadiness),
 		BlockedBy:       append([]application.CapabilityReadinessBlocker{}, result.BlockedBy...),
 		NextSteps:       append([]application.StandardCodeNextStep{}, result.NextSteps...),
 		TrustRequired:   result.TrustRequired, TrustDigest: result.TrustDigest,

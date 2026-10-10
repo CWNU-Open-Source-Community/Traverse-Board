@@ -148,9 +148,9 @@ func desktopOptionsForRiskProfile(profile desktop.DesktopRiskProfile) (desktopOp
 	if !profile.Valid() {
 		return desktopOptions{}, errors.New("desktop risk profile is invalid")
 	}
-	config := desktopOptions{riskProfileRestart: true}
+	config := desktopOptions{riskProfileRestart: true, sandboxSettings: true}
 	enableSafeDesktopProductBundle(&config)
-	if profile == desktop.DesktopRiskProfileDebug {
+	if profile == desktop.DesktopRiskProfileDebug || profile == desktop.DesktopRiskProfileSandboxDebug {
 		config.userTerminal = true
 	}
 	return config, nil
@@ -233,6 +233,9 @@ func desktopRiskRestartDialogOptions(profile desktop.DesktopRiskProfile) (
 ) {
 	message := ""
 	switch profile {
+	case desktop.DesktopRiskProfileSandbox, desktop.DesktopRiskProfileSandboxDebug:
+		message = "重启以应用已保存的 Local、Docker Engine 和 Docker Sandboxes 环境设置。\n\n" +
+			"正在运行的任务会先停止并清理。重启后，选择任务的执行环境并按审批偏好继续工作。"
 	case desktop.DesktopRiskProfileDebug:
 		message = "重启以启用用户终端。终端由用户所有，Agent 输入默认关闭。\n\n" +
 			"Agent 输入仍需要当前任务的 Full 激活、Debug 交互和单独的限时终端授权。" +

@@ -31,6 +31,18 @@ export const desktopUserTerminalProtocol = "desktop_user_terminal.v1";
 export const desktopDebugTerminalAgentInputProtocol =
   "desktop_debug_terminal_agent_input.v1";
 export const desktopRiskRestartProtocol = "desktop_risk_restart.v1";
+export const desktopSandboxRestartProtocol = "desktop_sandbox_restart.v1";
+
+export interface DesktopSandboxRestartRequest {
+  protocol_version: typeof desktopSandboxRestartProtocol;
+}
+export interface DesktopSandboxRestartResult {
+  protocol_version: typeof desktopSandboxRestartProtocol;
+  status: "cancelled" | "restarting";
+  restart_required: true;
+  arbitrary_arguments_accepted: false;
+  persistent_runtime_grant: false;
+}
 
 export type DesktopDebugRiskProfile = "debug";
 export type DesktopRuntimeRiskProfile = "safe" | DesktopDebugRiskProfile;
@@ -369,6 +381,7 @@ interface NativeDesktopBridge {
     operator_confirmed: true;
   }) => Promise<void>;
   RestartWithRiskProfile?: (request: DesktopDebugRestartRequest) => Promise<unknown>;
+  RestartWithSandboxSettings?: (request: DesktopSandboxRestartRequest) => Promise<unknown>;
 }
 
 type NativeWorkspaceBridge = NativeDesktopBridge & Required<Pick<NativeDesktopBridge,
@@ -468,6 +481,25 @@ export function desktopWorkspaceImportEnabled(): boolean {
 
 export function desktopDebugRestartEnabled(): boolean {
   return activeBootstrap?.risk_profile_restart_enabled === true && getDebugRestartBridge() !== null;
+}
+
+export function desktopSandboxRestartEnabled(): boolean {
+  return activeBootstrap?.risk_profile_restart_enabled === true &&
+    typeof getBridge()?.RestartWithSandboxSettings === "function";
+}
+
+export async function restartDesktopWithSandboxSettings(): Promise<DesktopSandboxRestartResult> {
+  const bridge = getBridge();
+  if (!desktopSandboxRestartEnabled() || !bridge?.RestartWithSandboxSettings) {
+    throw new Error("Desktop sandbox settings restart is unavailable");
+  }
+  const value = await bridge.RestartWithSandboxSettings({ protocol_version: desktopSandboxRestartProtocol });
+  if (!hasExactKeys(value, ["protocol_version", "status", "restart_required", "arbitrary_arguments_accepted", "persistent_runtime_grant"]) ||
+    value.protocol_version !== desktopSandboxRestartProtocol || !["cancelled", "restarting"].includes(String(value.status)) ||
+    value.restart_required !== true || value.arbitrary_arguments_accepted !== false || value.persistent_runtime_grant !== false) {
+    throw new Error("Desktop sandbox restart result was rejected");
+  }
+  return value as unknown as DesktopSandboxRestartResult;
 }
 
 export function desktopCurrentRiskProfile(): DesktopRuntimeRiskProfile | null {

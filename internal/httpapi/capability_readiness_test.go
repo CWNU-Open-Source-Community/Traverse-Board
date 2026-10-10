@@ -24,7 +24,7 @@ func TestRunCapabilityReadinessHTTPProjectsSameStableGoFacts(t *testing.T) {
 	decodeDataStatus(t, response, http.StatusOK, &view)
 	if view.ProtocolVersion != application.RunCapabilityReadinessProtocolVersion ||
 		view.RunID != fixture.run.ID || view.CapabilityGrant || len(view.Permissions) != 3 ||
-		len(view.Profiles) != 3 || len(view.Interactions) != 4 ||
+		len(view.Profiles) != 4 || len(view.Interactions) != 4 ||
 		len(view.BrowserCDPPermissions) != 2 || len(view.Presets) != 1 ||
 		!view.CommandRuntime.ProtocolAvailable ||
 		view.CommandRuntime.AdapterInstalled || view.CommandRuntime.AdapterReady ||

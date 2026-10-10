@@ -89,6 +89,7 @@ const (
 	StandardCodeNextPauseAndConfigure     StandardCodeNextStep = "pause_and_configure"
 	StandardCodeNextWaitForQuiescence     StandardCodeNextStep = "wait_for_quiescence"
 	StandardCodeNextSelectDocker          StandardCodeNextStep = "select_docker"
+	StandardCodeNextSelectSBX             StandardCodeNextStep = "select_sbx"
 	StandardCodeNextSelectAsk             StandardCodeNextStep = "select_ask"
 	StandardCodeNextRetryReadiness        StandardCodeNextStep = "retry_readiness"
 	StandardCodeNextCreateNewRun          StandardCodeNextStep = "create_new_run"
@@ -113,6 +114,7 @@ type StandardCodePresetResult struct {
 	SelectionReason domain.StandardCodeSelectionReason      `json:"selection_reason,omitempty"`
 	LocalReadiness  StandardCodeBackendReadiness            `json:"local_readiness"`
 	DockerReadiness StandardCodeBackendReadiness            `json:"docker_readiness"`
+	SBXReadiness    StandardCodeBackendReadiness            `json:"sbx_readiness"`
 	BlockedBy       []CapabilityReadinessBlocker            `json:"blocked_by"`
 	NextSteps       []StandardCodeNextStep                  `json:"next_steps"`
 	TrustRequired   bool                                    `json:"trust_required"`
@@ -161,10 +163,11 @@ func (s *StandardCodePresetService) Configure(ctx context.Context,
 	requestFingerprint := standardCodePresetRequestFingerprint(normalized, intent, action)
 	localReadiness := s.backendReadiness(domain.StandardCodeSelectedLocal)
 	dockerReadiness := s.backendReadiness(domain.StandardCodeSelectedDocker)
+	sbxReadiness := s.backendReadiness(domain.StandardCodeSelectedSBX)
 	base := StandardCodePresetResult{ProtocolVersion: domain.StandardCodePresetProtocolVersion,
 		Status: StandardCodeResultBlocked, WorkspaceID: normalized.WorkspaceID,
 		Action: action, BackendIntent: intent, LocalReadiness: localReadiness,
-		DockerReadiness: dockerReadiness, Network: "disabled", Credentials: "none",
+		DockerReadiness: dockerReadiness, SBXReadiness: sbxReadiness, Network: "disabled", Credentials: "none",
 		CapabilityGrant: false}
 
 	existing, found, err := s.store.GetStandardCodePresetOperation(ctx, keyDigest)
@@ -202,10 +205,10 @@ func (s *StandardCodePresetService) Configure(ctx context.Context,
 	}
 
 	selected, reason, selectionBlocked := s.selectBackend(intent, localReadiness,
-		dockerReadiness)
+		dockerReadiness, sbxReadiness)
 	if len(selectionBlocked) > 0 {
 		base.BlockedBy = selectionBlocked
-		base.NextSteps = s.backendAlternatives(intent, localReadiness, dockerReadiness)
+		base.NextSteps = s.backendAlternatives(intent, localReadiness, dockerReadiness, sbxReadiness)
 		return base, nil
 	}
 	base.SelectedBackend, base.SelectionReason = selected, reason
@@ -465,6 +468,8 @@ func (s *StandardCodePresetService) continuePrepared(ctx context.Context,
 	selectedReadiness := base.LocalReadiness
 	if operation.SelectedBackend == domain.StandardCodeSelectedDocker {
 		selectedReadiness = base.DockerReadiness
+	} else if operation.SelectedBackend == domain.StandardCodeSelectedSBX {
+		selectedReadiness = base.SBXReadiness
 	}
 	if !selectedReadiness.Available {
 		if operation.Status == domain.StandardCodePresetWaitingForPause {
@@ -473,7 +478,7 @@ func (s *StandardCodePresetService) continuePrepared(ctx context.Context,
 		base.BlockedBy = append([]CapabilityReadinessBlocker(nil),
 			selectedReadiness.BlockedBy...)
 		base.NextSteps = s.backendAlternatives(operation.BackendIntent,
-			base.LocalReadiness, base.DockerReadiness)
+			base.LocalReadiness, base.DockerReadiness, base.SBXReadiness)
 		base.Replayed = replayed
 		return base, nil
 	}
@@ -689,6 +694,8 @@ func (s *StandardCodePresetService) backendReadiness(
 	adapterBackend := CommandRuntimeLocalSandboxBackend
 	if backend == domain.StandardCodeSelectedDocker {
 		adapterBackend = CommandRuntimeDockerSandboxBackend
+	} else if backend == domain.StandardCodeSelectedSBX {
+		adapterBackend = "docker_sandboxes"
 	}
 	installed := false
 	for _, adapter := range s.runtime.CommandRuntimeAdapters {
@@ -706,6 +713,15 @@ func (s *StandardCodePresetService) backendReadiness(
 		if !s.runtime.LocalSandboxInstalled || !s.runtime.LocalSandboxProven {
 			add(CapabilityBlockerSandboxUnproven)
 		} else if !s.runtime.LocalBackendReady {
+			add(CapabilityBlockerBackendNotReady)
+		}
+	} else if backend == domain.StandardCodeSelectedSBX {
+		if !s.runtime.SBXStartupGateEnabled {
+			add(CapabilityBlockerStartupGateClosed)
+		}
+		if !s.runtime.SBXAvailable {
+			add(CapabilityBlockerSBXUnavailable)
+		} else if !s.runtime.SBXBackendReady {
 			add(CapabilityBlockerBackendNotReady)
 		}
 	} else if s.runtime.DockerReadiness != nil {
@@ -738,7 +754,7 @@ func (s *StandardCodePresetService) backendReadiness(
 }
 
 func (s *StandardCodePresetService) selectBackend(intent domain.StandardCodeBackendIntent,
-	local, docker StandardCodeBackendReadiness,
+	local, docker, sbx StandardCodeBackendReadiness,
 ) (domain.StandardCodeBackend, domain.StandardCodeSelectionReason,
 	[]CapabilityReadinessBlocker) {
 	switch intent {
@@ -760,6 +776,11 @@ func (s *StandardCodePresetService) selectBackend(intent domain.StandardCodeBack
 				domain.StandardCodeReasonExplicitDocker, nil
 		}
 		return "", "", append([]CapabilityReadinessBlocker(nil), docker.BlockedBy...)
+	case domain.StandardCodeBackendSBX:
+		if sbx.Available {
+			return domain.StandardCodeSelectedSBX, domain.StandardCodeReasonExplicitSBX, nil
+		}
+		return "", "", append([]CapabilityReadinessBlocker(nil), sbx.BlockedBy...)
 	default:
 		return "", "", []CapabilityReadinessBlocker{
 			CapabilityBlockerBackendNotReady}
@@ -767,11 +788,14 @@ func (s *StandardCodePresetService) selectBackend(intent domain.StandardCodeBack
 }
 
 func (s *StandardCodePresetService) backendAlternatives(
-	intent domain.StandardCodeBackendIntent, local, docker StandardCodeBackendReadiness,
+	intent domain.StandardCodeBackendIntent, local, docker, sbx StandardCodeBackendReadiness,
 ) []StandardCodeNextStep {
 	steps := make([]StandardCodeNextStep, 0, 3)
 	if intent != domain.StandardCodeBackendDocker && docker.Available {
 		steps = append(steps, StandardCodeNextSelectDocker)
+	}
+	if intent != domain.StandardCodeBackendSBX && sbx.Available {
+		steps = append(steps, StandardCodeNextSelectSBX)
 	}
 	if s.runtime.ExecutionPermissionCapabilities.OperatorApprovalEnabled {
 		steps = append(steps, StandardCodeNextSelectAsk)

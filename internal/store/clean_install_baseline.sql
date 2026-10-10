@@ -5316,7 +5316,7 @@ CREATE TABLE "run_execution_interaction_snapshots" (
 		CHECK(protocol_version = 'run_execution_interaction.v1'),
 		CHECK(policy_version = 'execution_interaction_policy.v1'),
 		CHECK(surface IN ('code', 'cyber')),
-		CHECK(execution_profile IN ('preview', 'docker', 'local')),
+		CHECK(execution_profile IN ('preview', 'docker', 'local', 'sbx')),
 		CHECK(network_scope = 'disabled'),
 		CHECK(agent_input_default = 0),
 		CHECK(process_enabled = 0 AND execution_authorized = 0 AND capability_grant = 0),
@@ -5326,7 +5326,8 @@ CREATE TABLE "run_execution_interaction_snapshots" (
 				AND required_gate = 'none' AND operator_confirmed = 0)
 			OR (mode = 'controlled' AND surface = 'code'
 				AND ((execution_profile = 'local' AND required_gate = 'local_os_sandbox_gate')
-					OR (execution_profile = 'docker' AND required_gate = 'docker_sandbox_gate'))
+					OR (execution_profile = 'docker' AND required_gate = 'docker_sandbox_gate')
+					OR (execution_profile = 'sbx' AND required_gate = 'sbx_microvm_gate'))
 				AND workspace_trust = 'trusted' AND command_form = 'structured_argv'
 				AND persistent_terminal = 0 AND user_input_available = 0
 				AND operator_confirmed = 1)
@@ -5484,7 +5485,7 @@ CREATE TABLE run_execution_profile_operations (
 			AND instr(requested_by, char(0)) = 0)
 	) WITHOUT ROWID;
 -- traverse-board-clean-install-object-boundary --
-CREATE TABLE run_execution_profile_snapshots (
+CREATE TABLE "run_execution_profile_snapshots" (
 		id TEXT PRIMARY KEY,
 		run_id TEXT NOT NULL,
 		mission_id TEXT NOT NULL,
@@ -5516,6 +5517,9 @@ CREATE TABLE run_execution_profile_snapshots (
 			(profile = 'preview' AND backend = 'noop' AND approval_policy = 'none'
 				AND filesystem_scope = 'none' AND risk_tier = 'minimal'
 				AND required_gate = 'none')
+			OR (profile = 'sbx' AND backend = 'sbx' AND approval_policy = 'always'
+				AND filesystem_scope = 'workspace' AND risk_tier = 'elevated'
+				AND required_gate = 'sbx_microvm_gate')
 			OR (profile = 'docker' AND backend = 'docker' AND approval_policy = 'always'
 				AND filesystem_scope = 'workspace' AND risk_tier = 'elevated'
 				AND required_gate = 'docker_production_start_gate')
@@ -12106,7 +12110,7 @@ CREATE TABLE standard_code_deliveries (
 		CHECK(julianday(created_at) IS NOT NULL)
 	);
 -- traverse-board-clean-install-object-boundary --
-CREATE TABLE standard_code_preset_operations (
+CREATE TABLE "standard_code_preset_operations" (
 			operation_key_digest TEXT PRIMARY KEY,
 			request_fingerprint TEXT NOT NULL,
 			protocol_version TEXT NOT NULL,
@@ -12150,12 +12154,13 @@ CREATE TABLE standard_code_preset_operations (
 			CHECK(requested_run_id = trim(requested_run_id) AND length(requested_run_id) <= 256
 				AND instr(requested_run_id, char(0)) = 0),
 			CHECK(action IN ('configure', 'pause_and_configure')),
-			CHECK(backend_intent IN ('auto', 'local', 'docker')),
-			CHECK(selected_backend IN ('local', 'docker')),
-			CHECK(selection_reason IN ('auto_local_ready', 'explicit_local', 'explicit_docker')),
+			CHECK(backend_intent IN ('auto', 'local', 'docker', 'sbx')),
+			CHECK(selected_backend IN ('local', 'docker', 'sbx')),
+			CHECK(selection_reason IN ('auto_local_ready', 'explicit_local', 'explicit_docker', 'explicit_sbx')),
 			CHECK((backend_intent = 'auto' AND selected_backend = 'local' AND selection_reason = 'auto_local_ready')
 				OR (backend_intent = 'local' AND selected_backend = 'local' AND selection_reason = 'explicit_local')
-				OR (backend_intent = 'docker' AND selected_backend = 'docker' AND selection_reason = 'explicit_docker')),
+				OR (backend_intent = 'docker' AND selected_backend = 'docker' AND selection_reason = 'explicit_docker')
+				OR (backend_intent = 'sbx' AND selected_backend = 'sbx' AND selection_reason = 'explicit_sbx')),
 			CHECK(status IN ('preparing', 'waiting_for_pause', 'configured')),
 			CHECK(event_sequence_start > 0 AND event_sequence_end >= event_sequence_start),
 			CHECK(status = 'configured' OR event_sequence_end = event_sequence_start),
