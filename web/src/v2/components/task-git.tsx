@@ -287,6 +287,7 @@ export function TaskGit({ client, threadID, working, onFeedback, onPullRequest, 
         </dl></details>
         {preview.diff && <ReviewDiff patch={preview.diff} source={`Git 预览：${preview.preview_fingerprint}\n分支：${preview.branch}\n提交：${preview.head_oid}\n目录：${preview.repository_root}`} onFeedback={onFeedback} />}
         {!preview.can_execute && <p role="alert">{preview.blocked_reason || "此预览当前不能执行。"}</p>}
+        {preview.spec.operation === "commit" && <p>本次提交会跳过本地 hooks，生成无签名提交。请确认这种提交方式符合项目要求。</p>}
         <p>确认后仅执行这份预览；内容或分支变化时需要重新预览。</p>
         <button type="button" className="v2-delivery-primary" disabled={mutationBlocked || prepare.isPending || !store || !preview.can_execute || Boolean(state.data && gitFormRevision(preview) !== gitFormRevision(state.data))} onClick={() => void confirm()}>{checking ? "正在重新核对仓库…" : execute.isPending ? "正在执行…" : `确认${operations[preview.spec.operation as Operation] ?? "执行"}`}</button>
       </section>}

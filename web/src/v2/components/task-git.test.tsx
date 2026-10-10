@@ -302,7 +302,7 @@ it.each([
   expect(f.postControl).not.toHaveBeenCalled();
 });
 
-it("keeps the author visible and makes project check requirements and exact preview evidence expandable", async () => {
+it("keeps the author and commit effects visible while project requirements and exact evidence remain expandable", async () => {
   const f = fixture();
   f.hooks.preview = async (thread, spec) => ({ ...gitPreview(thread, spec), commit_author: { name: "Local Author", email: "local@example.invalid" } });
   mount(f);
@@ -315,6 +315,7 @@ it("keeps the author visible and makes project check requirements and exact prev
   await user.click(screen.getByRole("button", { name: "提交", pressed: true }));
   expect(confirmation).toBeInTheDocument();
   expect(within(confirmation).getByText("提交作者：Local Author <local@example.invalid>")).toBeVisible();
+  expect(within(confirmation).getByText("本次提交会跳过本地 hooks，生成无签名提交。请确认这种提交方式符合项目要求。")).toBeVisible();
   const projectRequirements = screen.getByText(/内置 Git 操作跳过本地 hooks/u);
   expect(projectRequirements).not.toBeVisible();
   await user.click(screen.getByText("项目检查与提交签名"));
