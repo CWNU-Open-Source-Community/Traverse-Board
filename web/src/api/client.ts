@@ -31,6 +31,7 @@ import type {
   ThreadTurnFailureReferenceView,
   ApprovalDecisionControlRequestView,
   ChildTaskAdmitRequestView,
+  DockerEnvironmentView,
   DockerSandboxAdmissionRequestView,
   DockerSandboxAdmissionView,
   DockerSandboxCancelRequestView,
@@ -8885,6 +8886,32 @@ export class APIClient {
     }
     const result = await this.sendControl<unknown>("/models/prices", body, idempotencyKey, signal);
     return parsePriceSnapshotImport(result);
+  }
+
+  async getDockerEnvironment(signal?: AbortSignal): Promise<DockerEnvironmentView> {
+    const value = await this.get<unknown>("/sandbox/docker/environment", {}, signal);
+    if (!hasRequiredOnlyKeys(value, ["protocol_version", "feature_enabled", "image_configured", "restart_required"],
+      ["image_digest", "readiness"]) || value.protocol_version !== "docker_environment.v1" ||
+      typeof value.feature_enabled !== "boolean" || typeof value.image_configured !== "boolean" ||
+      typeof value.restart_required !== "boolean" ||
+      (value.image_configured ? typeof value.image_digest !== "string" || !/^sha256:[a-f0-9]{64}$/u.test(value.image_digest) : value.image_digest !== undefined) ||
+      (value.readiness !== undefined && (!hasRequiredOnlyKeys(value.readiness,
+        ["protocol_version", "status", "ready", "feature_enabled", "reason_code", "remediation_code", "checked_at", "expires_at", "endpoint_class", "endpoint_fingerprint", "daemon_reachable", "image_inspected", "image_profile_safe", "readiness_fingerprint"], ["network_mode"]) ||
+        value.readiness.protocol_version !== "sandbox.readiness.v1" ||
+        !["ready", "disabled", "unavailable"].includes(String(value.readiness.status)) ||
+        value.readiness.ready !== (value.readiness.status === "ready") ||
+        value.readiness.feature_enabled !== value.feature_enabled ||
+        !validDate(value.readiness.checked_at) || !validDate(value.readiness.expires_at) ||
+        Date.parse(String(value.readiness.expires_at)) - Date.parse(String(value.readiness.checked_at)) !== 30_000 ||
+        !["local_unix", "local_npipe"].includes(String(value.readiness.endpoint_class)) ||
+        !isSHA256(value.readiness.endpoint_fingerprint) || !isSHA256(value.readiness.readiness_fingerprint) ||
+        (value.readiness.network_mode !== undefined && value.readiness.network_mode !== "disabled") ||
+        (value.readiness.ready && (!value.image_configured || value.readiness.daemon_reachable !== true || value.readiness.image_inspected !== true || value.readiness.image_profile_safe !== true || value.readiness.network_mode !== "disabled")) ||
+        ["daemon_reachable", "image_inspected", "image_profile_safe"].some((key) => typeof (value.readiness as Record<string, unknown>)[key] !== "boolean") ||
+        typeof value.readiness.reason_code !== "string" || typeof value.readiness.remediation_code !== "string"))) {
+      throw new APIRequestError("Docker environment response is invalid", "INVALID_RESPONSE", 502);
+    }
+    return value as unknown as DockerEnvironmentView;
   }
 
   async getDockerSandboxStatus(admissionID: string,

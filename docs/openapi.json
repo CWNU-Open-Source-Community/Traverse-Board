@@ -20277,6 +20277,76 @@
         "x-cyberagent-read-only": false
       }
     },
+    "/api/v1/sandbox/docker/environment": {
+      "get": {
+        "operationId": "getDockerEnvironment",
+        "summary": "Inspect the fixed Docker coding environment",
+        "description": "Fresh bounded read-only daemon and pinned image observations. Does not pull images, change configuration or grant execution authority.",
+        "tags": [
+          "Sandbox"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful read",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/DockerEnvironmentView"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
+          }
+        },
+        "x-cyberagent-read-only": true
+      }
+    },
     "/api/v1/sandbox/docker/readiness": {
       "post": {
         "operationId": "evaluateDockerSandboxReadiness",
@@ -35649,6 +35719,36 @@
         },
         "required": [
           "id"
+        ],
+        "type": "object"
+      },
+      "DockerEnvironmentView": {
+        "additionalProperties": false,
+        "properties": {
+          "feature_enabled": {
+            "type": "boolean"
+          },
+          "image_configured": {
+            "type": "boolean"
+          },
+          "image_digest": {
+            "type": "string"
+          },
+          "protocol_version": {
+            "type": "string"
+          },
+          "readiness": {
+            "$ref": "#/components/schemas/DockerSandboxReadinessView"
+          },
+          "restart_required": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "protocol_version",
+          "feature_enabled",
+          "image_configured",
+          "restart_required"
         ],
         "type": "object"
       },

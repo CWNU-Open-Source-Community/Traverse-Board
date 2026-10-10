@@ -23,7 +23,7 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 | [docker-attach-process-session](#docker-attach-process-session) | `ephemeral` | Docker runtime transport maintainers | 1 | false |
 | [exported-evidence-and-handoff](#exported-evidence-and-handoff) | `external-durable` | Evidence, verification, report, and handoff maintainers | 35 | true |
 | [extension-package-contracts](#extension-package-contracts) | `external-durable` | Skill, Plugin, Hook, and extension maintainers | 48 | true |
-| [http-openapi-contract](#http-openapi-contract) | `external-durable` | HTTP/OpenAPI and generated-client maintainers | 116 | true |
+| [http-openapi-contract](#http-openapi-contract) | `external-durable` | HTTP/OpenAPI and generated-client maintainers | 117 | true |
 | [in-memory-token-session](#in-memory-token-session) | `ephemeral` | Credential and bootstrap maintainers | 1 | false |
 | [lsp-process-session](#lsp-process-session) | `ephemeral` | Code intelligence maintainers | 1 | false |
 | [mcp-interchange](#mcp-interchange) | `external-durable` | MCP client/server maintainers | 6 | true |
@@ -874,7 +874,7 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 - Readers:
   - `http-openapi-contract-reader` (`v0, v1, v2`, active) at `web/src/api`
 
-<details><summary>116 active identifiers</summary>
+<details><summary>117 active identifiers</summary>
 
 - `agent-code-tools.v1`
 - `agent_browser_close.v1`
@@ -895,6 +895,7 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 - `context_provenance.v1`
 - `debug-query.v1`
 - `diagnostic-bundle.v1`
+- `docker_environment.v1`
 - `doctor-snapshot.v1`
 - `execution_interaction_policy.v1`
 - `execution_permission_policy.v1`

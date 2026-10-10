@@ -3480,6 +3480,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/sandbox/docker/environment": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Inspect the fixed Docker coding environment
+         * @description Fresh bounded read-only daemon and pinned image observations. Does not pull images, change configuration or grant execution authority.
+         */
+        get: operations["getDockerEnvironment"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/sandbox/docker/readiness": {
         parameters: {
             query?: never;
@@ -6739,6 +6759,14 @@ export interface components {
             input_token_limit?: number;
             /** Format: int32 */
             output_token_limit?: number;
+        };
+        DockerEnvironmentView: {
+            feature_enabled: boolean;
+            image_configured: boolean;
+            image_digest?: string;
+            protocol_version: string;
+            readiness?: components["schemas"]["DockerSandboxReadinessView"];
+            restart_required: boolean;
         };
         DockerSandboxAdmissionRequestView: {
             manifest: components["schemas"]["Manifest"];
@@ -22432,6 +22460,40 @@ export interface operations {
             413: components["responses"]["RequestEntityTooLarge"];
             414: components["responses"]["RequestTooLarge"];
             415: components["responses"]["UnsupportedMediaType"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
+        };
+    };
+    getDockerEnvironment: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful read */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["DockerEnvironmentView"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            414: components["responses"]["RequestTooLarge"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
             503: components["responses"]["Unavailable"];

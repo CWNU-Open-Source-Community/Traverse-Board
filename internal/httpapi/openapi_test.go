@@ -762,6 +762,7 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 	credentialFixture, credentialBinding, credentialStatus, _ := newMCPCredentialFixture(t)
 	fixture.api.dockerSandboxControlEnabled = true
 	fixture.api.dockerSandboxController = &dockerSandboxControllerStub{}
+	fixture.api.dockerEnvironmentController = &dockerEnvironmentStub{}
 	fixture.api.runLifecycleController = application.NewRunLifecycleControlService(fixture.store)
 	executionController := application.NewRunExecutionHandoffService(
 		fixture.store, llm.NewDefaultRouter(), policy.NewDefaultChecker())

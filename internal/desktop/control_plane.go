@@ -124,6 +124,7 @@ type ControlPlaneConfig struct {
 	LocalSandboxReadiness              *sandbox.LocalReadiness
 	LocalSandboxBackend                sandbox.LocalBackend
 	StandardCodeDockerImageDigest      string
+	StandardCodeDockerReadiness        *sandbox.DockerReadiness
 	WebSearchEndpoint                  string
 	BrowserCDPPermissionControlEnabled bool
 	BrowserCDPPermissionCapabilities   domain.BrowserCDPPermissionRuntimeCapabilities
@@ -175,14 +176,24 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 	}
 	if config.LocalSandboxReadiness != nil {
 		if err := config.LocalSandboxReadiness.Validate(); err != nil ||
-			config.LocalSandboxReadiness.Ready !=
-				config.ExecutionPermissionCapabilities.WorkspaceSandboxEnabled {
+			(config.LocalSandboxReadiness.Ready && !config.ExecutionPermissionCapabilities.WorkspaceSandboxEnabled) {
 			return nil, apperror.New(apperror.CodeInvalidArgument,
 				"desktop Local Sandbox readiness does not match its startup gate")
 		}
-	} else if config.ExecutionPermissionCapabilities.WorkspaceSandboxEnabled {
+	}
+	if config.StandardCodeDockerReadiness != nil {
+		proof := config.StandardCodeDockerReadiness
+		if proof.Validate() != nil || proof.FeatureEnabled != config.DockerExecutionEnabled ||
+			proof.ImageDigest != strings.TrimSpace(config.StandardCodeDockerImageDigest) ||
+			(proof.Ready && (!proof.ReadyAt(time.Now().UTC()) || !config.ExecutionPermissionCapabilities.WorkspaceSandboxEnabled)) {
+			return nil, apperror.New(apperror.CodeInvalidArgument, "desktop Docker readiness does not match its startup configuration")
+		}
+	}
+	localReady := config.LocalSandboxReadiness != nil && config.LocalSandboxReadiness.Ready
+	dockerReady := config.StandardCodeDockerReadiness != nil && config.StandardCodeDockerReadiness.Ready
+	if config.ExecutionPermissionCapabilities.WorkspaceSandboxEnabled && !localReady && !dockerReady {
 		return nil, apperror.New(apperror.CodeInvalidArgument,
-			"desktop Workspace Sandbox startup gate requires validated readiness")
+			"desktop Workspace Sandbox startup gate requires validated Local or Docker readiness")
 	}
 	if config.LocalSandboxBackend != nil &&
 		(config.LocalSandboxReadiness == nil ||
@@ -275,10 +286,9 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 			config.BrowserCDPPermissionControlEnabled,
 		ExecutionPermissionCapabilities:  config.ExecutionPermissionCapabilities,
 		BrowserCDPPermissionCapabilities: config.BrowserCDPPermissionCapabilities,
-		LocalSandboxInstalled: config.ExecutionPermissionCapabilities.
-			WorkspaceSandboxEnabled,
-		DockerStartupGateEnabled: config.DockerExecutionEnabled,
-		DockerAvailable:          config.DockerExecutionEnabled,
+		LocalSandboxInstalled:            localReady,
+		DockerStartupGateEnabled:         config.DockerExecutionEnabled,
+		DockerAvailable:                  config.StandardCodeDockerReadiness != nil && config.StandardCodeDockerReadiness.DaemonReachable,
 	}
 	if config.LocalSandboxReadiness != nil {
 		projected, projectionErr := capabilityReadinessRuntime.
@@ -532,7 +542,7 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 		Capabilities: config.ExecutionPermissionCapabilities, Drydocks: commandRuntimeDrydocks,
 		StartupShutdownTimeout: 2 * time.Second,
 	}
-	if config.RunExecutionEnabled && config.LocalSandboxBackend != nil &&
+	if config.RunExecutionEnabled && localReady && config.LocalSandboxBackend != nil &&
 		config.LocalSandboxReadiness != nil && commandRuntimeDrydocks != nil {
 		commandOptions.LocalBackend = config.LocalSandboxBackend
 		commandOptions.LocalReadiness = config.LocalSandboxReadiness
@@ -881,8 +891,10 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 		FullCDPSessionController:            fullCDPSessions,
 		AgentBrowserController:              agentBrowserController,
 		DockerSandboxController:             dockerSandbox,
-		ModelRegistry:                       models,
-		AppVersion:                          config.AppVersion, UIHandler: config.UIHandler,
+		DockerEnvironmentController: httpapi.NewDockerEnvironmentController(application.NewDockerEnvironmentService(
+			config.DockerExecutionEnabled, config.StandardCodeDockerImageDigest, standardCodeRuntime != nil)),
+		ModelRegistry: models,
+		AppVersion:    config.AppVersion, UIHandler: config.UIHandler,
 	})
 	if err != nil {
 		if terminalManager != nil {

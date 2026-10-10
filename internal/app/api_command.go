@@ -150,6 +150,20 @@ func (a *App) apiServeCommand(ctx context.Context, args []string) (resultErr err
 		permissionCapabilities = runtime.ExecutionPermissionCapabilities
 		localReadinessRuntime = &runtime
 	}
+	// Local is a platform-specific backend. A current, fixed Docker image may
+	// independently supply the requested generic Workspace Sandbox startup gate.
+	if *workspaceSandbox && *dockerExecution {
+		proof, found, err := a.standardCodeCapabilityDockerReadiness(ctx, true)
+		if err != nil {
+			return err
+		}
+		if found && proof.Validate() == nil && proof.ReadyAt(time.Now().UTC()) {
+			permissionCapabilities.WorkspaceSandboxEnabled = true
+			if localReadinessRuntime != nil {
+				localReadinessRuntime.ExecutionPermissionCapabilities = permissionCapabilities
+			}
+		}
+	}
 	if err := permissionCapabilities.Validate(); err != nil {
 		return apperror.Wrap(apperror.CodeInvalidArgument,
 			err.Error(), err)
@@ -382,7 +396,8 @@ func (a *App) apiServeCommand(ctx context.Context, args []string) (resultErr err
 		StartupShutdownTimeout: 7 * time.Second,
 	}
 	if controlToken != "" && localSandboxBackend != nil &&
-		localSandboxReadiness != nil && commandRuntimeDrydocks != nil {
+		localSandboxReadiness != nil && localSandboxReadiness.Ready &&
+		commandRuntimeDrydocks != nil {
 		commandOptions.LocalBackend = localSandboxBackend
 		commandOptions.LocalReadiness = localSandboxReadiness
 	}
@@ -525,7 +540,7 @@ func (a *App) apiServeCommand(ctx context.Context, args []string) (resultErr err
 		BrowserCDPPermissionControlEnabled: controlToken != "" && *browserCDPControl,
 		ExecutionPermissionCapabilities:    permissionCapabilities,
 		BrowserCDPPermissionCapabilities:   browserCDPCapabilities,
-		LocalSandboxInstalled:              permissionCapabilities.WorkspaceSandboxEnabled,
+		LocalSandboxInstalled:              localSandboxReadiness != nil && localSandboxReadiness.Ready,
 		DockerStartupGateEnabled:           *dockerExecution,
 		DockerAvailable:                    *dockerExecution,
 		CommandRuntimeAdapters:             installedCommandRuntimeAdapters,
@@ -666,9 +681,11 @@ func (a *App) apiServeCommand(ctx context.Context, args []string) (resultErr err
 		CodeIntelSource:                     a.codeIntel,
 		CodeIntelController:                 codeIntelControl,
 		DockerSandboxController:             dockerSandbox,
-		ModelRegistry:                       a.models,
-		AppVersion:                          Version,
-		UIHandler:                           uiBundle,
+		DockerEnvironmentController: httpapi.NewDockerEnvironmentController(application.NewDockerEnvironmentService(
+			*dockerExecution, os.Getenv(standardCodeDockerImageEnvironment), commandOptions.StandardCodeDockerRuntime != nil)),
+		ModelRegistry: a.models,
+		AppVersion:    Version,
+		UIHandler:     uiBundle,
 	})
 	if err != nil {
 		return err

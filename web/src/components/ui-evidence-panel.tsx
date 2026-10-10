@@ -1,12 +1,10 @@
-import { useEffect, useState, type FormEvent } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   Ban,
   Camera,
   Download,
-  FileJson,
   LoaderCircle,
-  Play,
   RefreshCw,
   ShieldAlert,
 } from "lucide-react";
@@ -19,85 +17,29 @@ import type {
 import { formatBytes, formatDate, shortID } from "../lib/format";
 import { useLocale } from "../lib/locale";
 import { EmptyState, ErrorState, LoadingState, StatusBadge } from "./common";
+import { UIEvidencePreparation } from "./ui-evidence-preparation";
 
-const emptyFixtureSHA256 =
-  "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a";
+interface UIEvidenceIntent { request: UIEvidenceStartView; state: "pending" | "unknown" | "rejected"; error?: string }
+interface UIEvidenceSubmission { request: UIEvidenceStartView; runID: string; client: APIClient }
 
-function templateRequest(): UIEvidenceStartView {
-  return {
-    operation_key: `desktop-ui-evidence-${globalThis.crypto.randomUUID()}`,
-    start: {
-      version: "command-runtime.v2",
-      profile: "powershell",
-      script: "npm run dev -- --host 127.0.0.1 --port 4173",
-      working_directory: "web",
-      environment: [],
-      stdin_policy: "closed",
-      close_initial_stdin: true,
-      timeout_milliseconds: 1_800_000,
-      output: { inline_bytes: 16_384, artifact_bytes: 262_144 },
-      network: "disabled",
-      credentials: "none",
-      purpose: "Launch the reviewed Workspace web application for source-bound UI evidence",
-    },
-    readiness: {
-      url: "http://127.0.0.1:4173/",
-      method: "GET",
-      expected_status: [200],
-      timeout_milliseconds: 60_000,
-      interval_milliseconds: 250,
-    },
-    url: "http://127.0.0.1:4173/",
-    route: "/",
-    browser: { product: "edge", channel: "stable" },
-    environment: {
-      viewport: { width: 1440, height: 900, dpr: 1 },
-      locale: "en-US",
-      theme: "light",
-      reduced_motion: false,
-    },
-    fixture: {
-      name: "empty-local-state",
-      seed: "ui-evidence-v1",
-      page_state: "{}",
-      data_sha256: emptyFixtureSHA256,
-      deterministic: true,
-      synthetic: true,
-    },
-    steps: [{
-      step: { id: "navigate", kind: "navigate", capture_after: true },
-    }, {
-      step: { id: "app-root", kind: "assert_present", selector: "#root", capture_after: true },
-    }],
-    capture: {
-      screenshot: true,
-      dom: true,
-      accessibility: true,
-      console: true,
-      network: true,
-      performance: true,
-      video: false,
-      mask_selectors: [],
-    },
-    failure_policy: {
-      fail_on_console_error: true,
-      fail_on_page_error: true,
-      fail_on_request_error: true,
-      fail_on_http_status: true,
-    },
-  };
-}
-
-export function UIEvidencePanel({ client, runID }: {
+export function UIEvidencePanel({ client, runID, threadID }: {
   client: APIClient;
   runID: string;
+  threadID?: string;
 }) {
   const { t } = useLocale();
   const queryClient = useQueryClient();
-  const [selectedID, setSelectedID] = useState("");
-  const [requestJSON, setRequestJSON] = useState("");
-  const [reviewed, setReviewed] = useState(false);
+  const [selection, setSelection] = useState({ runID, attemptID: "" });
+  const [preparationGeneration, setPreparationGeneration] = useState(0);
+
   const [localError, setLocalError] = useState("");
+  const [preview, setPreview] = useState<{ attemptID: string; artifactID: string; url: string } | null>(null);
+  const currentAttempt = useRef("");
+  const currentScope = useRef({ runID, client });
+  currentScope.current = { runID, client };
+  const intentKey = ["run", runID, "ui-evidence-start-intent"];
+  const intent = useQuery<UIEvidenceIntent | null>({ queryKey: intentKey, queryFn: () => null,
+    enabled: false, initialData: null, gcTime: Infinity });
   const attempts = useQuery({
     queryKey: ["run", runID, "ui-evidence"],
     queryFn: ({ signal }) => client.uiEvidence(runID, signal),
@@ -105,7 +47,10 @@ export function UIEvidencePanel({ client, runID }: {
     refetchInterval: (query) => query.state.data?.some((attempt) => attempt.status === "running")
       ? 1_500 : false,
   });
+  const selectedID = selection.runID === runID ? selection.attemptID : "";
   const activeID = selectedID || attempts.data?.[0]?.manifest.attempt_id || "";
+  currentAttempt.current = activeID;
+  useEffect(() => () => { if (preview) URL.revokeObjectURL(preview.url); }, [preview]);
   const bundle = useQuery({
     queryKey: ["ui-evidence", activeID],
     queryFn: ({ signal }) => client.uiEvidenceBundle(activeID, signal),
@@ -116,9 +61,9 @@ export function UIEvidencePanel({ client, runID }: {
   useEffect(() => {
     if (selectedID && attempts.data && !attempts.data.some(
       (attempt) => attempt.manifest.attempt_id === selectedID)) {
-      setSelectedID("");
+      setSelection({ runID, attemptID: "" });
     }
-  }, [attempts.data, selectedID]);
+  }, [attempts.data, selectedID, runID]);
 
   const refresh = async (attemptID?: string) => {
     await queryClient.invalidateQueries({ queryKey: ["run", runID, "ui-evidence"] });
@@ -127,37 +72,33 @@ export function UIEvidencePanel({ client, runID }: {
     }
   };
   const start = useMutation({
-    mutationFn: async () => {
-      const parsed: unknown = JSON.parse(requestJSON);
-      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
-        throw new Error(t("启动清单必须是 JSON 对象", "The launch manifest must be a JSON object"));
+    mutationFn: (submission: UIEvidenceSubmission) => submission.client.startUIEvidence(submission.runID, submission.request),
+    onSuccess: async (attempt, submission) => {
+      queryClient.setQueryData(["run", submission.runID, "ui-evidence-start-intent"], null);
+      if (currentScope.current.runID === submission.runID && currentScope.current.client === submission.client) {
+        setPreparationGeneration((generation) => generation + 1);
+        setSelection({ runID: submission.runID, attemptID: attempt.manifest.attempt_id }); setLocalError("");
       }
-      return client.startUIEvidence(runID, parsed as UIEvidenceStartView);
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["run", submission.runID, "ui-evidence"] }),
+        queryClient.invalidateQueries({ queryKey: ["ui-evidence", attempt.manifest.attempt_id] }),
+      ]);
     },
-    onSuccess: async (attempt) => {
-      setSelectedID(attempt.manifest.attempt_id);
-      setReviewed(false);
-      setLocalError("");
-      await refresh(attempt.manifest.attempt_id);
-    },
+    onError: (error, submission) => queryClient.setQueryData<UIEvidenceIntent>(["run", submission.runID, "ui-evidence-start-intent"], {
+      request: submission.request, state: error instanceof APIRequestError && error.status < 500 ? "rejected" : "unknown", error: humanError(error),
+    }),
   });
+  const submit = (request: UIEvidenceStartView) => {
+    const current = queryClient.getQueryData<UIEvidenceIntent | null>(intentKey);
+    if (!client.hasUIEvidence || current?.state === "pending" ||
+      (current?.state === "unknown" && current.request.operation_key !== request.operation_key)) return;
+    queryClient.setQueryData<UIEvidenceIntent>(intentKey, { request, state: "pending" });
+    start.mutate({ request, runID, client });
+  };
   const cancel = useMutation({
     mutationFn: (attemptID: string) => client.cancelUIEvidence(attemptID),
     onSuccess: async (attempt) => refresh(attempt.manifest.attempt_id),
   });
-
-  const submit = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    setLocalError("");
-    if (!client.hasUIEvidence || start.isPending || !reviewed || requestJSON.trim() === "") return;
-    try {
-      JSON.parse(requestJSON);
-    } catch (caught) {
-      setLocalError(humanError(caught));
-      return;
-    }
-    start.mutate();
-  };
 
   const download = async (artifact: UIEvidenceArtifactMetadata) => {
     setLocalError("");
@@ -173,6 +114,15 @@ export function UIEvidencePanel({ client, runID }: {
     } catch (caught) {
       setLocalError(humanError(caught));
     }
+  };
+  const previewScreenshot = async (artifact: UIEvidenceArtifactMetadata) => {
+    setLocalError("");
+    const scope = currentScope.current;
+    try {
+      const content = await client.downloadUIEvidenceArtifact(artifact.attempt_id, artifact);
+      if (currentAttempt.current !== artifact.attempt_id || currentScope.current.runID !== scope.runID || currentScope.current.client !== scope.client) return;
+      setPreview({ attemptID: artifact.attempt_id, artifactID: artifact.id, url: URL.createObjectURL(content) });
+    } catch (caught) { setLocalError(humanError(caught)); }
   };
 
   const current = bundle.data?.attempt;
@@ -227,21 +177,23 @@ export function UIEvidencePanel({ client, runID }: {
       )}</p>
       : <ErrorState error={attempts.error} />)}
     {attempts.isSuccess && attempts.data.length === 0 && <EmptyState>{client.hasUIEvidence
-      ? t("还没有浏览器验证。展开下方启动表单，载入模板并核对步骤后开始。", "No browser verification yet. Expand the launch form below, load a template, and review its steps to begin.")
+      ? t("还没有浏览器验证。展开下方启动表单，填写应用启动方式并核对步骤后开始。", "No browser verification yet. Expand the launch form below, enter the application launch settings and review its steps to begin.")
       : t("还没有浏览器验证。先按上方「配置浏览器验证」完成连接与启动配置。", "No browser verification yet. Complete connection and startup settings in Configure browser verification above.")}</EmptyState>}
 
     {attempts.data && attempts.data.length > 0 && <div className="ui-evidence-layout">
       <section className="ui-evidence-attempts" aria-label={t("UI 证据 Attempts", "UI evidence attempts")}>
         {attempts.data.map((attempt) => <AttemptButton attempt={attempt}
           key={attempt.manifest.attempt_id}
-          onSelect={() => setSelectedID(attempt.manifest.attempt_id)}
+          onSelect={() => setSelection({ runID, attemptID: attempt.manifest.attempt_id })}
           selected={attempt.manifest.attempt_id === activeID} />)}
       </section>
       <section className="ui-evidence-detail" aria-live="polite">
         {bundle.isLoading && <LoadingState label={t("正在加载 Attempt", "Loading attempt")} />}
         {bundle.isError && <ErrorState error={bundle.error} />}
         {bundle.data && <AttemptDetail attempt={bundle.data.attempt}
-          artifacts={bundle.data.artifacts} onDownload={download} steps={bundle.data.steps} />}
+          artifacts={bundle.data.artifacts} onDownload={download} onPreview={previewScreenshot} steps={bundle.data.steps} />}
+        {preview?.attemptID === activeID && <figure><img className="ui-evidence-image-preview" src={preview.url}
+          alt={t(`验证截图 ${preview.artifactID}`, `Verification screenshot ${preview.artifactID}`)} /><figcaption>{t("已核对内容哈希的浏览器截图", "Browser screenshot with verified content hash")}</figcaption></figure>}
       </section>
     </div>}
 
@@ -252,40 +204,13 @@ export function UIEvidencePanel({ client, runID }: {
       {t("取消并清理 Attempt", "Cancel and clean up attempt")}
     </button>}
 
-    <details className="ui-evidence-launch">
-      <summary>{t("准备并启动浏览器验证", "Prepare and start browser verification")}</summary>
-      <p>{t(
-        "模板适用于本仓库的 Vite UI。启动前核对项目内命令、本机端口、测试数据、交互步骤、遮罩和失败处理。原始输入用于本次请求，证据清单保存输入的摘要。",
-        "The template targets this repository's Vite UI. Before starting, review project commands, local ports, test data, interactions, masks, and failure handling. Raw input is used for this request; the evidence manifest stores its digest.",
-      )}</p>
-      <details><summary>{t("核对本次执行条件", "Review execution requirements")}</summary>
-        <p>{t("选择 Code / Local / Deliver 执行，并核对当前 Full 进程激活、有效根执行租约和 restricted 浏览器 CDP 权限；这些授权需分别满足。",
-          "Choose a Code / Local / Deliver execution and review its current Full process activation, active root execution lease, and restricted browser CDP permission. Each authorization must be satisfied separately.")}</p></details>
-      <button className="compact-command" disabled={!client.hasUIEvidence}
-        onClick={() => {
-          setRequestJSON(JSON.stringify(templateRequest(), null, 2));
-          setReviewed(false);
-          setLocalError("");
-        }} type="button"><FileJson aria-hidden="true" size={13} />
-        {t("载入本仓库模板", "Load repository template")}</button>
-      <form onSubmit={submit}>
-        <textarea aria-label={t("精确 UI 证据启动 JSON", "Exact UI evidence launch JSON")}
-          disabled={!client.hasUIEvidence || start.isPending} onChange={(event) => {
-            setRequestJSON(event.target.value);
-            setReviewed(false);
-          }} placeholder="uiEvidenceStartView JSON" spellCheck={false} value={requestJSON} />
-        <label><input checked={reviewed} disabled={!client.hasUIEvidence || requestJSON.trim() === ""}
-          onChange={(event) => setReviewed(event.target.checked)} type="checkbox" />
-          {t("我已核对完整清单；目标是当前审阅源码，且 fixture 不含秘密或个人数据。",
-            "I reviewed the complete manifest; it targets the current reviewed source and the fixture contains no secrets or personal data.")}</label>
-        <button className="command-button" disabled={!client.hasUIEvidence || !reviewed ||
-          requestJSON.trim() === "" || start.isPending} type="submit">
-          {start.isPending ? <LoaderCircle aria-hidden="true" className="spin" size={14} /> :
-            <Play aria-hidden="true" size={14} />}
-          {t("启动真实浏览器验证", "Start real-browser verification")}
-        </button>
-      </form>
-    </details>
+    {intent.data?.state === "unknown" && <div role="status" className="projection-placeholder">
+      <p>{t("启动结果待确认。核对原请求以读取或恢复同一次验证。", "The start outcome needs confirmation. Check the original request to read or recover the same verification.")}</p>
+      <details><summary>{t("原请求记录", "Original request")}</summary><pre>{JSON.stringify(intent.data.request, null, 2)}</pre></details>
+      <button className="command-button" disabled={!client.hasUIEvidence || start.isPending} type="button"
+        onClick={() => submit(intent.data!.request)}>{t("核对原请求", "Check original request")}</button>
+    </div>}
+    <UIEvidencePreparation key={`${runID}:${preparationGeneration}`} client={client} runID={runID} threadID={threadID} pending={intent.data?.state === "pending"} unresolved={intent.data?.state === "unknown"} onStart={submit} />
     {(localError || mutationError) && <div className="inline-warning" role="alert">
       {localError || humanError(mutationError)}</div>}
   </div>;
@@ -306,10 +231,11 @@ function AttemptButton({ attempt, onSelect, selected }: {
   </button>;
 }
 
-function AttemptDetail({ artifacts, attempt, onDownload, steps }: {
+function AttemptDetail({ artifacts, attempt, onDownload, onPreview, steps }: {
   artifacts: UIEvidenceArtifactMetadata[];
   attempt: UIEvidenceAttempt;
   onDownload: (artifact: UIEvidenceArtifactMetadata) => void;
+  onPreview: (artifact: UIEvidenceArtifactMetadata) => void;
   steps: Array<{
     step_id: string;
     sequence: number;
@@ -363,11 +289,12 @@ function AttemptDetail({ artifacts, attempt, onDownload, steps }: {
             <small>{step.failure_stage}{step.message ? ` · ${step.message}` : ""}</small>}</div>)}
     </section>
     <section className="ui-evidence-artifacts">
-      <h3>{t("哈希验证的不可信产物", "Hash-verified untrusted artifacts")}</h3>
+      <h3>{t("截图与检查记录", "Screenshots and check records")}</h3>
       {artifacts.length === 0 ? <p>{t("尚无产物。", "No artifacts.")}</p> : artifacts.map((artifact) =>
         <div key={artifact.id}><span><strong>{artifact.kind}</strong>
           <code>{artifact.sha256}</code><small>{artifact.mime} · {formatBytes(artifact.bytes)} · {artifact.step_id} · {formatDate(artifact.created_at)} · {artifact.retention_policy} · {artifact.redacted ? t("已脱敏", "redacted") : t("未标记脱敏", "not marked redacted")}</small></span>
-          <button aria-label={t(`下载不可信产物 ${artifact.id}`, `Download untrusted artifact ${artifact.id}`)}
+          {artifact.mime === "image/png" && <button type="button" className="compact-command" onClick={() => onPreview(artifact)}>{t("查看截图", "View screenshot")}</button>}
+          <button aria-label={t(`下载检查记录 ${artifact.id}`, `Download check record ${artifact.id}`)}
             className="icon-button" onClick={() => void onDownload(artifact)} type="button">
             <Download aria-hidden="true" size={14} /></button></div>)}
     </section>

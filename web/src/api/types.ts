@@ -53,6 +53,7 @@ export type PriceSnapshotListView = components["schemas"]["PriceSnapshotListView
 export type PriceSnapshotImportRequestView = components["schemas"]["PriceSnapshotImportRequestView"];
 export type PriceSnapshotImportView = components["schemas"]["PriceSnapshotImportView"];
 export type DockerSandboxStatusView = components["schemas"]["DockerSandboxStatusView"];
+export type DockerEnvironmentView = components["schemas"]["DockerEnvironmentView"];
 export type DockerSandboxAdmissionRequestView = components["schemas"]["DockerSandboxAdmissionRequestView"];
 export type DockerSandboxAdmissionView = components["schemas"]["DockerSandboxAdmissionView"];
 export type DockerSandboxStartRequestView = components["schemas"]["DockerSandboxStartRequestView"];

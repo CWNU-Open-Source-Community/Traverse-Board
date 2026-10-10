@@ -2,7 +2,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { APIRequestError, type APIClient } from "../api/client";
-import type { UIEvidenceAttempt } from "../api/types";
+import type { UIEvidenceArtifactMetadata, UIEvidenceAttempt, UIEvidenceStartView } from "../api/types";
 import { UIEvidencePanel } from "./ui-evidence-panel";
 
 vi.mock("../lib/locale", () => ({
@@ -31,7 +31,7 @@ function attempt(status: "not_run" | "passed", id: string): UIEvidenceAttempt {
       browser: { product: "edge", version: "140.0.0.0", executable_sha256: "5".repeat(64),
         driver_protocol: "restricted-cdp-ui-evidence.v1", headless: true,
         temporary_profile: true },
-      url: "http://127.0.0.1:4173/", route: "/", environment: {
+      url: "http://127.0.0.1:5178/demo", route: "/demo", environment: {
         viewport: { width: 1440, height: 900, dpr: 1 }, locale: "en-US",
         theme: "light", reduced_motion: false },
       fixture: { name: "fixture", seed: "seed", page_state: "{}",
@@ -65,6 +65,89 @@ function renderPanel(client: APIClient) {
 }
 
 describe("UIEvidencePanel", () => {
+  it("previews only a verified screenshot download and releases its object URL", async () => {
+    const passed = attempt("passed", "attempt-image");
+    const artifact = { id: "artifact-image", attempt_id: "attempt-image", kind: "screenshot", mime: "image/png", bytes: 10,
+      sha256: "a".repeat(64), step_id: "navigate", created_at: "2026-08-20T00:00:02Z", retention_policy: "run_history", redacted: false } as UIEvidenceArtifactMetadata;
+    const downloadUIEvidenceArtifact = vi.fn().mockRejectedValueOnce(new Error("Artifact content hash mismatch")).mockResolvedValueOnce(new Blob(["png"], { type: "image/png" }));
+    const createObjectURL = vi.fn().mockReturnValue("blob:verified-image");
+    const revokeObjectURL = vi.fn(); const NativeURL = URL;
+    vi.stubGlobal("URL", class extends NativeURL { static createObjectURL = createObjectURL; static revokeObjectURL = revokeObjectURL; });
+    try {
+      const view = renderPanel({ hasUIEvidence: false, uiEvidence: vi.fn().mockResolvedValue([passed]),
+        uiEvidenceBundle: vi.fn().mockResolvedValue({ attempt: passed, artifacts: [artifact], steps: [] }), downloadUIEvidenceArtifact } as unknown as APIClient);
+      const user = userEvent.setup(); await user.click(await screen.findByRole("button", { name: "查看截图" }));
+      expect(await screen.findByRole("alert")).toHaveTextContent("Artifact content hash mismatch");
+      expect(createObjectURL).not.toHaveBeenCalled(); expect(screen.queryByRole("img")).not.toBeInTheDocument();
+      await user.click(screen.getByRole("button", { name: "查看截图" }));
+      expect(await screen.findByRole("img", { name: "验证截图 artifact-image" })).toHaveAttribute("src", "blob:verified-image");
+      expect(downloadUIEvidenceArtifact).toHaveBeenLastCalledWith("attempt-image", artifact);
+      view.unmount(); expect(revokeObjectURL).toHaveBeenCalledWith("blob:verified-image");
+    } finally { vi.unstubAllGlobals(); }
+  });
+
+  async function prepare(user: ReturnType<typeof userEvent.setup>) {
+    await user.click(screen.getByText("准备并启动浏览器验证"));
+    await user.type(screen.getByLabelText("应用名称"), "测试应用");
+    await user.type(screen.getByLabelText("启动命令（PowerShell）"), "node preview-server.js --port 5011");
+    await user.type(screen.getByLabelText("本次页面地址"), "http://127.0.0.1:5011/");
+    await user.click(screen.getByRole("button", { name: "预览验证清单" }));
+    await user.click(screen.getByRole("checkbox"));
+  }
+
+  it("retains the exact request after a lost response and remount, and retries only its original key", async () => {
+    const created = attempt("not_run", "attempt-recovered");
+    const startUIEvidence = vi.fn().mockRejectedValueOnce(new Error("response lost")).mockResolvedValueOnce(created);
+    const client = { hasUIEvidence: true, startUIEvidence, uiEvidence: vi.fn().mockResolvedValue([]),
+      uiEvidenceBundle: vi.fn().mockResolvedValue({ attempt: created, steps: [], artifacts: [] }) } as unknown as APIClient;
+    const queries = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+    const content = () => <QueryClientProvider client={queries}><UIEvidencePanel client={client} runID="run-1" /></QueryClientProvider>;
+    const view = render(content()); const user = userEvent.setup(); await prepare(user);
+    await user.click(screen.getByRole("button", { name: "启动真实浏览器验证" }));
+    await screen.findByText(/启动结果待确认/);
+    const original = startUIEvidence.mock.calls[0]![1]; view.unmount(); render(content());
+    await user.click(screen.getByRole("button", { name: "核对原请求" }));
+    await waitFor(() => expect(startUIEvidence).toHaveBeenCalledTimes(2));
+    expect(startUIEvidence.mock.calls[1]).toEqual(["run-1", original]);
+    await waitFor(() => expect(screen.queryByText(/启动结果待确认/)).not.toBeInTheDocument());
+    expect(client.uiEvidenceBundle).toHaveBeenCalledWith("attempt-recovered", expect.any(AbortSignal));
+  });
+
+  it("invalidates review when launch settings change and rejects remote addresses before mutation", async () => {
+    const startUIEvidence = vi.fn(); const user = userEvent.setup();
+    renderPanel({ hasUIEvidence: true, startUIEvidence, uiEvidence: vi.fn().mockResolvedValue([]) } as unknown as APIClient);
+    await prepare(user); expect(screen.getByRole("button", { name: "启动真实浏览器验证" })).toBeEnabled();
+    await user.type(screen.getByLabelText("启动命令（PowerShell）"), " --test");
+    expect(screen.getByRole("button", { name: "启动真实浏览器验证" })).toBeDisabled();
+    await user.clear(screen.getByLabelText("本次页面地址")); await user.type(screen.getByLabelText("本次页面地址"), "https://example.org/");
+    await user.click(screen.getByRole("button", { name: "预览验证清单" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("本机 HTTP 页面地址");
+    expect(startUIEvidence).not.toHaveBeenCalled();
+  });
+
+  it("limits launch records to the selected execution and binds the service, source call and URL", async () => {
+    const source = { job_id: "job-selected", run_id: "run-1", thread_id: "thread-1", source_call_id: "call-selected", state: "running", can_stop: true };
+    const listThreadApplicationServices = vi.fn().mockResolvedValue({ services: [source, { ...source, job_id: "job-other", run_id: "run-other" }] });
+    const getThreadApplicationService = vi.fn().mockResolvedValue({ service: source, candidate_urls: [{ url: "http://127.0.0.1:5011/" }] });
+    const threadActivityDetail = vi.fn().mockResolvedValue({ activity_ref: "call-selected", run_id: "run-1", tools: [{ name: "command_runtime", detail: { kind: "command", command: { commands: [{ command: "node preview.js --port 5011", working_directory: "app" }] } } }] });
+    const startUIEvidence = vi.fn().mockResolvedValue(attempt("not_run", "attempt-service"));
+    const client = { hasUIEvidence: true, listThreadApplicationServices, getThreadApplicationService, threadActivityDetail, startUIEvidence,
+      uiEvidence: vi.fn().mockResolvedValue([]), uiEvidenceBundle: vi.fn().mockResolvedValue({ attempt: attempt("not_run", "attempt-service"), artifacts: [], steps: [] }) } as unknown as APIClient;
+    render(<QueryClientProvider client={new QueryClient()}><UIEvidencePanel client={client} runID="run-1" threadID="thread-1" /></QueryClientProvider>);
+    const user = userEvent.setup(); await user.click(screen.getByText("准备并启动浏览器验证"));
+    await user.selectOptions(await screen.findByLabelText("应用服务"), "job-selected");
+    expect(screen.queryByRole("option", { name: /job-other/ })).not.toBeInTheDocument();
+    await waitFor(() => expect(screen.getByRole("button", { name: "使用所选启动记录" })).toBeEnabled());
+    await user.click(screen.getByRole("button", { name: "使用所选启动记录" }));
+    expect(screen.getByLabelText("启动命令（PowerShell）")).toHaveValue("node preview.js --port 5011");
+    expect(screen.getByLabelText("项目内工作目录")).toHaveValue("app");
+    await user.click(screen.getByRole("button", { name: "预览验证清单" })); await user.click(screen.getByRole("checkbox"));
+    await user.click(screen.getByRole("button", { name: "启动真实浏览器验证" }));
+    await waitFor(() => expect(startUIEvidence).toHaveBeenCalledOnce());
+    expect(startUIEvidence.mock.calls[0]![1] as UIEvidenceStartView).toMatchObject({ start: { script: "node preview.js --port 5011", working_directory: "app" }, url: "http://127.0.0.1:5011/" });
+    expect(threadActivityDetail).toHaveBeenCalledWith("thread-1", "call-selected", expect.any(AbortSignal));
+    expect(getThreadApplicationService).toHaveBeenCalledWith("thread-1", "job-selected", expect.any(AbortSignal));
+  });
   it("keeps not_run neutral and reserves the success treatment for passed", async () => {
     const notRun = attempt("not_run", "attempt-not-run");
     const passed = attempt("passed", "attempt-passed");
@@ -98,7 +181,7 @@ describe("UIEvidencePanel", () => {
     expect(await screen.findByText(/历史证据状态待确认/)).toHaveTextContent("历史证据状态待确认");
     expect(screen.getByText(/历史证据状态待确认/)).toHaveTextContent("Windows Desktop");
     expect(screen.queryByText("HTTP API endpoint was not found")).not.toBeInTheDocument();
-    expect(screen.queryByText("还没有浏览器验证。展开下方启动表单，载入模板并核对步骤后开始。")).not.toBeInTheDocument();
+    expect(screen.queryByText("还没有浏览器验证。展开下方启动表单，填写应用启动方式并核对步骤后开始。")).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "刷新 UI 证据" }));
     await waitFor(() => expect(uiEvidence).toHaveBeenCalledTimes(2));
     expect(uiEvidence).toHaveBeenCalledWith("run-1", expect.any(AbortSignal));
@@ -114,7 +197,7 @@ describe("UIEvidencePanel", () => {
       uiEvidence: vi.fn().mockRejectedValue(error) } as unknown as APIClient);
     expect(await screen.findByRole("alert")).toHaveTextContent(error.message);
     expect(screen.queryByText(/历史证据状态待确认/)).not.toBeInTheDocument();
-    expect(screen.queryByText("还没有浏览器验证。展开下方启动表单，载入模板并核对步骤后开始。")).not.toBeInTheDocument();
+    expect(screen.queryByText("还没有浏览器验证。展开下方启动表单，填写应用启动方式并核对步骤后开始。")).not.toBeInTheDocument();
   });
 
   it("does not keep declaring empty history when a later refresh cannot read the endpoint", async () => {
@@ -140,9 +223,14 @@ describe("UIEvidencePanel", () => {
     const user = userEvent.setup();
     renderPanel(client);
 
-    await screen.findByText("还没有浏览器验证。展开下方启动表单，载入模板并核对步骤后开始。");
+    await screen.findByText("还没有浏览器验证。展开下方启动表单，填写应用启动方式并核对步骤后开始。");
     await user.click(screen.getByText("准备并启动浏览器验证"));
-    await user.click(screen.getByRole("button", { name: "载入本仓库模板" }));
+    await user.type(screen.getByLabelText("应用名称"), "项目预览");
+    await user.type(screen.getByLabelText("启动命令（PowerShell）"), "npm run preview -- --port 5178");
+    await user.type(screen.getByLabelText("本次页面地址"), "http://127.0.0.1:5178/demo");
+    await user.click(screen.getByRole("button", { name: "添加检查步骤" }));
+    await user.type(screen.getByLabelText("页面选择器"), "main");
+    await user.click(screen.getByRole("button", { name: "预览验证清单" }));
     const startButton = screen.getByRole("button", { name: "启动真实浏览器验证" });
     expect(startButton).toBeDisabled();
     await user.click(screen.getByRole("checkbox"));
@@ -151,7 +239,7 @@ describe("UIEvidencePanel", () => {
 
     await waitFor(() => expect(startUIEvidence).toHaveBeenCalledTimes(1));
     expect(startUIEvidence).toHaveBeenCalledWith("run-1", expect.objectContaining({
-      url: "http://127.0.0.1:4173/", route: "/",
+      url: "http://127.0.0.1:5178/demo", route: "/demo",
       fixture: expect.objectContaining({ deterministic: true, synthetic: true }),
       failure_policy: { fail_on_console_error: true, fail_on_page_error: true,
         fail_on_request_error: true, fail_on_http_status: true },
@@ -178,11 +266,11 @@ describe("UIEvidencePanel", () => {
     expect(container.textContent).toContain("--enable-browser-cdp-control");
     expect(container.textContent).not.toContain("当前连接为只读");
     await screen.findByText("还没有浏览器验证。先按上方「配置浏览器验证」完成连接与启动配置。");
-    expect(screen.queryByText("还没有浏览器验证。展开下方启动表单，载入模板并核对步骤后开始。")).not.toBeInTheDocument();
+    expect(screen.queryByText("还没有浏览器验证。展开下方启动表单，填写应用启动方式并核对步骤后开始。")).not.toBeInTheDocument();
     await user.click(screen.getByText("配置浏览器验证"));
     expect(screen.getByText(/在 Windows Desktop 连接控制凭证/)).toBeVisible();
     await user.click(screen.getByText("准备并启动浏览器验证"));
-    expect(screen.getByRole("button", { name: "载入本仓库模板" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "预览验证清单" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "启动真实浏览器验证" })).toBeDisabled();
     expect(startUIEvidence).not.toHaveBeenCalled();
   });

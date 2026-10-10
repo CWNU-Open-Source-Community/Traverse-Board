@@ -69,7 +69,7 @@ export function TaskReviewTools({ client, runID, threadID, onOpenDelivery, retai
           {selected === "github-review" && <GitHubReviewPanel client={client} runID={runID}
             retainedReview={githubReview} onRetainedReviewChange={(review) => { setGithubReview(review); onGithubReviewChange(review); }}
             onOpenApprovals={() => setShowApprovals(true)} onOpenDelivery={onOpenDelivery} />}
-          {selected === "ui-evidence" && <UIEvidencePanel client={client} runID={runID} />}
+          {selected === "ui-evidence" && <UIEvidencePanel client={client} runID={runID} threadID={threadID} />}
           {!selected && <p>选择工具后才会读取对应状态。切换执行记录后，请重新选择工具并审阅。</p>}
         </>}
       </Suspense>
