@@ -193,7 +193,7 @@ describe("V2ModelRouteControl", () => {
     expect(client.selectThreadModelRoute).toHaveBeenCalledTimes(1);
   });
 
-  it("returns focus after the selected menu item loses focus while disabled by its pending request", async () => {
+  it.each([false, true])("returns focus after the pending menu item loses focus (re-enabled before completion: %s)", async (reenabled) => {
     let resolve!: (value: V2ThreadModelRoute) => void;
     const pending = new Promise<V2ThreadModelRoute>((done) => { resolve = done; });
     const client = routeClient({ selectThreadModelRoute: vi.fn(() => pending) });
@@ -213,11 +213,59 @@ describe("V2ModelRouteControl", () => {
     document.body.focus();
     document.body.removeAttribute("tabindex");
     expect(document.body).toHaveFocus();
+    // Success/cache notification may enable the item before closeMenu runs.
+    // Restoration must depend on the original focus owner, not this DOM flag.
+    if (reenabled) selected.removeAttribute("disabled");
     await act(async () => { resolve({ ...current, model: "deepseek-v4-pro" }); await pending; });
     await waitFor(() => expect(trigger).toHaveFocus());
     expect(trigger).toHaveTextContent("DeepSeek V4 Pro");
     expect(screen.queryByRole("menu")).not.toBeInTheDocument();
     expect(client.selectThreadModelRoute).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not let a queued menu-opening frame reclaim focus already moved to the composer", async () => {
+    const frames: FrameRequestCallback[] = [];
+    vi.spyOn(globalThis, "requestAnimationFrame").mockImplementation((callback) => { frames.push(callback); return frames.length; });
+    vi.spyOn(globalThis, "cancelAnimationFrame").mockImplementation(() => undefined);
+    const user = userEvent.setup(); const client = routeClient();
+    const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(<QueryClientProvider client={queryClient}>
+      <V2ModelRouteControl client={client} threadID="thread-1" onManageModels={vi.fn()} />
+      <textarea aria-label="下一条消息" />
+    </QueryClientProvider>);
+    await user.click(await screen.findByRole("button", { name: /模型路由/ }));
+    const composer = screen.getByRole("textbox", { name: "下一条消息" });
+    act(() => composer.focus());
+    act(() => { for (const frame of frames.splice(0)) frame(performance.now()); });
+    expect(composer).toHaveFocus();
+    await user.keyboard("keep this draft");
+    expect(composer).toHaveValue("keep this draft");
+    expect(client.selectThreadModelRoute).not.toHaveBeenCalled();
+  });
+
+  it("retires a pending menu focus owner when keyboard or programmatic focus leaves for the composer", async () => {
+    let resolve!: (value: V2ThreadModelRoute) => void;
+    const pending = new Promise<V2ThreadModelRoute>((done) => { resolve = done; });
+    const client = routeClient({ selectThreadModelRoute: vi.fn(() => pending) });
+    const user = userEvent.setup();
+    render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+      <V2ModelRouteControl client={client} threadID="thread-1" onManageModels={vi.fn()} />
+      <textarea aria-label="下一条消息" />
+    </QueryClientProvider>);
+    const trigger = await screen.findByRole("button", { name: /模型路由/ });
+    await user.click(trigger);
+    await user.click(screen.getByRole("menuitem", { name: /^模型/ }));
+    await user.click(await screen.findByRole("menuitemradio", { name: /deepseek-v4-pro/ }));
+    const composer = screen.getByRole("textbox", { name: "下一条消息" });
+    // Move without mousedown, then blur. Body focus must not revive the old
+    // menu owner after the operator has already moved outside the control.
+    act(() => { composer.focus(); composer.blur(); });
+    expect(document.body).toHaveFocus();
+    await act(async () => { resolve({ ...current, model: "deepseek-v4-pro" }); await pending; });
+    await waitFor(() => expect(screen.queryByRole("menu")).not.toBeInTheDocument());
+    expect(document.body).toHaveFocus();
+    expect(trigger).not.toHaveFocus();
+    expect(trigger).toHaveTextContent("DeepSeek V4 Pro");
   });
 
   it("opens an anchored two-level menu and groups selectable and unavailable routes", async () => {

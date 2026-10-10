@@ -86,6 +86,23 @@ existing ownership diagnostics. The two subtests passed unchanged locally
 rechecks do not establish the remote failure's cause or replace Windows CI.
 Production deadlines and lease handling were not relaxed.
 
+At `438fc5fd`, Windows repeated only `multiple-output-pages`. Its diagnostics
+showed a lease renewal occupying the sole SQLite connection for 2.84 seconds;
+the ownership `GetRun` exhausted its existing 2-second deadline while waiting
+for that connection. No output had been persisted at that point. The log does
+not identify the slow transaction phase, so disk flush latency is not an
+established cause. `native-timeout` passed on this run. The Windows failure
+remains under investigation, with its original assertions and deadlines intact.
+
+The same CI run exposed two model-menu focus failures. Deterministic local
+regressions reproduced restoration depending on a menu item's disabled flag
+after asynchronous completion, and a delayed opening frame taking focus from
+the composer. The fix retains the original focus owner through pending-state
+changes, relinquishes it when focus moves elsewhere, and focuses an opened menu
+at DOM commit. All 20 focused tests and 69 app/composer integration tests passed;
+the production frontend build passed. These focused results do not replace the
+next complete frontend CI run.
+
 The first Docker start-provenance regression attempt exposed a test fixture
 that had not yet created its host mask, and exceeded its 90-second package
 budget in Git fixture setup. The fixture was corrected and the package budget
@@ -109,6 +126,13 @@ the presentation now follows the selected backend.
 Final browser captures confirm both unavailable backends show their own
 configuration action. The task and settings pages both have a document width
 of 390 pixels at a 390-pixel viewport, with no horizontal overflow.
+
+A further real Edge check used the production `V2ModelRouteControl` with a
+labelled 1.2-second in-memory save delay. After completion, DOM inspection
+confirmed the model trigger retained focus and the menu closed. When the user
+moved to the draft during that delay, completion retained textarea focus and
+its exact text. The two screenshots are `model-focus-return.png` and
+`model-focus-composer.png` in the same local evidence directory.
 
 Raw screenshots and command logs are local, ignored artifacts under
 `output/playwright/sandbox-selection/` and `build/sandbox-backend-selection/`.
