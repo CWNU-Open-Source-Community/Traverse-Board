@@ -196,10 +196,10 @@ function ReasoningPicker() {
     {open && <div aria-label={t("推理强度", "Reasoning effort")} className="composer-popover composer-reasoning-popover" role="menu">
       <span className="composer-popover-heading">{t("推理强度", "Reasoning effort")}</span>
       <button aria-checked="true" role="menuitemradio" type="button"><span><strong>{t("标准", "Standard")}</strong>
-        <small>{t("使用供应商默认推理设置", "Use the provider's default reasoning settings")}</small></span><Check aria-hidden="true" size={15} /></button>
-      <button disabled role="menuitemradio" title={t("当前供应商使用默认推理强度", "The current provider uses its default reasoning effort")} type="button">
+        <small>{t("沿用当前连接的推理配置", "Use the reasoning configuration of this connection")}</small></span><Check aria-hidden="true" size={15} /></button>
+      <button disabled role="menuitemradio" title={t("推理强度沿用当前连接配置", "Reasoning effort follows this connection's configuration")} type="button">
         <span><strong>{t("高", "High")}</strong><small>{t("待 Provider 适配", "Provider support pending")}</small></span></button>
-      <button disabled role="menuitemradio" title={t("当前供应商使用默认推理强度", "The current provider uses its default reasoning effort")} type="button">
+      <button disabled role="menuitemradio" title={t("推理强度沿用当前连接配置", "Reasoning effort follows this connection's configuration")} type="button">
         <span><strong>{t("最高", "Maximum")}</strong><small>{t("待 Provider 适配", "Provider support pending")}</small></span></button>
     </div>}
   </div>;
