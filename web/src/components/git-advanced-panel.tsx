@@ -132,8 +132,8 @@ export function GitAdvancedPanel({ client, runID, onOpenApprovals,
       <header className="panel-header"><div><GitBranch aria-hidden="true" size={17} />
         <h2>{t("高级 Git", "Advanced Git")}</h2></div></header>
       <EmptyState>{t(
-        "当前进程未显式启用高级 Git、权限控制、操作员审批和工作区检查点。",
-        "This process did not explicitly enable Advanced Git, permission control, operator approval, and Workspace Checkpoints.",
+        "启用高级 Git、权限控制、操作员审批和项目检查点后，可在这里预览并审批仓库操作。",
+        "Enable Advanced Git, permission control, operator approval, and workspace checkpoints to preview and approve repository operations here.",
       )}</EmptyState>
     </section>;
   }
@@ -183,7 +183,7 @@ export function GitAdvancedPanel({ client, runID, onOpenApprovals,
     </section>}
 
     <section className="git-advanced-section">
-      <h3>{t("逐 hunk 操作", "Hunk operations")}</h3>
+      <h3>{t("按差异块操作", "Diff hunk operations")}</h3>
       <div className="git-advanced-form-row">
         <select aria-label={t("Hunk 操作", "Hunk operation")} value={hunkOperation}
           onChange={(event) => setHunkOperation(event.target.value as GitAdvancedOperation)}>
@@ -195,7 +195,7 @@ export function GitAdvancedPanel({ client, runID, onOpenApprovals,
           value={hunkPaths} />
         <button disabled={!canMutate} onClick={() => discover.mutate(createSpec(hunkOperation,
           exactPaths(hunkPaths).length ? { paths: exactPaths(hunkPaths) } : {}))} type="button">
-          {t("发现 hunk", "Discover hunks")}
+          {t("查看可选差异块", "Inspect available hunks")}
         </button>
       </div>
       {review?.preview.operation === hunkOperation && review.preview.hunks.length > 0 &&
@@ -364,7 +364,7 @@ export function GitAdvancedPanel({ client, runID, onOpenApprovals,
     {mutationError && <ErrorState error={mutationError} />}
 
     <section className="git-advanced-section">
-      <h3>{t("持久审计记录", "Durable audit records")}</h3>
+      <h3>{t("已保存的 Git 操作", "Saved Git operations")}</h3>
       {projection.operations.length === 0 ? <small>{t("暂无操作", "No operations")}</small> :
         projection.operations.map((operation) => <details key={operation.id}>
           <summary><StatusBadge status={operation.status} /> {operation.operation} · {shortID(operation.id)} · {formatDate(operation.created_at)}</summary>
@@ -387,7 +387,7 @@ function PreviewEvidence({ preview, compact = false }: {
 }) {
   const { t } = useLocale();
   return <section className="git-advanced-preview">
-    <h3>{t("不可变 Preview", "Immutable preview")} · {preview.operation}</h3>
+    <h3>{t("操作预览", "Operation preview")} · {preview.operation}</h3>
     <p>{preview.summary}</p>
     <code>{preview.id}</code>
     {preview.blocked_reasons.length > 0 && <ul className="inline-warning">

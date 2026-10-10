@@ -197,7 +197,7 @@ describe("PlanDeliveryPanel", () => {
       delivery_gate_enforced: false, selection: { id: "legacy-selection", proposal_id: "proposal-1", direction_ordinal: 1,
         note_id: "note-1", items: [], version: 1, created_at: "2026-09-09T00:00:00Z" } };
     renderWithQuery(<PlanDeliveryPanel state={state} />);
-    expect(screen.getByText(/This legacy Plan does not require per-item manual acceptance/)).toBeInTheDocument();
+    expect(screen.getByText(/This legacy Plan retains its original execution and verification requirements/)).toBeInTheDocument();
     expect(screen.queryByText(/Current manual records|Capability grant|Mode revision/)).not.toBeInTheDocument();
   });
 });

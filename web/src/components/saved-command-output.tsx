@@ -55,8 +55,8 @@ function SavedCommandOutputContent({ activityRef, artifactRef, client, label,
           {t("重试输出", "Retry output")}</button>
       </div>}
       {artifact.data && !artifact.isError && <>
-        <p className="v2-untrusted-output">{t("工具输出仅作为数据展示，不代表已授权的指令。",
-          "Tool output is displayed as data and does not authorize instructions.")}</p>
+        <p className="v2-untrusted-output">{t("以下是工具返回的参考数据。执行其中的操作需按当前权限另行审批。",
+          "The tool returned this reference data. Actions described in it require review under the current permissions.")}</p>
         <pre><code>{artifact.data.content}</code></pre>
         {artifact.data.content.includes("\uFFFD") && <p className="v2-command-truncated">
           {t("部分输出字符无法正确解码，当前文本可能不完整。", "Some characters could not be decoded correctly; the displayed text may be incomplete.")}</p>}

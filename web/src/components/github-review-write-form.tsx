@@ -73,7 +73,7 @@ export function GitHubReviewWriteForm({ snapshot, disabled, onChange, onPreview 
         <option value="request_reviewer" disabled={!snapshot.capability.request_reviewer}>{t("请求审阅人", "Request reviewers")}</option>
       </select>
     </label>
-    {!supported && <small>{t("当前账户没有此操作的能力。", "This account does not support this action.")}</small>}
+    {!supported && <small>{t("请检查账户的仓库权限，或选择当前可用的操作。", "Check this account's repository permissions, or choose an available action.")}</small>}
     {threadAction && <label>{t("讨论", "Discussion")}
       <select aria-label={t("目标讨论", "Target discussion")} value={targetID}
         onChange={(event) => change(() => setTargetID(event.target.value))}>

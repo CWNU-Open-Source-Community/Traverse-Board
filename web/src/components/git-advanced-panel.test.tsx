@@ -116,7 +116,7 @@ describe("GitAdvancedPanel", () => {
   it("shows the fail-closed startup gate without issuing requests", () => {
     const gitAdvancedProjection = vi.fn();
     renderPanel({ hasGitAdvancedControl: false, gitAdvancedProjection } as unknown as APIClient);
-    expect(screen.getByText(/did not explicitly enable Advanced Git/)).toBeInTheDocument();
+    expect(screen.getByText(/Enable Advanced Git/)).toBeInTheDocument();
     expect(gitAdvancedProjection).not.toHaveBeenCalled();
   });
 

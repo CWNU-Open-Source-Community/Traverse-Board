@@ -37,7 +37,7 @@ describe("StandardCodeDeliveryPanel", () => {
       render(<QueryClientProvider client={queryClient}><StandardCodeDeliveryPanel client={{
         standardCodeDelivery: read, hasControl: false, hasStandardCodePreset: false,
       } as unknown as APIClient} runID="run-1" onOpenCheckpoints={vi.fn()} onOpenFile={vi.fn()} /></QueryClientProvider>);
-      expect(await screen.findByText(/A report may not have been generated, or the reporting endpoint may be disabled/)).toBeInTheDocument();
+      expect(await screen.findByText(/The delivery report is unavailable and check results need confirmation/)).toBeInTheDocument();
       expect(screen.queryByText(/No delivery report is available/)).not.toBeInTheDocument();
       expect(screen.getByRole("button", { name: "Refresh delivery report" })).toBeEnabled();
       expect(read).toHaveBeenCalledWith("run-1", expect.any(AbortSignal));
@@ -104,7 +104,7 @@ describe("StandardCodeDeliveryPanel", () => {
       const heading = await screen.findByText("The latest check failed; the current revision is unconfirmed");
       expect(heading.closest("section")).toHaveClass("delivery-truth-unknown");
       expect(screen.queryByText("The last checked revision was verified")).not.toBeInTheDocument();
-      expect(screen.queryByText(/A report may not have been generated/)).not.toBeInTheDocument();
+      expect(screen.queryByText(/The delivery report is unavailable/)).not.toBeInTheDocument();
       expect(screen.getByText("internal/example.go")).toBeInTheDocument();
       expect(screen.getByText("Recorded conclusion").nextElementSibling).toHaveTextContent("passed");
       expect(screen.getByText("Last revision check").nextElementSibling).toHaveTextContent(formatDate(observedReport().observation.observed_at));

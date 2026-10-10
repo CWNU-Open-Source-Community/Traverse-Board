@@ -22,7 +22,7 @@ describe("OperationReceiptHistory", () => {
       <OperationReceiptHistory client={client} runID="run-1" />
     </QueryClientProvider>);
 
-    expect(await screen.findByText("file edit apply / durable")).toBeInTheDocument();
+    expect(await screen.findByText("file edit apply")).toBeInTheDocument();
     expect(screen.getByText("run")).toBeInTheDocument();
     expect(screen.queryByText(/PRIVATE|README\.md|[a-f0-9]{64}/i)).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Refresh operation receipts" }));

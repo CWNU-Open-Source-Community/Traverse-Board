@@ -43,7 +43,7 @@ export function EmbeddedAnalyzerPanel({ client, runID }: {
       <header className="panel-heading-row">
         <div>
           <h2><Binary aria-hidden="true" size={18} />{t("内置分析器", "Embedded analyzer")}</h2>
-          <p>{t("固定 Rust/WASI 摘要分析器，只接收有界输入，不具备文件系统、网络或子进程权限。", "A fixed Rust/WASI summary analyzer accepting only bounded input, with no filesystem, network, or subprocess authority.")}</p>
+          <p>{t("分析你提供的文本或项目文件，生成大小、行数和摘要。输入上限为 64 KiB，处理在隔离环境中完成。", "Analyze supplied text or project files to obtain size, line count, and digest. Input is limited to 64 KiB and processed in an isolated environment.")}</p>
         </div>
         <span className="safety-chip"><ShieldCheck aria-hidden="true" size={14} />{t("固定隔离边界", "Fixed isolation boundary")}</span>
       </header>
@@ -62,12 +62,12 @@ export function EmbeddedAnalyzerPanel({ client, runID }: {
         <span>{t("工作区相对路径", "Workspace-relative path")}</span>
         <input onChange={(event) => setFile(event.target.value)}
           placeholder={t("例如 attachments/sample.txt", "For example, attachments/sample.txt")} value={file} />
-        <small>{t("仅允许当前 Run 工作区内的普通文件；符号链接逃逸会被 Go 拒绝。", "Only regular files inside the current Run workspace are allowed; Go rejects symlink escapes.")}</small>
+        <small>{t("请选择当前项目内的普通文件，路径会按项目边界校验。", "Choose a regular file in the current project. Its path is checked against the project boundary.")}</small>
       </label>}
       <label className="analyzer-confirmation">
         <input checked={confirmed} onChange={(event) => setConfirmed(event.target.checked)}
           type="checkbox" />
-        <span>{t("确认执行固定分析器并把元数据结果写入当前 Run 的 Artifact。", "Confirm running the fixed analyzer and recording its metadata result as an Artifact on this Run.")}</span>
+        <span>{t("运行分析器，并将结果保存为本次执行的产物。", "Run the analyzer and save the result as an artifact for this execution.")}</span>
       </label>
       <button className="primary-button" disabled={!confirmed || !hasInput || mutation.isPending}
         onClick={() => mutation.mutate()} type="button">

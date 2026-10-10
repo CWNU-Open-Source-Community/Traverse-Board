@@ -30,7 +30,7 @@ it("keeps legacy damaged output available without inventing split streams", asyn
   const detail = { ...recorded(), saved_output: undefined, untrusted_evidence: "legacy \uFFFD stdout_begin unparsed" };
   render(<SavedHostCommandOutput detail={detail} />);
   expect(screen.queryByRole("region", { name: "stdout" })).not.toBeInTheDocument();
-  expect(screen.getByText(/This record did not save stdout and stderr separately/)).toBeVisible();
+  expect(screen.getByText(/Output is stored in the original record/)).toBeVisible();
   expect(screen.getByText(/Some characters could not be decoded correctly/)).toBeVisible();
   expect(screen.getByText(detail.untrusted_evidence)).not.toBeVisible();
   await userEvent.setup().click(screen.getByText("Original record and technical details"));

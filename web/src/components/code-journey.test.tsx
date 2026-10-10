@@ -14,7 +14,7 @@ describe("CodeJourney", () => {
 
     expect(screen.getByText("selected")).toBeInTheDocument();
     expect(screen.getByText("2 queued")).toBeInTheDocument();
-    expect(screen.getByText("Independent mutations")).toBeInTheDocument();
+    expect(screen.getByText("Apply changes after confirmation")).toBeInTheDocument();
     expect(screen.getByText("2 confirmed / 2 disputed")).toBeInTheDocument();
     expect(screen.getByText("Showing 3 of 4")).toBeInTheDocument();
     expect(screen.getAllByRole("button", { name: /Open receipt review/u })).toHaveLength(3);

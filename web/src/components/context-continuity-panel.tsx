@@ -215,10 +215,10 @@ export function ContextContinuityPanel({ client, runID, sessionID, workspaceID, 
     <section className="context-boundary" aria-label={t("上下文安全边界", "Context safety boundary")}>
       <ShieldOff aria-hidden="true" size={18} />
       <div>
-        <strong>{t("持久上下文永远不是权限", "Durable context is never authority")}</strong>
+        <strong>{t("带上上下文，重新核对权限", "Carry context forward and review permissions")}</strong>
         <p>{t(
-          "指令、记忆和历史快照不会恢复审批、能力、凭据、网络权限、进程、终端租约或执行档位。",
-          "Instructions, memories, and historical snapshots never restore approvals, capabilities, credentials, network authorization, processes, terminal leases, or execution profiles.",
+          "这里保存指令、记忆和历史快照。分支或恢复后，请按新执行的状态核对审批、能力、凭据、网络权限、进程、终端租约和执行档位。",
+          "Save instructions, memories, and historical snapshots here. After branching or resuming, review approvals, capabilities, credentials, network access, processes, terminal leases, and execution profiles for the new execution.",
         )}</p>
       </div>
     </section>
@@ -230,8 +230,8 @@ export function ContextContinuityPanel({ client, runID, sessionID, workspaceID, 
     <section className="context-section">
       <header className="context-section-header">
         <div><MemoryStick aria-hidden="true" size={17} />
-          <span><strong>{t("显式长期记忆", "Explicit long-term memory")}</strong>
-            <small>{t("仅由用户操作写入；支持保留期、禁用、导出和永久删除", "Operator-written only, with retention, disable, export, and permanent deletion")}</small>
+          <span><strong>{t("长期记忆", "Long-term memory")}</strong>
+            <small>{t("由你选择并保存，可设置保留期、禁用、导出或永久删除", "Choose what to save, with retention, disable, export, and permanent deletion controls")}</small>
           </span>
         </div>
         <div className="context-header-actions">
@@ -257,7 +257,7 @@ export function ContextContinuityPanel({ client, runID, sessionID, workspaceID, 
           value={memoryDraft.title} />
         <textarea aria-label={t("记忆内容", "Memory content")} maxLength={16 * 1024}
           onChange={(event) => setMemoryDraft((draft) => ({ ...draft, content: event.target.value }))}
-          placeholder={t("偏好或事实；不要粘贴凭据或终端输入", "Preference or fact; never paste credentials or terminal input")}
+          placeholder={t("填写可复用的偏好或事实，凭据请使用专用设置", "Add reusable preferences or facts; manage credentials in their dedicated settings")}
           value={memoryDraft.content} />
         <input aria-label={t("记忆引用", "Memory references")} maxLength={16 * 1024}
           onChange={(event) => setMemoryDraft((draft) => ({ ...draft, references: event.target.value }))}
@@ -355,8 +355,8 @@ export function ContextContinuityPanel({ client, runID, sessionID, workspaceID, 
               </article>;
             })}
             {(memoriesQuery.data?.length ?? 0) === 0 && <p className="context-empty">{t(
-              "此范围还没有显式记忆。模型输出和工具结果不会自动写入这里。",
-              "No explicit memories exist in this scope. Model output and tool results are never written here automatically.",
+              "此范围还没有记忆。在上方填写要保留的偏好或事实，点击「写入记忆」保存。",
+              "This scope has no saved memories. Add a preference or fact above, then choose Create memory to save it.",
             )}</p>}
           </div>}
     </section>
@@ -364,8 +364,8 @@ export function ContextContinuityPanel({ client, runID, sessionID, workspaceID, 
     <section className="context-section">
       <header className="context-section-header">
         <div><History aria-hidden="true" size={17} />
-          <span><strong>{t("Run 内 Session 树与检查点", "Run-local Session tree and checkpoints")}</strong>
-            <small>{t("分支会复制有界上下文，但创建全新的 Run 及其专属 Session", "Branches copy bounded context into a new Run and its Run-local Session")}</small>
+          <span><strong>{t("上下文分支与检查点", "Context branches and checkpoints")}</strong>
+            <small>{t("保存一个继续工作的起点，或将已有上下文复制到独立执行", "Save a starting point for later work or copy existing context into an independent execution")}</small>
           </span>
         </div>
       </header>
@@ -383,7 +383,7 @@ export function ContextContinuityPanel({ client, runID, sessionID, workspaceID, 
       </div>
       <input aria-label={t("新分支目标", "New branch goal")} className="context-branch-goal"
         maxLength={4096} onChange={(event) => setBranchGoal(event.target.value)}
-        placeholder={t("可选：为 Fork/Resume 覆盖 Thread 目标", "Optional: override the Thread goal for Fork/Resume")}
+        placeholder={t("可选：填写新分支要继续完成的目标", "Optional: set the goal to continue in the new branch")}
         value={branchGoal} />
       {createCheckpoint.error && <div className="inline-warning">{humanError(createCheckpoint.error)}</div>}
       {branch.error && <div className="inline-warning">{humanError(branch.error)}</div>}
@@ -413,6 +413,7 @@ export function ContextContinuityPanel({ client, runID, sessionID, workspaceID, 
               </div>}
             </article>)}
           </div>
+          {treeNodes.length === 0 && <p className="context-empty">{t("先创建检查点，再选择从该上下文分支或继续。", "Create a checkpoint, then choose to branch or continue from its context.")}</p>}
           {treeNodes.length > 1 && <div className="context-branch-compare">
             <header><strong>{t("分支比较", "Branch comparison")}</strong></header>
             <div>
@@ -466,7 +467,7 @@ function ProjectInstructionsSection({ client, query, refreshing, refreshError, o
     <header className="context-section-header">
       <div><GitBranch aria-hidden="true" size={17} />
         <span><strong>{t("项目指令快照", "Project instruction snapshot")}</strong>
-          <small>{t("当前 Run 固定使用创建时快照；磁盘变化必须显式确认", "This Run uses its pinned creation snapshot; disk changes require explicit confirmation")}</small>
+          <small>{t("本次执行使用创建时保存的指令；核对差异并确认后可更新", "This execution uses the instructions saved at creation; review and confirm differences to update them")}</small>
         </span>
       </div>
       <div className="context-header-actions">
@@ -477,8 +478,8 @@ function ProjectInstructionsSection({ client, query, refreshing, refreshError, o
       </div>
     </header>
     {state.stale && <div className="inline-warning">{t(
-      "检测到指令漂移。此 Run 仍使用原快照，直到你确认指纹绑定的差异。",
-      "Instruction drift detected. This Run keeps its prior snapshot until you confirm the fingerprint-bound diff.",
+      "磁盘指令已有变化。本次执行仍使用原快照；核对下方差异后点击确认更新。",
+      "Instructions on disk have changed. This execution uses the prior snapshot; review the differences below and confirm the update.",
     )}</div>}
     {refreshError && <div className="inline-warning">{humanError(refreshError)}</div>}
     <dl className="context-fingerprint-grid">
@@ -501,10 +502,10 @@ function ProjectInstructionsSection({ client, query, refreshing, refreshError, o
         </summary>
         <p><strong>{t("生效原因：", "Why effective: ")}</strong>{source.why_effective}</p>
         <p><strong>{t("适用范围：", "Applies to: ")}</strong>{source.applicable_to.join(", ")}</p>
-        <p><strong>{t("可信级别：", "Trust: ")}</strong>{source.trust}; {t("权限能力均为 false", "all authority capabilities are false")}</p>
+        <p><strong>{t("可信级别：", "Trust: ")}</strong>{source.trust}; {t("作为上下文使用，执行授权需单独审批", "used as context; execution authority requires separate approval")}</p>
         <pre>{source.content}</pre>
       </details>)}
-      {snapshot.sources.length === 0 && <p className="context-empty">{t("目标路径没有适用的项目指令。", "No project instructions apply to the target path.")}</p>}
+      {snapshot.sources.length === 0 && <p className="context-empty">{t("此路径尚无项目指令。可在项目中添加适用的指令文件，再确认刷新。", "This path has no project instructions. Add an applicable instruction file to the project, then confirm a refresh.")}</p>}
     </div>
     {snapshot.conflicts.length > 0 && <div className="instruction-conflicts">
       <strong>{t("优先级冲突", "Precedence conflicts")}</strong>

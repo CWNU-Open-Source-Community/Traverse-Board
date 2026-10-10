@@ -96,12 +96,12 @@ export function PlanDeliveryWorkItems({ client, detail, state, threadID }: {
   const locked = Boolean(intent.data);
   return <section aria-label={t("计划项与验收", "Plan items and acceptance")} className="plan-manual-delivery">
     <h3>{t("计划项与验收", "Plan items and acceptance")}</h3>
-    <p>{manualRequired ? t("记录实际检查结果、改动审阅与交接。这里保存人工说明，不会运行测试，也不会改变自动检查的通过或失败结果。",
-      "Record actual check results, review, and handoff. These are manual statements; saving them does not run tests or change automated results.") :
-      t("按实际结果完成计划项，人工说明可按需补充。完成计划项不会运行检查或把自动检查改成通过。",
-        "Complete Plan items from actual results; add manual notes when needed. Completing an item does not run checks or mark automated checks as passed.")}</p>
-    {!mutable && <p>{!client.hasPlanDelivery ? t("当前连接仅可查看验收记录。", "This connection can only read acceptance records.") :
-      !state.delivery_gate_enforced ? t("此旧版计划未接入人工验收流程，现有记录可继续查看。", "This legacy Plan is not enrolled in manual acceptance; existing records remain readable.") :
+    <p>{manualRequired ? t("在这里保存实际检查结果、改动审阅和交接说明。测试请在验证入口执行，自动检查保留各自的通过或失败结果。",
+      "Save actual check results, change reviews, and handoff notes here. Run tests through verification; automated checks retain their own pass or fail results.") :
+      t("按实际结果完成计划项，按需补充人工说明。测试请在验证入口执行，计划进度与自动检查结果分别记录。",
+        "Complete Plan items from actual results and add manual notes as needed. Run tests through verification; plan progress and automated check results are recorded separately.")}</p>
+    {!mutable && <p>{!client.hasPlanDelivery ? t("当前可查看验收记录。连接计划交付控制后可更新。", "Acceptance records are available for review. Connect plan delivery control to update them.") :
+      !state.delivery_gate_enforced ? t("此旧版计划沿用原验收流程，可在这里查看现有记录。", "This legacy Plan uses its original acceptance workflow. Existing records are available here.") :
       t("请在交付阶段暂停任务并等待执行结束后，再更新计划项。", "Pause the task in Deliver and wait for execution to end before updating Plan items.")}</p>}
     {intent.data && <div role={intent.data.state === "pending" ? "status" : "alert"} className="inline-warning">
       <p>{intent.data.state === "pending" ? t("正在保存计划项操作…", "Saving the Plan item operation…") :
@@ -116,7 +116,7 @@ export function PlanDeliveryWorkItems({ client, detail, state, threadID }: {
       const query = items[index];
       const item = query.data;
       if (query.isError || (item && item.run_id !== runID)) return <p key={selection.work_item_id} role="alert">
-        {t("计划项读取失败，暂不能更新。", "The Plan item could not be loaded; updates are unavailable.")}
+        {t("计划项读取失败，请重新读取最新状态后继续。", "The Plan item failed to load. Reload its latest state to continue.")}
         <button onClick={() => void query.refetch()} type="button">{t("重试计划项", "Retry Plan item")}</button></p>;
       if (!item) return <p key={selection.work_item_id} role="status">{t("正在读取计划项…", "Loading the Plan item…")}</p>;
       const full = selection.module_ordinal === selected.length;
@@ -130,7 +130,7 @@ export function PlanDeliveryWorkItems({ client, detail, state, threadID }: {
       return <article className="plan-manual-item" key={item.id}>
         <header><h4>{selection.module_ordinal}. {item.title}</h4><StatusBadge status={item.status} /></header>
         {item.status === "completed" && completionSource && <div>
-          <p>{completionSource.completion_event_id ? t("沿用原对话的事项完成进度，并非人工验收记录；当前执行的自动检查以本次验证结果为准。", "Item completion is continued from this conversation, not a manual acceptance record. Current automated checks are determined by this execution's verification results.") :
+          <p>{completionSource.completion_event_id ? t("已沿用原对话的事项完成进度。人工验收与本次自动检查请分别核对对应记录。", "Item completion is carried forward from this conversation. Review manual acceptance and this execution's automated checks in their respective records.") :
             t("沿用原对话的人工完成记录，当前执行的自动检查以本次验证结果为准。", "Manual completion is continued from this conversation. Current automated checks are determined by this execution's verification results.")}</p>
           {completionSource.completion_event_id ? <details className="plan-completion-source"><summary>{t("查看完成来源", "View completion source")}</summary>
             <dl><dt>{t("来源执行", "Source execution")}</dt><dd><code>{completionSource.source_run_id}</code></dd>
@@ -173,7 +173,7 @@ export function PlanDeliveryWorkItems({ client, detail, state, threadID }: {
             </fieldset>
           </form>}
           <p>{!manualRequired ? t("确认此项验收标准已实际满足后可完成；当前交付仍由真实检查和版本门禁核验。", "Complete this item after its acceptance criteria are actually met; delivery remains subject to real checks and revision validation.") :
-            ready ? t("已有当前版本的人工验收记录，可在检查点历史查看；此版本的记录不能改写。请确认验收标准满足后，再完成此项。", "Manual acceptance is recorded for this version and can be read in checkpoint history. This version's record cannot be overwritten. Complete the item only after confirming its acceptance criteria are met.") :
+            ready ? t("当前版本的人工验收已保存，可在检查点历史查看。该版本保留原记录；确认验收标准已满足后，完成此项。", "Manual acceptance for this revision is saved in checkpoint history. The revision retains its original record; confirm the acceptance criteria are met, then complete this item.") :
             t("完成此项前，需要当前版本的人工验收记录。", "A manual acceptance record for the current version is required before completion.")}</p>
           <button className="command-button" disabled={!mutable || locked || (manualRequired && !ready) || !dependenciesReady}
             onClick={() => submit({ ...newAttempt(item.id), action: "complete", body })} type="button">{t("完成此项", "Complete this item")}</button>

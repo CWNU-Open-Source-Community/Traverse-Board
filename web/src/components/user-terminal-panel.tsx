@@ -19,6 +19,7 @@ import {
   type DesktopDebugTerminalAgentInputBinding,
   type DesktopTerminalSession,
 } from "../lib/desktop-bridge";
+import { useLocale } from "../lib/locale";
 
 const terminalPollMilliseconds = 120;
 
@@ -27,6 +28,7 @@ export function UserTerminalPanel({ runID, sessionID, onSession }: {
   sessionID: string;
   onSession: (sessionID: string) => void;
 }) {
+  const { t } = useLocale();
   const hostRef = useRef<HTMLDivElement>(null);
   const terminalRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
@@ -258,7 +260,7 @@ export function UserTerminalPanel({ runID, sessionID, onSession }: {
   const grantAgentInput = async () => {
     if (!agentInputEnabled || !runID || !sessionID) return;
     if (!globalThis.confirm(
-      "允许 Agent 在未来 5 分钟向此终端提交命令？命令会经过策略检查，但仍可访问当前用户的宿主文件与网络、启动后台进程；命令文本和脱敏后的有界结果会进入 Run 审计记录。请勿在命令中放入 Secret。",
+      t("允许 Agent 在未来 5 分钟向此终端提交命令？命令经过策略检查后，可访问当前用户的本机文件与网络、启动后台进程。命令文本和脱敏后的有界结果会保存到执行记录；凭据请通过专用设置管理。", "Allow the Agent to submit commands to this terminal for 5 minutes? After policy checks, commands can access the current user's host files and network and start background processes. Command text and bounded, redacted results are saved in execution records; manage credentials in dedicated settings."),
     )) return;
     setBusy(true);
     setMessage("");
@@ -292,38 +294,39 @@ export function UserTerminalPanel({ runID, sessionID, onSession }: {
   };
 
   return <div className="user-terminal-panel">
-    <div aria-label="用户终端控制" className="user-terminal-controls" role="toolbar">
+    <div aria-label={t("用户终端控制", "User terminal controls")} className="user-terminal-controls" role="toolbar">
       {!sessionID && <button disabled={!enabled || !runID || busy}
-        onClick={() => void start()} title="启动 Debug 终端" type="button">
+        onClick={() => void start()} title={t("启动 Debug 终端", "Start debug terminal")} type="button">
         {busy ? <LoaderCircle aria-hidden="true" className="spin" size={14} /> :
           <Play aria-hidden="true" size={14} />}
-        <span>启动</span>
+        <span>{t("启动", "Start")}</span>
       </button>}
       {sessionID && <button disabled={busy} onClick={() => void stop()}
-        title="关闭终端" type="button">
+        title={t("关闭终端", "Close terminal")} type="button">
         {busy ? <LoaderCircle aria-hidden="true" className="spin" size={14} /> :
           <Square aria-hidden="true" size={13} />}
-        <span>关闭</span>
+        <span>{t("关闭", "Close")}</span>
       </button>}
       {sessionID && session?.state === "running" && !agentBinding && <button
         disabled={busy || !agentInputEnabled} onClick={() => void grantAgentInput()}
-        title="限时授权：宿主文件/网络/后台进程；命令与脱敏结果进入 Run 记录"
+        title={t("限时授权：本机文件、网络和后台进程；命令与脱敏结果保存到执行记录", "Temporary access: host files, network, and background processes; commands and redacted results are saved in execution records")}
         type="button">
         <Bot aria-hidden="true" size={14} />
-        <span>允许 Agent · 5m</span>
+        <span>{t("允许 Agent · 5m", "Allow Agent · 5m")}</span>
       </button>}
       {sessionID && agentBinding && <button className="agent-input-active"
         disabled={busy} onClick={() => void revokeAgentInput()}
-        title={`Agent 输入有效至 ${new Date(agentBinding.expires_at).toLocaleTimeString()}`}
+        title={t(`Agent 输入有效至 ${new Date(agentBinding.expires_at).toLocaleTimeString()}`, `Agent input allowed until ${new Date(agentBinding.expires_at).toLocaleTimeString()}`)}
         type="button">
         <ShieldOff aria-hidden="true" size={14} />
-        <span>撤销 Agent</span>
+        <span>{t("撤销 Agent", "Revoke Agent")}</span>
       </button>}
       <span className={`user-terminal-state ${session?.state ?? "idle"}`}>
         {session?.state ?? (enabled ? "idle" : "disabled")}
       </span>
       {message && <span className="user-terminal-message" role="status">{message}</span>}
     </div>
-    <div aria-label="用户终端" className="user-terminal-host" ref={hostRef} />
+    {!enabled && <p>{t("请在 Desktop 中启用用户终端并核对执行权限，再启动。", "Enable the user terminal in Desktop and review execution permissions, then start it.")}</p>}
+    <div aria-label={t("用户终端", "User terminal")} className="user-terminal-host" ref={hostRef} />
   </div>;
 }

@@ -19,7 +19,7 @@ export function OperationReceiptHistory({ client, runID }: {
 
   return <section className="receipt-history" aria-label={t("操作收据历史", "Operation receipt history")}>
     <header>
-      <div><History aria-hidden="true" size={16} /><h2>{t("操作收据", "Operation receipts")}</h2></div>
+      <div><History aria-hidden="true" size={16} /><h2>{t("已保存操作结果", "Saved operation results")}</h2></div>
       <div>
         {query.data?.truncated && <StatusBadge status="truncated" />}
         <button aria-label={t("刷新操作收据", "Refresh operation receipts")} className="icon-button"
@@ -29,9 +29,9 @@ export function OperationReceiptHistory({ client, runID }: {
         </button>
       </div>
     </header>
-    {query.isLoading && <LoadingState label={t("正在加载持久化收据", "Loading durable receipts")} />}
+    {query.isLoading && <LoadingState label={t("正在加载操作结果", "Loading operation results")} />}
     {query.isError && <ErrorState error={query.error} />}
-    {query.data?.items.length === 0 && <EmptyState>{t("没有终端操作记录", "No terminal operations recorded")}</EmptyState>}
+    {query.data?.items.length === 0 && <EmptyState>{t("还没有已完成的操作记录。操作结束后，可在这里核对结果与恢复步骤。", "No completed operation records yet. Review results and recovery steps here after an operation finishes.")}</EmptyState>}
     {query.data && query.data.items.length > 0 && <div className="receipt-history-list">
       {query.data.items.map((item) => <article key={item.id}>
         <header>

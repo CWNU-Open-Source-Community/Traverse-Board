@@ -28,7 +28,7 @@ describe("FileEditPanel", () => {
         failed: "Review saved, but subsequent execution failed. Check the records and continue in this conversation.",
         completed: "Review saved. The subsequent turn has a recorded outcome; see execution records for file changes and command results.",
         queued: "Review saved and continuation queued. See the conversation records for current progress.",
-        not_started: "Review saved. This request did not start automatic continuation; you can send a message in this conversation.",
+        not_started: "Review saved. Send a new message to continue in this conversation.",
       }[state])).toBeInTheDocument();
       expect(screen.getByRole("button", { name: /README.md.*applied/ })).toBeInTheDocument();
       expect(screen.queryByRole("button", { name: "Approve intent README.md" })).not.toBeInTheDocument();
@@ -142,7 +142,7 @@ describe("FileEditPanel", () => {
       "run-1", "edit-approved", { version: "file_edit_apply.v1" },
     ]);
     expect(applyFileEdit.mock.calls[0]?.[3]).toMatch(/^web-file-apply-/);
-    expect(await screen.findByText("file edit apply / durable")).toBeInTheDocument();
+    expect(await screen.findByText("file edit apply")).toBeInTheDocument();
   });
 
   it("keeps mixed multi-file outcomes visible without a batch mutation", async () => {
@@ -234,7 +234,7 @@ describe("FileEditPanel", () => {
     renderPanel(client, "running", undefined, { onRequestRevert });
     await user.click(await screen.findByRole("button", { name: /README.md/ }));
     await user.click(screen.getByRole("button", { name: "Preview revert of this edit" }));
-    expect(await screen.findByText(/This is the revert proposal diff/)).toBeInTheDocument();
+    expect(await screen.findByText(/This revert diff is awaiting application/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Approve intent README.md" })).toBeInTheDocument();
     expect(reviewFileEdit).not.toHaveBeenCalled();
     expect(client.applyFileEdit).not.toHaveBeenCalled();
@@ -298,7 +298,7 @@ describe("FileEditPanel", () => {
     await user.click(screen.getByRole("button", { name: /other.txt/ }));
     await act(async () => resolve({ edit: inverse, file_written: false }));
     expect(screen.getByRole("complementary", { name: "Review other.txt" })).toBeInTheDocument();
-    expect(screen.queryByText(/This is the revert proposal diff/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/This revert diff is awaiting application/)).not.toBeInTheDocument();
   });
 
   it("reads the selected deletion's exact content without letting a late detail replace another selection", async () => {
@@ -380,7 +380,7 @@ describe("FileEditPanel", () => {
     renderPanel(client);
     await user.click(await screen.findByRole("button", { name: /README.md/ }));
     await user.click(screen.getByRole("button", { name: "Apply README.md" }));
-    expect(await screen.findByText(/The apply attempt is confirmed failed/)).toHaveTextContent("failure does not mean the file is unchanged");
+    expect(await screen.findByText(/The apply attempt failed/)).toHaveTextContent("the file may have partially changed");
     expect(screen.queryByRole("button", { name: "Confirm previous file apply" })).not.toBeInTheDocument();
     expect(screen.queryByText(/File application is confirmed complete/)).not.toBeInTheDocument();
   });

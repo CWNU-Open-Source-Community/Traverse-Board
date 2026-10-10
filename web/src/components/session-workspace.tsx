@@ -68,8 +68,8 @@ export function SessionWorkspace({ client, sessionID, onOpenPlugins }: {
         <strong>{t("高级诊断 / 兼容视图", "Advanced diagnostics / compatibility view")}</strong>
         {" · "}
         <span>{t(
-          "此页仅展示当前执行的上下文记录；日常续聊请返回对话。",
-          "This view shows context records for this execution. Return to the conversation to continue chatting.")}</span>
+          "本次执行的上下文记录。继续交流请返回对话。",
+          "Context records for this execution. Return to the conversation to continue chatting.")}</span>
       </aside>
       <div className="session-summary">
         <dl className="detail-grid">
@@ -104,7 +104,7 @@ export function SessionWorkspace({ client, sessionID, onOpenPlugins }: {
       {boundRun && client.hasSessionMessages && <details className="inspector-workspace-input" open={inputOpen}
         onToggle={(event) => setInputOpen(event.currentTarget.open)}><summary><span>{t("向此会话补充输入（高级）", "Add input to this Session (advanced)")}</span>
           <span role="status">{inputStatus.pending ? t(" · 输入请求处理中", " · Input in progress") : inputStatus.error ? t(" · 输入未完成，请查看原因", " · Input needs attention") : ""}</span></summary>
-        <p>{t("这里的输入仅提交给此会话绑定的运行，不会自动承接整个任务。日常续聊请返回对话；发送仍受当前运行状态与权限限制。", "Input here belongs only to this Session's bound Run; it does not continue the whole task. Return to the conversation for ordinary follow-up. Existing Run state and permission checks still apply.")}</p>
+        <p>{t("输入目标：此上下文绑定的执行。发送时会核对执行状态与权限；继续整个任务请返回对话。", "Input target: the execution bound to this context. Sending checks its state and permissions. Return to the conversation to continue the whole task.")}</p>
       <SessionComposer client={client} contextPartial={Boolean(messagesQuery.hasNextPage)} diagnosticSession onStatusChange={showInputStatus}
         contextTokens={contextTokens} key={sessionID} onOpenPlugins={onOpenPlugins}
         phase={runQuery.data?.mode.phase} run={boundRun} sessionID={sessionID}

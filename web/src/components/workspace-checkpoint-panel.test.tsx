@@ -244,7 +244,7 @@ describe("WorkspaceCheckpointPanel", () => {
     renderPanel(client);
     await user.click(await screen.findByRole("button", { name: "预览 Undo" }));
     await user.click(await screen.findByRole("button", { name: "确认执行 撤销" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent("已确认本次恢复失败");
+    expect(await screen.findByRole("alert")).toHaveTextContent("本次恢复失败");
     expect(screen.queryByText(/项目恢复已完成/)).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "确认上次恢复" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "预览 Undo" })).toBeEnabled();
@@ -261,7 +261,7 @@ describe("WorkspaceCheckpointPanel", () => {
     const user = userEvent.setup();
     renderPanel(client);
 
-    await screen.findByText("不可变时间线");
+    await screen.findByText("项目检查点");
     await user.type(screen.getByLabelText("新 Workspace 名称"), "parser fork");
     await user.type(screen.getByLabelText("新 Git 分支"), "codex/parser-fork");
     await user.click(screen.getByRole("button", { name: "确认 Fork" }));

@@ -317,10 +317,10 @@ function SummaryRepository({ query, workspaceID }: {
   workspaceID: string;
 }) {
   const { t } = useLocale();
-  if (!workspaceID) return <section><EmptyState>{t("当前 Thread / Run 未绑定 Workspace", "Current Thread / Run has no Workspace")}</EmptyState></section>;
+  if (!workspaceID) return <section><EmptyState>{t("选择并绑定项目后可查看仓库摘要。", "Select and bind a project to view its repository summary.")}</EmptyState></section>;
   if (query.isLoading) return <section><LoadingState label="加载仓库摘要" /></section>;
   if (query.isError || !query.data) return <section><ErrorState error={query.error} /></section>;
-  if (!query.data.available) return <section><p>当前 Workspace 不是 Git 仓库</p></section>;
+  if (!query.data.available) return <section><p>{t("当前项目可查看文件。需要 Git 操作时，请绑定含 Git 仓库的项目。", "Files in this project are available. Bind a project with a Git repository to use Git operations.")}</p></section>;
   const state = query.data;
   return <section>
     <div className="summary-item-heading"><strong>{state.detached ? "detached" : state.branch || "unborn"}</strong>
@@ -341,6 +341,7 @@ function BottomPanel({ desktop, runID, sessionID, onSession, onClose }: {
   onSession: (sessionID: string) => void;
   onClose: () => void;
 }) {
+  const { t } = useLocale();
   return <section aria-label="底部面板" className="workbench-bottom-panel">
     <header><button className="active" type="button"><SquareTerminal aria-hidden="true" size={14} />终端</button>
       <button aria-label="关闭底部面板" className="workspace-panel-icon" onClick={onClose}
@@ -348,8 +349,8 @@ function BottomPanel({ desktop, runID, sessionID, onSession, onClose }: {
     {desktop ? <UserTerminalPanel runID={runID} sessionID={sessionID}
       onSession={onSession} /> : <div className="workbench-terminal-empty">
       <SquareTerminal aria-hidden="true" size={22} />
-      <strong>终端尚未启用</strong>
-      <span>当前权限档位不会启动本机 Shell</span>
+      <strong>{t("在桌面应用中使用终端", "Use the terminal in the desktop app")}</strong>
+      <span>{t("打开 Desktop 并核对当前执行权限后，可启动本机 Shell。", "Open Desktop and review the current execution permissions to start a local shell.")}</span>
     </div>}
   </section>;
 }
@@ -363,7 +364,7 @@ function SidecarContent({ client, context, runID, tab }: {
   const { t } = useLocale();
   if (tab === "review") {
     return context.workspaceID ? <RepositoryDiffPanel client={client} workspaceID={context.workspaceID} /> :
-      <EmptyState>{t("当前 Thread / Run 未绑定 Workspace", "Current Thread / Run has no Workspace")}</EmptyState>;
+      <EmptyState>{t("选择并绑定项目后可审阅差异。", "Select and bind a project to review its diff.")}</EmptyState>;
   }
   if (tab === "files") {
     return <WorkspaceExplorer client={client} runID={runID} workspaceID={context.workspaceID} />;
@@ -373,10 +374,10 @@ function SidecarContent({ client, context, runID, tab }: {
   }
   if (tab === "browser") {
     return <div className="workbench-tool-empty"><Globe2 aria-hidden="true" size={29} />
-      <strong>浏览器尚未启动</strong><span>浏览器运行时仍处于安全审查阶段</span></div>;
+      <strong>{t("浏览器工具准备中", "Browser tools in preparation")}</strong><span>{t("当前可在验证页查看已保存的浏览器证据。", "Inspect saved browser evidence in Verify.")}</span></div>;
   }
   return <div className="workbench-tool-empty"><SquareTerminal aria-hidden="true" size={29} />
-    <strong>终端尚未启动</strong><span>当前权限档位不允许工作台启动 Shell</span></div>;
+    <strong>{t("在底部面板使用终端", "Use the terminal in the bottom panel")}</strong><span>{t("打开 Desktop 的底部面板，核对权限后启动。", "Open the bottom panel in Desktop, review permissions, then start.")}</span></div>;
 }
 
 function SideTaskPanel({ client, runID }: { client: APIClient; runID: string }) {

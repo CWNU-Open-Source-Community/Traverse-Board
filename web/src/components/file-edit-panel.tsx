@@ -191,7 +191,7 @@ export function FileEditPanel({ client, runID, runStatus, onRequestChange, onReq
   const pendingOperations = <>
     {applyResult.data && <p role={applyResult.data.status === "failed" ? "alert" : "status"}>
       {applyResult.data.edit.path} · {applyResult.data.status === "failed"
-        ? t("已确认本次应用失败，请检查文件现状与操作收据；失败不代表文件未改变。", "The apply attempt is confirmed failed. Inspect the current file and receipt; failure does not mean the file is unchanged.")
+        ? t("本次应用失败，文件可能已部分改变。请核对当前文件和操作结果后再处理。", "The apply attempt failed and the file may have partially changed. Inspect the current file and operation result before proceeding.")
         : t("文件应用已确认完成。", "File application is confirmed complete.")}</p>}
     {Object.entries(attempts).map(([sourceID, attempt]) => attempt.state !== "created" && <div
       className="inline-warning" role={attempt.state === "unknown" ? "alert" : "status"} key={sourceID}>
@@ -215,7 +215,7 @@ export function FileEditPanel({ client, runID, runStatus, onRequestChange, onReq
   }
   if (query.isError || !query.data) return <div>{pendingOperations}<ErrorState error={query.error} />
     <button onClick={() => void query.refetch()} type="button">{t("重试文件变更", "Retry file changes")}</button></div>;
-  if (changeSetQuery.isSuccess && query.data.items.length === 0 && !selectedEditID && !targetRunMismatch && !Object.keys(attempts).length && !Object.keys(applyAttempts).length) return <EmptyState>{t("没有文件编辑提案", "No file edit proposals")}</EmptyState>;
+  if (changeSetQuery.isSuccess && query.data.items.length === 0 && !selectedEditID && !targetRunMismatch && !Object.keys(attempts).length && !Object.keys(applyAttempts).length) return <EmptyState>{t("还没有文件修改。在对话中描述要改的内容，生成提案后可在这里审阅。", "No file changes yet. Describe the change in the conversation, then review its proposal here.")}</EmptyState>;
   const operationError = review.error;
   const changeSet = changeSetQuery.data;
   const partial = changeSet && changeSet.applied_count > 0 &&
@@ -240,7 +240,7 @@ export function FileEditPanel({ client, runID, runStatus, onRequestChange, onReq
     {changeSetQuery.isError && <div role="alert"><p>{t("当前执行目录无法确认，已有编辑仍可按原目录审阅；暂不提供新的应用或撤销操作。",
       "The current execution directory could not be confirmed. Existing edits remain reviewable in their original scope; new apply and revert actions are unavailable.")}</p>
       <button onClick={() => void changeSetQuery.refetch()} type="button">{t("重试变更汇总", "Retry change summary")}</button></div>}
-    {changeSet && !changeSetQuery.isError && <><p>{t("以下汇总仅属于当前执行目录。", "This summary covers only the current execution directory.")}</p>
+    {changeSet && !changeSetQuery.isError && <><p>{t("变更范围：当前执行目录。", "Change scope: the current execution directory.")}</p>
     <details><summary>{t("查看当前执行目录身份", "View current execution directory identity")}</summary><code>{changeSet.workspace_id}</code></details>
     <div aria-label={t("多文件变更集", "Multi-file change set")} className="file-change-set-summary">
       <span>{t("待审", "Pending")} <strong>{changeSet.proposed_count}</strong></span>
@@ -259,7 +259,7 @@ export function FileEditPanel({ client, runID, runStatus, onRequestChange, onReq
       return <div key={key}>{edit && <p><code>{edit.path}</code></p>}
         <ApprovalContinuationNotice continuation={continuation} /></div>;
     })}
-    {targetRunMismatch && <p role="alert">{t("指定提案属于另一次执行，尚未打开。请返回原执行记录重试。", "The requested proposal belongs to another execution and has not been opened. Return to its execution record and retry.")}</p>}
+    {targetRunMismatch && <p role="alert">{t("此提案属于另一次执行，请返回对应执行记录打开。", "This proposal belongs to another execution. Open it from that execution's record.")}</p>}
     {selectedEditID && !selectedEdit && selectedQuery.isFetching && <LoadingState label={t("正在读取指定文件提案…", "Reading the requested file proposal…")} />}
     {selectedEditID && !selectedEdit && selectedQuery.isError && <div role="alert"><p>{t("指定文件提案无法确认，尚未打开：", "The requested file proposal could not be confirmed and has not been opened: ")}{selectedEditID}</p><ErrorState error={selectedQuery.error} />
       <button onClick={() => void selectedQuery.refetch()} type="button">{t("重试读取提案", "Retry proposal")}</button></div>}
@@ -311,8 +311,8 @@ export function FileEditPanel({ client, runID, runStatus, onRequestChange, onReq
     {review.isError && review.variables.requestedRunID === runID && <div className="inline-warning" role="alert">
       {operationError instanceof Error ? operationError.message : t("文件编辑操作失败", "File edit operation failed")}
     </div>}
-    {query.data.truncated && <p role="status">{t("编辑记录超过单次显示上限，当前列表不代表完整变更范围。",
-      "The edit history exceeds the display limit; this list does not cover the full change scope.")}</p>}
+    {query.data.truncated && <p role="status">{t("当前显示部分编辑记录。核对完整变更范围时，请结合项目差异。",
+      "A portion of edit history is displayed. Use the project diff to review the full change scope.")}</p>}
   </section>;
 }
 
@@ -357,7 +357,7 @@ function FileReviewDrawer({ applyEnabled, applying, client, diff, edit, onApply,
       </button>
     </header>
     <p>{currentTarget ? t("此编辑属于当前执行目录。", "This edit belongs to the current execution directory.")
-      : t("此编辑保留原目录身份，当前仅供历史审阅。", "This edit retains its original directory identity and is currently available for historical review only.")}</p>
+      : t("这是原目录中的历史编辑，可查看当时的差异。", "This is a historical edit in its original directory. Review its recorded diff here.")}</p>
     <details><summary>{t("查看此编辑的原目录身份", "View this edit's original directory identity")}</summary><code>{edit.workspace_id}</code></details>
     <div className="file-review-meta">
       <span>{metadataOnlyDiff(edit, diff) ? t("未提供文本行数", "Text line counts unavailable") :
@@ -366,19 +366,19 @@ function FileReviewDrawer({ applyEnabled, applying, client, diff, edit, onApply,
       <time dateTime={edit.updated_at}>{formatDate(edit.updated_at)}</time>
     </div>
     <UnifiedDiffView diff={diff} />
-    {inverse && <p role="status">{t("这是撤销提案的差异。生成提案未写入文件；实际修改仍须通过现有批准与应用步骤。",
-      "This is the revert proposal diff. Creating the proposal did not write the file; changes still require the existing approval and apply steps.")}</p>}
+    {inverse && <p role="status">{t("这是待应用的撤销差异。核对后批准，再应用到文件。",
+      "This revert diff is awaiting application. Review and approve it, then apply it to the file.")}</p>}
     {edit.status === "applied" && <p>{edit.operation === "move" || edit.secrets_redacted
       ? t("此记录涉及移动或脱敏内容，暂不支持生成单文件撤销提案。", "Revert proposals are unavailable for moves or redacted content.")
-      : viewExistingRevert ? t("已生成撤销提案，可以查看原提案；这不会写入文件。", "A revert proposal already exists. Viewing it does not write the file.")
+      : viewExistingRevert ? t("撤销提案已生成，打开后可核对差异并完成审批。", "A revert proposal is ready. Open it to review the diff and approval steps.")
       : conversationRevert ? requestRevertUnavailableReason ?? t(
-        "将撤销要求加入当前对话草稿，发送后先生成待审逆向提案。仅针对这条编辑；文件后来有变化时会拒绝覆盖。",
-        "Add this revert request to the conversation draft. Sending it first creates a proposal for review. It targets only this edit and refuses to overwrite later file changes.")
-      : !currentTarget ? t("此记录不属于已确认的当前执行目录，不能据此生成新的撤销提案。", "This record is outside the confirmed current execution directory and cannot create a new revert proposal.")
-      : !client.hasFileEditReview ? t("当前连接没有文件编辑控制权限，只能审阅已有变化。", "This connection has no file edit control authority; existing changes can only be reviewed.")
+        "将此编辑的撤销要求加入对话草稿，发送后生成待审提案。应用前会核对文件版本；有后续变化时请先处理冲突。",
+        "Add this edit's revert request to the conversation draft and send it to create a reviewable proposal. The file revision is checked before applying; resolve conflicts if later changes exist.")
+      : !currentTarget ? t("撤销需使用已确认的当前执行目录。请返回此编辑对应的执行记录核对目录。", "Reverting requires a confirmed current execution directory. Return to this edit's execution record to check the directory.")
+      : !client.hasFileEditReview ? t("当前可审阅已有变化。连接文件编辑控制权限后可生成撤销提案。", "Existing changes are available for review. Connect file edit control authority to create a revert proposal.")
       : runStatus !== "running" ? t("执行记录状态为“未结束”时才能生成撤销提案；已结束的记录仍可审阅。", "The execution record must be ‘Not ended’ to create a revert proposal; finished records remain available for review.")
-        : t("只撤销此编辑对应的文件。服务端核对完整原文与当前版本，文件后来有变化时会拒绝；生成提案不写入文件。",
-          "Only this edit's file is targeted. The server checks the full original content and current version, and refuses if the file changed later. Creating a proposal does not write the file.")}</p>}
+        : t("生成此文件的待审撤销提案，批准并应用后写入。服务端核对完整原文与当前版本；文件有后续变化时，需先处理冲突。",
+          "Create a revert proposal for this file, then approve and apply it to write changes. The service checks the full original content and current revision; resolve conflicts if the file changed later.")}</p>}
     {receipt && <OperationReceipt receipt={receipt} />}
     <footer>
       <span>{!currentTarget ? t("保留原目录的历史记录", "Historical record in its original directory") : onRequestChange ? edit.apply_enabled ? t("可应用到文件", "Ready to apply")

@@ -79,7 +79,7 @@ export function RunWakePanel({ client, detail }: {
     },
   });
   if (!client.hasRunWakeControl && !client.hasRunWakeExecution) return null;
-  if (query.isLoading) return <LoadingState label={t("正在加载唤醒意图", "Loading wake intent")} />;
+  if (query.isLoading) return <LoadingState label={t("正在加载继续处理安排", "Loading continuation schedule")} />;
   if (query.isError || !query.data) return <ErrorState error={query.error} />;
   const intent = query.data.intent;
   const active = intent?.status === "queued" || intent?.status === "leased";
@@ -98,9 +98,12 @@ export function RunWakePanel({ client, detail }: {
   const worker = runtime.data?.wake_worker;
   return <section className="detail-section run-wake-section">
     <div className="section-heading">
-      <h2><BellRing aria-hidden="true" size={15} />{t("唤醒意图", "Wake intent")}</h2>
+      <h2><BellRing aria-hidden="true" size={15} />{t("继续排队工作", "Continue queued work")}</h2>
       <StatusBadge status={intent?.status ?? "idle"} />
     </div>
+    <p>{active ? t("继续处理已安排，可核对下次时间或取消安排。", "Continuation is scheduled. Review the next time or cancel the schedule.") :
+      queuedWork > 0 ? t("已有待处理输入。执行空闲且处于可继续状态时，可安排继续处理。", "Input is waiting. Schedule continuation when the execution is idle and open.") :
+        t("先在对话中提交待处理输入，再安排继续处理。", "Submit input in the conversation, then schedule continuation.")}</p>
     <dl className="detail-grid compact">
       {intent && <>
         <KeyValue label={t("意图", "Intent")} value={shortID(intent.id)} />

@@ -13,8 +13,8 @@ export function CodeHandoffHostCommands({ client, commands }: { client: APIClien
   const { t } = useLocale();
   return <section aria-label={t("宿主命令执行记录", "Recorded host commands")}>
     <h3>{t("宿主命令执行记录", "Recorded host commands")}</h3>
-    <p>{t("以下是受审命令的历史执行事实。退出码为 0 不代表当前文件版本或全部验收已通过。",
-      "These are historical receipts for reviewed commands. Exit code 0 does not verify the current files or all acceptance criteria.")}</p>
+    <p>{t("以下显示已审命令的历史结果。退出码 0 表示该次命令成功；交付前请核对当前文件版本和全部验收项。",
+      "These are historical results for reviewed commands. Exit code 0 means that command succeeded; check the current file revision and all acceptance criteria before delivery.")}</p>
     {commands.items.length === 0 && <p>{t("尚无宿主命令提案。", "No host command proposals recorded.")}</p>}
     {commands.items.map((command) => <HostCommand key={`${command.proposal_id}:${command.result_id ?? "pending"}`}
       client={client} command={command} />)}
@@ -51,7 +51,7 @@ function HostCommand({ client, command }: { client: APIClient; command: Command 
       {receipt.timed_out && <p>{t("命令已超时。", "The command timed out.")}</p>}
       {receipt.cancelled && <p>{t("命令已取消。", "The command was cancelled.")}</p>}
       {(receipt.stdout_truncated || receipt.stderr_truncated || receipt.output_limit_exceeded) &&
-        <p>{t("输出已截断或达到上限，不能视为完整输出。", "Output was truncated or reached its limit; it is not complete.")}</p>}
+        <p>{t("输出达到保存上限，当前显示已保存的部分。", "Output reached the storage limit. The saved portion is displayed here.")}</p>}
       <button className="compact-command"
         onClick={() => setOpened((value) => !value)} type="button">
         {opened ? t("收起已保存输出", "Hide saved output") : t("查看已保存输出", "Read saved output")}</button>
@@ -62,7 +62,7 @@ function HostCommand({ client, command }: { client: APIClient; command: Command 
         {query.isSuccess && <SavedHostCommandOutput detail={query.data} />}
       </div>}
     </> : <p>{command.review_decision === "deny" ? t("提案已拒绝，没有执行结果。", "Proposal denied; no execution result.") :
-      t("尚无已记录的执行结果；不能据此判断命令是否成功。", "No execution result is recorded; command success is unconfirmed.")}</p>}
+      t("命令结果待确认，请核对原执行记录。", "The command result needs confirmation. Check the original execution record.")}</p>}
     <details className="saved-host-output-evidence"><summary>{t("执行详情", "Execution details")}</summary>
       <p>{t("提案", "Proposal")}：<code>{command.proposal_id}</code></p>
       {receipt && <>

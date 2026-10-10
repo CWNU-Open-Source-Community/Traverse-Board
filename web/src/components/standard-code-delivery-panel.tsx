@@ -54,7 +54,7 @@ export function StandardCodeDeliveryPanel({ client, runID, onOpenCheckpoints,
     className="standard-code-delivery-panel">
     <header className="projection-heading">
       <div><FileCheck2 aria-hidden="true" size={17} />
-        <h2>{t("交付真实性", "Delivery truth")}</h2></div>
+        <h2>{t("交付检查", "Delivery checks")}</h2></div>
       <div>{report && <StatusBadge status={status} />}
         <button aria-label={t("刷新交付报告", "Refresh delivery report")} className="icon-button"
           disabled={query.isFetching} onClick={() => void query.refetch()} type="button">
@@ -63,20 +63,20 @@ export function StandardCodeDeliveryPanel({ client, runID, onOpenCheckpoints,
     </header>
     {query.isLoading && <LoadingState label={t("加载交付报告", "Loading delivery report")} />}
     {query.isError && (!report && query.error instanceof APIRequestError && query.error.code === "NOT_FOUND"
-      ? <p role="status">{t("当前连接未能读取交付报告：可能尚未生成，或报告接口未启用。请核对服务配置后刷新；不能据此判断检查是否通过。已有执行结果可在「执行记录」查看。",
-        "This connection could not read the delivery report. A report may not have been generated, or the reporting endpoint may be disabled. Check the service configuration and refresh; this does not establish whether checks passed. Existing results remain available in execution records.")}</p>
+      ? <p role="status">{t("交付报告暂不可用，检查结果待确认。请核对报告是否已生成及服务配置，再刷新；也可在「执行记录」查看已有结果。",
+        "The delivery report is unavailable and check results need confirmation. Check report generation and service settings, then refresh. Existing results are available in execution records.")}</p>
       : <ErrorState error={query.error} />)}
     {report && <>
       <section className={`delivery-truth-summary delivery-truth-${status}`}>
         <div><strong>{heading}</strong>
-          <p>{t("下方保留报告记录的版本与终态命令证据；核对失败或版本变化时，历史通过不能证明当前内容通过。",
-            "The recorded revision and terminal command evidence remain below. A previous pass does not verify the current contents after a failed check or revision change.")}</p>
+          <p>{t("下方显示报告记录的版本与命令结果。核对失败或内容变化后，请重新验证当前版本。",
+            "The recorded revision and command results appear below. After a failed check or content change, verify the current revision again.")}</p>
           {reason && <p>{t(...(observationReasons[reason] ?? ["报告需要重新核对", "The report needs to be checked again"]))}</p>}
         </div>
         <StatusBadge status={status} />
       </section>
-      <p>{t("报告范围是隔离工作区中记录的版本，不代表源项目已合并或发布。打开文件会读取该隔离工作区的当前内容，内容可能已变化。",
-        "The report covers a recorded revision in the isolated workspace; it does not establish that the source project was merged or published. Opening a file reads its current isolated-workspace contents, which may have changed.")}</p>
+      <p>{t("检查范围：隔离工作区中记录的版本。提交、合并和发布需分别操作。打开文件可查看该工作区的当前内容，请与报告版本核对。",
+        "Checks cover the recorded revision in the isolated workspace. Commit, merge, and publish are separate actions. Opening a file shows the workspace's current contents; compare them with the reported revision.")}</p>
       <dl className="handoff-grid delivery-truth-grid">
         <KeyValue label={t("受影响文件", "Affected files")} value={String(report.diff.changed_count)} />
         <KeyValue label={t("已跟踪 / 未跟踪", "Tracked / untracked")}
@@ -92,13 +92,14 @@ export function StandardCodeDeliveryPanel({ client, runID, onOpenCheckpoints,
         <KeyValue label={t("最近版本核对", "Last revision check")} value={observed?.observed_at ? formatDate(observed.observed_at) : t("尚无核对记录", "No check recorded")} />
         <KeyValue label={t("原始报告结论", "Recorded conclusion")} value={<StatusBadge status={report.receipt_status} />} />
       </dl>
+      <details><summary>{t("查看版本与来源标识", "View revision and source identifiers")}</summary>
       <div className="delivery-truth-identities">
         <div><span>{t("收据", "Receipt")}</span><code title={report.receipt_sha256}>{report.receipt_sha256}</code></div>
         <div><span>{t("Workspace revision", "Workspace revision")}</span>
           <code title={report.final_checkpoint.revision_sha256}>{report.final_checkpoint.revision_sha256}</code></div>
         <div><span>Diff SHA-256</span><code title={report.diff.sha256}>{report.diff.sha256}</code></div>
         <div><span>Checkpoint</span><code>{report.final_checkpoint.id}</code></div>
-      </div>
+      </div></details>
       <div className="delivery-truth-columns">
         <section><h3>{t("受影响文件", "Affected files")}</h3>
           {report.diff.files.length === 0 ? <EmptyState>{t("没有文件变更", "No changed files")}</EmptyState> :
@@ -158,14 +159,14 @@ export function StandardCodeDeliveryPanel({ client, runID, onOpenCheckpoints,
         </section>}
       <section className="delivery-truth-recovery"><div><RotateCcw aria-hidden="true" size={16} />
         <span><strong>{t("恢复入口", "Recovery entry points")}</strong>
-          <small>{t("Checkpoint 仅覆盖记录的 Workspace 内容；Workspace 外副作用不在其承诺内。",
-            "The Checkpoint covers recorded Workspace content only; effects outside it are not promised reversible.")}</small></span></div>
+          <small>{t("检查点恢复记录的项目内容。项目外的进程、网络或远端变化请单独检查和处理。",
+            "Checkpoints restore recorded project content. Inspect and handle processes, network effects, and remote changes outside the project separately.")}</small></span></div>
         <div><button className="compact-command" onClick={onOpenCheckpoints} type="button">
           {t("查看项目恢复选项", "View workspace recovery options")}</button></div>
       </section>
-      <p className="delivery-truth-boundary">{t(
-        "本报告不会自动 commit、push、merge 或覆盖源文件，也不包含原始环境、无限输出、私有 reasoning 或绝对主机路径。",
-        "This report does not automatically commit, push, merge, or overwrite source files, and contains no raw environment, unbounded output, private reasoning, or absolute host paths.")}</p>
+      <details className="delivery-truth-boundary"><summary>{t("报告包含哪些内容", "What the report includes")}</summary>
+        <p>{t("报告保存版本、差异摘要、脱敏后的有界命令输出和恢复入口。交付操作请在对应的提交、推送或合并入口完成。",
+          "The report saves the revision, diff summary, bounded and redacted command output, and recovery options. Complete delivery through the relevant commit, push, or merge controls.")}</p></details>
     </>}
   </section>;
 }

@@ -22,11 +22,11 @@ describe("WorkbenchDock", () => {
 
     fireEvent.click(bottom);
     expect(screen.getByRole("region", { name: "底部面板" })).toBeInTheDocument();
-    expect(screen.getByText("终端尚未启用")).toBeInTheDocument();
+    expect(screen.getByText("在桌面应用中使用终端")).toBeInTheDocument();
 
     fireEvent.click(sidecar);
     expect(screen.getByRole("complementary", { name: "右侧工具栏" })).toBeInTheDocument();
-    expect(screen.getByText("当前 Thread / Run 未绑定 Workspace")).toBeInTheDocument();
+    expect(screen.getByText("选择并绑定项目后可查看仓库摘要。")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "关闭右侧栏" }));
     expect(screen.queryByRole("complementary", { name: "右侧工具栏" })).not.toBeInTheDocument();
@@ -39,7 +39,7 @@ describe("WorkbenchDock", () => {
 
     fireEvent.keyDown(window, { key: "g", ctrlKey: true, shiftKey: true });
     expect(screen.getByText("审阅")).toBeInTheDocument();
-    expect(screen.getByText("当前 Thread / Run 未绑定 Workspace")).toBeInTheDocument();
+    expect(screen.getByText("选择并绑定项目后可审阅差异。")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "添加右侧工具" }));
     expect(screen.getByRole("group", { name: "工作区" })).toBeInTheDocument();
@@ -49,7 +49,7 @@ describe("WorkbenchDock", () => {
 
     fireEvent.keyDown(window, { key: "p", ctrlKey: true });
     expect(screen.getByRole("button", { name: "文件" })).toBeInTheDocument();
-    expect(screen.getByText("此 Run 未绑定工作区")).toBeInTheDocument();
+    expect(screen.getByText("绑定项目后可查看文件，请返回对话核对项目选择。")).toBeInTheDocument();
 
     fireEvent.keyDown(window, { key: "j", ctrlKey: true });
     expect(screen.getByRole("region", { name: "底部面板" })).toBeInTheDocument();

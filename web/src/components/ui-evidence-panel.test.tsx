@@ -82,10 +82,10 @@ describe("UIEvidencePanel", () => {
       expect(badge).not.toHaveClass("status-passed");
     }
     expect(screen.getByText("通过")).toHaveClass("status-passed");
-    expect(screen.getByText(/页面内容与下载产物均不可信/)).toBeInTheDocument();
+    expect(screen.getByText(/截图和下载内容供你核对页面表现/)).toBeInTheDocument();
     expect(client.uiEvidence).toHaveBeenCalledWith("run-1", expect.any(AbortSignal));
     expect(client.uiEvidenceBundle).toHaveBeenCalledWith("attempt-not-run", expect.any(AbortSignal));
-    expect(screen.queryByText(/历史状态未知/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/历史证据状态待确认/)).not.toBeInTheDocument();
   });
 
   it("explains an unavailable backend history endpoint without treating 404 as an empty history", async () => {
@@ -95,10 +95,10 @@ describe("UIEvidencePanel", () => {
       uiEvidence } as unknown as APIClient;
     const user = userEvent.setup();
     renderPanel(client);
-    expect(await screen.findByText(/当前后端无法提供所选执行的 UI 取证读取/)).toHaveTextContent("历史状态未知");
-    expect(screen.getByText(/当前后端无法提供/)).toHaveTextContent("Windows Desktop");
+    expect(await screen.findByText(/历史证据状态待确认/)).toHaveTextContent("历史证据状态待确认");
+    expect(screen.getByText(/历史证据状态待确认/)).toHaveTextContent("Windows Desktop");
     expect(screen.queryByText("HTTP API endpoint was not found")).not.toBeInTheDocument();
-    expect(screen.queryByText("尚未创建 UI 验证 Attempt")).not.toBeInTheDocument();
+    expect(screen.queryByText("还没有浏览器验证。展开下方启动表单，载入模板并核对步骤后开始。")).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "刷新 UI 证据" }));
     await waitFor(() => expect(uiEvidence).toHaveBeenCalledTimes(2));
     expect(uiEvidence).toHaveBeenCalledWith("run-1", expect.any(AbortSignal));
@@ -113,8 +113,8 @@ describe("UIEvidencePanel", () => {
     renderPanel({ hasUIEvidence: enabled, uiEvidenceUnavailableReason: enabled ? null : "ui_evidence_disabled",
       uiEvidence: vi.fn().mockRejectedValue(error) } as unknown as APIClient);
     expect(await screen.findByRole("alert")).toHaveTextContent(error.message);
-    expect(screen.queryByText(/历史状态未知/)).not.toBeInTheDocument();
-    expect(screen.queryByText("尚未创建 UI 验证 Attempt")).not.toBeInTheDocument();
+    expect(screen.queryByText(/历史证据状态待确认/)).not.toBeInTheDocument();
+    expect(screen.queryByText("还没有浏览器验证。展开下方启动表单，载入模板并核对步骤后开始。")).not.toBeInTheDocument();
   });
 
   it("does not keep declaring empty history when a later refresh cannot read the endpoint", async () => {
@@ -124,10 +124,10 @@ describe("UIEvidencePanel", () => {
       uiEvidence } as unknown as APIClient;
     const user = userEvent.setup();
     renderPanel(client);
-    await screen.findByText("尚未创建 UI 验证 Attempt");
+    await screen.findByText("还没有浏览器验证。展开下方启动表单，载入模板并核对步骤后开始。");
     await user.click(screen.getByRole("button", { name: "刷新 UI 证据" }));
-    await screen.findByText(/历史状态未知/);
-    expect(screen.queryByText("尚未创建 UI 验证 Attempt")).not.toBeInTheDocument();
+    await screen.findByText(/历史证据状态待确认/);
+    expect(screen.queryByText("还没有浏览器验证。展开下方启动表单，载入模板并核对步骤后开始。")).not.toBeInTheDocument();
   });
 
   it("requires exact-manifest review before starting", async () => {
@@ -140,7 +140,7 @@ describe("UIEvidencePanel", () => {
     const user = userEvent.setup();
     renderPanel(client);
 
-    await user.click(screen.getByText("审阅并启动精确清单"));
+    await user.click(screen.getByText("准备并启动浏览器验证"));
     await user.click(screen.getByRole("button", { name: "载入本仓库模板" }));
     const startButton = screen.getByRole("button", { name: "启动真实浏览器验证" });
     expect(startButton).toBeDisabled();
@@ -158,11 +158,11 @@ describe("UIEvidencePanel", () => {
   });
 
   it.each([
-    ["missing_control_credential", "当前连接缺少控制凭证"],
-    ["ui_evidence_disabled", "当前进程未启用 UI 取证能力"],
-    ["run_execution_disabled", "当前进程未启用 Run 执行能力"],
-    ["browser_cdp_control_disabled", "当前进程未启用浏览器 CDP 控制能力"],
-    [undefined, "当前连接未满足 UI 取证的独立控制条件"],
+    ["missing_control_credential", "先刷新列表以查看历史证据"],
+    ["ui_evidence_disabled", "启用 --enable-ui-evidence"],
+    ["run_execution_disabled", "启用 --enable-run-execution"],
+    ["browser_cdp_control_disabled", "启用 --enable-browser-cdp-control"],
+    [undefined, "先刷新列表以查看历史记录"],
   ])("explains unavailable UI evidence accurately for %s and keeps launch disabled", async (reason, message) => {
     const startUIEvidence = vi.fn();
     const client = { hasUIEvidence: false, uiEvidenceUnavailableReason: reason,
@@ -171,12 +171,12 @@ describe("UIEvidencePanel", () => {
     const user = userEvent.setup();
     const { container } = renderPanel(client);
     expect(screen.getByText(new RegExp(message, "u"))).toBeInTheDocument();
-    expect(screen.getByText(/现有执行入口是 Windows Desktop/)).toBeInTheDocument();
+    expect(screen.getByText(/在 Windows Desktop 连接控制凭证/)).toBeInTheDocument();
     expect(container.textContent).toContain("--enable-ui-evidence");
     expect(container.textContent).toContain("--enable-run-execution");
     expect(container.textContent).toContain("--enable-browser-cdp-control");
     expect(container.textContent).not.toContain("当前连接为只读");
-    await user.click(screen.getByText("审阅并启动精确清单"));
+    await user.click(screen.getByText("准备并启动浏览器验证"));
     expect(screen.getByRole("button", { name: "载入本仓库模板" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "启动真实浏览器验证" })).toBeDisabled();
     expect(startUIEvidence).not.toHaveBeenCalled();

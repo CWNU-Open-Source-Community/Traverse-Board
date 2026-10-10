@@ -45,7 +45,7 @@ it("prevents rewriting a recorded version and restores the author's draft when t
   test.rerender(test.content("run-a", recorded));
   expect(screen.queryByRole("button", { name: "Record manual acceptance and handoff" })).not.toBeInTheDocument();
   expect(screen.getByRole("button", { name: "Complete this item" })).toBeEnabled();
-  expect(screen.getByText(/record cannot be overwritten/)).toBeInTheDocument();
+  expect(screen.getByText(/revision retains its original record/)).toBeInTheDocument();
   await act(async () => { test.queryClient.setQueryData(["work-item", workItem().id], workItem("run-a", 3)); });
   expect(await screen.findByLabelText(labels[0])).toHaveValue("Original evidence with unresolved issues");
   expect(screen.getByRole("button", { name: "Complete this item" })).toBeDisabled();

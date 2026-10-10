@@ -70,7 +70,7 @@ describe("UserTerminalPanel", () => {
     const view = render(<UserTerminalPanel runID="run-original" sessionID=""
       onSession={onSession} />);
 
-    fireEvent.click(screen.getByRole("button", { name: "启动" }));
+    fireEvent.click(screen.getByRole("button", { name: "Start" }));
     expect(terminalMocks.start).toHaveBeenCalledWith("run-original", 120, 32, false);
 
     view.rerender(<UserTerminalPanel runID="run-next" sessionID=""
@@ -151,14 +151,14 @@ describe("UserTerminalPanel", () => {
     render(<UserTerminalPanel runID="run-1" sessionID="terminal-1"
       onSession={vi.fn()} />);
 
-    fireEvent.click(await screen.findByRole("button", { name: "允许 Agent · 5m" }));
-    expect(confirm).toHaveBeenCalledWith(expect.stringContaining("宿主文件与网络"));
+    fireEvent.click(await screen.findByRole("button", { name: "Allow Agent · 5m" }));
+    expect(confirm).toHaveBeenCalledWith(expect.stringContaining("host files and network"));
     await waitFor(() => {
       expect(terminalMocks.grantAgent).toHaveBeenCalledWith(
         "run-1", "terminal-1", 300,
       );
     });
-    fireEvent.click(await screen.findByRole("button", { name: "撤销 Agent" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Revoke Agent" }));
     await waitFor(() => {
       expect(terminalMocks.revokeAgent).toHaveBeenCalledWith(binding.binding_id);
     });

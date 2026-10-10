@@ -99,10 +99,10 @@ export function RunActivityTimeline({ activity, liveCommentary = null,
             "Public model updates and execution facts recorded by Go")}</p>
         </div>
         <span className="run-activity-safety"
-          title={t("这里只展示公开摘要与白名单事件，不展示或推断模型私有思维链",
-            "Only public summaries and allowlisted events are shown; private reasoning is neither shown nor inferred")}>
+          title={t("显示公开摘要和已保存的操作事件",
+            "Shows public summaries and saved operation events")}>
           <ShieldCheck aria-hidden="true" size={15} />
-          {t("不包含私有思维链", "No private chain of thought")}
+          {t("公开活动", "Public activity")}
         </span>
       </header>
       {streamError && <div className="inline-warning">
@@ -157,8 +157,8 @@ function LiveToolPreparation({ item, t }: {
         <div className="run-activity-detail">{t(...label)}
           {item.argument_bytes ? ` · ${item.argument_bytes} ${t("字节", "bytes")}` : ""}
         </div>
-        <small>{t("参数内容不会显示或写入公开活动；Go 验证后才会执行。",
-          "Arguments are neither displayed nor written to public activity; execution begins only after Go validation.")}</small>
+        <small>{t("正在准备工具请求，服务端验证通过后执行。这里显示准备状态和参数大小。",
+          "Preparing the tool request; execution follows service validation. Preparation status and argument size appear here.")}</small>
       </div>
     </li>
   );
@@ -208,10 +208,10 @@ function ActivityMessage({ item, provisional = false, t }: {
           <SafeMarkdown className="run-activity-detail">{item.detail}</SafeMarkdown> :
           <div className="run-activity-detail">{item.detail}</div>)}
         {item.source === "model" && <small>{provisional
-          ? t("临时公开进度；验证后由持久活动替换，不会写入对话历史。",
-            "Provisional public progress; durable activity replaces it after verification and it is not added to conversation history.")
-          : t("模型公开生成，可能包含判断；执行记录以 Harness 事件为准。",
-            "Public model output may contain judgments; Harness events remain the execution record.")}</small>}
+          ? t("正在生成的公开进度，验证后显示已保存活动。对话历史保存最终确认的内容。",
+            "Public progress is being generated; saved activity appears after validation. Conversation history stores the final confirmed content.")
+          : t("模型公开回复供你参考；实际操作结果请核对执行记录。",
+            "Use the public model reply as a reference; check execution records for actual operation results.")}</small>}
         {item.source === "operator" &&
           <small>{item.instruction_authorized ?
             t("已授权的用户输入", "Authorized operator input") :
@@ -268,7 +268,7 @@ function HarnessDisclosure({ items, t }: { items: RunActivityItemView[]; t: Tran
           <ActivityIcon kind={first.kind} source="harness" />
           <strong>{disclosureTitle(first.kind, rows.length, t)}</strong>
           {status && <span className={`run-activity-status status-${status}`}
-            title={status === "running" ? t("已保存事件中的状态，不代表 Agent 当前仍在工作。", "A saved event state; it does not mean the Agent is still working.") : undefined}>
+            title={status === "running" ? t("事件保存时的执行状态。查看当前进度请核对最新活动。", "Execution state when the event was saved. Check the latest activity for current progress.") : undefined}>
             {statusLabels[status] ? t(...statusLabels[status]) : status}
           </span>}
           <time dateTime={last.created_at}>{formatDate(last.created_at)}</time>

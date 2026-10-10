@@ -213,7 +213,7 @@ describe("GitHubReviewPanel", () => {
 
     expect(await screen.findByText(digest)).toBeInTheDocument();
     expect(screen.getByLabelText("PR number")).toHaveValue(118);
-    expect(screen.getByText("Delivery truth")).toBeInTheDocument();
+    expect(screen.getByText("Delivery checks")).toBeInTheDocument();
     expect(screen.getByText("f".repeat(64))).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Open delivery" }));
     expect(onOpenDelivery).toHaveBeenCalledTimes(1);
@@ -344,7 +344,7 @@ describe("GitHubReviewPanel", () => {
     expect(await screen.findByText("DEVICE-CODE")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Delete local credential…" }));
     expect(screen.getByRole("dialog", { name: "Delete local GitHub credential" })).toBeInTheDocument();
-    expect(screen.getByText(/this does not revoke authorization on GitHub/)).toBeInTheDocument();
+    expect(screen.getByText(/GitHub authorization stays active/)).toBeInTheDocument();
     expect(disconnectGitHubReview).not.toHaveBeenCalled();
     await user.click(screen.getByRole("button", { name: "Cancel" }));
     expect(screen.getByText("DEVICE-CODE")).toBeInTheDocument();
@@ -352,7 +352,7 @@ describe("GitHubReviewPanel", () => {
     await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Delete local credential" }));
     await waitFor(() => expect(disconnectGitHubReview).toHaveBeenCalledWith("connection-1"));
     expect(await screen.findByText("Local credential deleted for this connection.")).toBeInTheDocument();
-    expect(await screen.findByText("No local credential is configured.")).toBeInTheDocument();
+    expect(await screen.findByText("Use device sign-in to configure the local credential.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Delete local credential…" })).toBeDisabled();
     expect(screen.queryByText("DEVICE-CODE")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Execute approved write" })).not.toBeInTheDocument();
@@ -489,7 +489,7 @@ describe("GitHubReviewPanel", () => {
     await screen.findByText("Local credential is configured.");
     signedIn = false;
     await act(async () => request.resolve(credentialView(connection(), false)));
-    expect(await screen.findByText("No local credential is configured.")).toBeInTheDocument();
+    expect(await screen.findByText("Use device sign-in to configure the local credential.")).toBeInTheDocument();
     expect(screen.getByLabelText("GitHub connection")).toHaveValue(second.id);
     expect(screen.queryByText("Local credential deleted for this connection.")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Create exact preview" })).toBeDisabled();
@@ -622,7 +622,7 @@ describe("GitHubReviewPanel", () => {
     const { queryClient } = renderPanel(mockClient([connection()], { disconnectGitHubReview }));
     await screen.findByText("Local credential is configured.");
     await user.click(screen.getByRole("button", { name: "Delete local credential…" }));
-    expect(screen.getByText(/local credential currently used by connection connection-1 \(acme\/widget\)/)).toBeInTheDocument();
+    expect(screen.getByText(/local credential used by connection connection-1 \(acme\/widget\)/)).toBeInTheDocument();
     const next = credentialView({ ...connection(), generation: 2, credential: { name: "updated-reference", kind: "github_app_device" } });
     await act(async () => queryClient.setQueryData(["github-review", "credential", "connection-1"], next));
     expect(await screen.findByText("Connection settings changed. Reload the latest settings before deleting its local credential.")).toBeInTheDocument();

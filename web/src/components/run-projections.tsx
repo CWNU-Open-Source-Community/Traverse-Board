@@ -421,16 +421,20 @@ export function BatchDeliveriesPanel({ client, runID }: ProjectionProps) {
         <span>{t(`${formatNumber(query.data.items.length)} 个计划`, `${formatNumber(query.data.items.length)} plans`)}</span>
       </div>
       <p className="projection-placeholder">{client.hasBatchDeliveryHostValidation
-        ? t("宿主 Go/npm 验证的启动能力已启用；实际检查仍要求所选 Run 正在运行、当前 Full 进程激活及后端权限检查。此验证会在宿主执行仓库代码，不是 OS 沙箱。",
-          "Host Go/npm validation startup capability is enabled. Each check still requires the selected Run to be running, current Full process activation, and backend authorization. It executes repository code on the host and is not an OS sandbox.")
-        : t("宿主 Go/npm 验证未满足独立启用条件；当前仅允许不执行仓库代码的 Git diff 检查。操作者须显式配置 --enable-batch-validation-execution、--enable-permission-control 与 --enable-danger-full-access，并具备批量交付控制、控制凭证和操作员审批能力。检查开始时所选 Run 仍须正在运行且具有当前 Full 进程激活。",
-          "Host Go/npm validation requires independent enablement; only non-executing Git diff checks are available. The operator must explicitly configure --enable-batch-validation-execution, --enable-permission-control, and --enable-danger-full-access, with batch delivery control, a control credential, and operator approval capability. At each check start, the selected Run must still be running with current Full process activation.")}</p>
+        ? t("Go/npm 验证已启用，会在本机直接执行仓库代码。开始前需核对当前执行状态、Full 进程激活和权限。",
+          "Go/npm validation is enabled and runs repository code directly on the host. Check the current execution state, Full process activation, and permissions before starting.")
+        : t("当前可检查 Git 差异。运行 Go/npm 验证需要完成下方执行配置。",
+          "Git diff checks are available. Complete the execution settings below to run Go/npm validation.")}</p>
+      <details><summary>{t("核对批量交付配置", "Review batch delivery settings")}</summary>
+        <p>{t("Go/npm 验证需要明确启用 --enable-batch-validation-execution、--enable-permission-control 和 --enable-danger-full-access，并连接批量交付控制、控制凭证和操作员审批能力。开始时，所选执行须正在运行且具有当前 Full 进程激活。",
+          "Go/npm validation requires explicit --enable-batch-validation-execution, --enable-permission-control, and --enable-danger-full-access settings, plus batch delivery control, a control credential, and operator approval capability. The selected execution must be running with current Full process activation at the start.")}</p>
+      </details>
       {!client.hasBatchDeliveryControl && <p className="projection-placeholder">{t(
-        "批量交付验收、返工、合并与恢复控制不可用。Desktop 须独立启用 --enable-batch-delivery-control 并连接控制凭证；Go/npm 验证还需上述单独配置。",
-        "Batch acceptance, rework, merge, and recovery controls are unavailable. Desktop requires the independent --enable-batch-delivery-control flag and a control credential; Go/npm validation additionally requires the separate configuration above.",
+        "当前可查看批量交付。Desktop 明确启用 --enable-batch-delivery-control 并连接控制凭证后，可验收、要求修改、合并或检查恢复状态。Go/npm 验证需另行完成上述配置。",
+        "Batch deliveries are available for review. Explicitly enable --enable-batch-delivery-control in Desktop and connect a control credential to accept, request changes, merge, or reconcile. Configure Go/npm validation separately as described above.",
       )}</p>}
       {query.data.items.length === 0 ?
-        <EmptyState>{t("暂无 batch-delivery.v1 计划", "No batch-delivery.v1 plans")}</EmptyState> :
+        <EmptyState>{t("还没有批量交付计划。可在对话中提出需要独立完成并合并的子任务。", "No batch delivery plans yet. Describe independently deliverable subtasks in the conversation to prepare one.")}</EmptyState> :
         <div className="projection-stack">
           {query.data.items.map((plan) =>
             <BatchDeliveryDetail client={client} key={plan.id} planID={plan.id} runID={runID} />)}
@@ -532,11 +536,11 @@ function BatchDeliveryDetail({ client, runID, planID }: ProjectionProps & { plan
                 profile.workspace_apply && "Apply", profile.git_status && "Git status",
                 profile.git_diff && "Git diff", profile.git_commit && "Git commit",
               ].filter(Boolean).join(" · ")}</span>
-              <span>{t("强制关闭：删除 / Shell / 进程 / 网络 / 凭证 / 调试终端 / 子派生",
-                "Forced closed: delete / shell / process / network / credentials / debug terminal / spawning")}</span>
+              <span>{t("执行范围：上方项目工具；删除、Shell、进程、网络、凭证、调试终端与子派生保持关闭",
+                "Execution scope: the project tools above; delete, shell, process, network, credentials, debug terminal, and spawning remain disabled")}</span>
             </footer>
             {child.receipt && <div className="projection-placeholder">
-              <strong>{t("交付收据", "Delivery receipt")}</strong> · {child.receipt.diff_stat} ·
+              <strong>{t("交付结果", "Delivery result")}</strong> · {child.receipt.diff_stat} ·
               {` ${formatBytes(child.receipt.diff_bytes)}`}<br />
               {child.receipt.changed_files.map((path) => <code key={path}>{path} </code>)}<br />
               {t("验证", "Validation")}: {child.receipt.test_receipts.map((test) =>
@@ -560,8 +564,8 @@ function BatchDeliveryDetail({ client, runID, planID }: ProjectionProps & { plan
                   placeholder={t("必填", "Required")} value={reviewSummary} />
                 <label className="checkbox-row"><input checked={reviewConfirmed}
                   onChange={(event) => setReviewConfirmed(event.target.checked)} type="checkbox" />
-                  {t("我已独立核对完整 merge-base 差异、调用链和测试收据",
-                    "I independently reviewed the full merge-base diff, call chain, and test receipts")}
+                  {t("我已独立核对与共同基线的完整差异、调用链和测试结果",
+                    "I independently reviewed the full merge-base diff, call chain, and test results")}
                 </label>
                 <button className="command-button" disabled={action.isPending ||
                   !reviewSummary.trim() || !reviewConfirmed}
@@ -591,19 +595,21 @@ function BatchDeliveryDetail({ client, runID, planID }: ProjectionProps & { plan
           </label>
           <button className="command-button" disabled={action.isPending}
             onClick={() => { setBusy("merge"); action.mutate({ kind: "merge" }); }} type="button">
-            {t("按 DAG 顺序合并", "Merge in DAG order")}</button>
+            {t("按依赖顺序合并", "Merge in dependency order")}</button>
         </>}
         <button className="command-button" disabled={action.isPending}
           onClick={() => { setBusy("reconcile"); action.mutate({ kind: "reconcile" }); }} type="button">
-          {t("恢复检查", "Reconcile")}</button>
+          {t("核对并恢复状态", "Reconcile state")}</button>
         <button className="command-button danger" disabled={action.isPending}
           onClick={() => { setBusy("cancel"); action.mutate({ kind: "cancel" }); }} type="button">
-          {t("取消并保留不确定现场", "Cancel and preserve uncertain state")}</button>
+          {t("取消并保留现场", "Cancel and preserve state")}</button>
       </div>}
       {action.isPending && !busy.includes("-") && <span className="projection-placeholder">
         <LoaderCircle aria-hidden="true" className="spin" size={15} /> {t("处理中", "Working")}</span>}
       {action.isError && <div className="inline-warning" role="alert">
         {action.error instanceof Error ? action.error.message : t("批量交付操作失败", "Batch delivery operation failed")}
+        <p>{t("请核对最新交付状态。结果待确认时，使用「核对并恢复状态」检查原操作。", "Check the latest delivery state. When the outcome needs confirmation, use Reconcile state to inspect the original operation.")}</p>
+        <button className="compact-command" onClick={() => void query.refetch()} type="button">{t("刷新交付状态", "Refresh delivery state")}</button>
       </div>}
     </article>
   );

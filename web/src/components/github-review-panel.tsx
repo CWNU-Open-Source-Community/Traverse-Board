@@ -378,7 +378,7 @@ function GitHubReviewWorkspace({ client, runID, onOpenApprovals,
 
   if (!client.hasGitHubReviewControl) return <section className="repository-state-panel">
     <header className="panel-header"><div><GitPullRequest size={17} /><h2>GitHub Review</h2></div></header>
-    <EmptyState>{t("当前进程未启用 GitHub 审阅控制。", "GitHub review control is disabled for this process.")}</EmptyState>
+    <EmptyState>{t("启用 GitHub 审阅控制后，可连接仓库、查看 PR 并审批远端操作。", "Enable GitHub review control to connect a repository, inspect PRs, and approve remote actions.")}</EmptyState>
   </section>;
   if (connections.isLoading || (!selectionReady && !connections.isError)) return <LoadingState label={t("加载 GitHub 连接", "Loading GitHub connections")} />;
   if (connections.isError && !connections.data) return <ErrorState error={connections.error} />;
@@ -430,7 +430,7 @@ function GitHubReviewWorkspace({ client, runID, onOpenApprovals,
       <small>{form.connection ? t(
         `正在编辑 ${form.connection.repository.full_name}；设置版本 ${form.connection.generation}。`,
         `Editing ${form.connection.repository.full_name}; settings version ${form.connection.generation}.`,
-      ) : t("新连接使用 GitHub App 设备登录。", "New connections use GitHub App device sign-in.")}</small>
+      ) : t("填写仓库与 GitHub App 信息创建连接，再使用设备登录授权。", "Enter the repository and GitHub App details to create a connection, then authorize it with device sign-in.")}</small>
       {connectionID && <div className="github-review-actions">
         <button disabled={pending} onClick={() => { startRequest(); reload.mutate(scope()); }} type="button">
           {t("重新载入最新设置", "Reload latest settings")}</button>
@@ -442,7 +442,7 @@ function GitHubReviewWorkspace({ client, runID, onOpenApprovals,
       </div>}
       {credential.isError && <ErrorState error={credential.error} />}
       {credentialCurrent && <small>{credential.data?.credential.configured ? t("本机凭据已配置。", "Local credential is configured.") :
-        t("未配置本机凭据。", "No local credential is configured.")}</small>}
+        t("请使用设备登录配置本机凭据。", "Use device sign-in to configure the local credential.")}</small>}
       {device && <div className="github-review-device"><code>{device.user_code}</code>
         <a href={device.verification_uri} rel="noreferrer" target="_blank">github.com/login/device <ExternalLink size={12} /></a>
         <button disabled={pending || !canSignIn} onClick={() => {
@@ -452,12 +452,13 @@ function GitHubReviewWorkspace({ client, runID, onOpenApprovals,
     </section>
 
     {connectionID && <section className="github-review-section">
-      <h3>{t("拉取请求证据", "Pull request evidence")}</h3>
+      <h3>{t("查看 PR", "Inspect a PR")}</h3>
+      <p>{t("填写 PR 编号，先检查访问条件，再获取最新快照。", "Enter a PR number, check access, then fetch the latest snapshot.")}</p>
       <div className="github-review-form"><input aria-label={t("PR 编号", "PR number")} min={1}
         onChange={(event) => { clearReview(); setPullRequest(Number(event.target.value)); }} type="number" value={pullRequest || ""} />
         <button disabled={pending || pullRequest < 1} onClick={() => {
           startRequest(); qualify.mutate({ ...scope(), number: pullRequest });
-        }} type="button">{t("资格诊断", "Qualify")}</button>
+        }} type="button">{t("检查访问条件", "Check access")}</button>
         <button disabled={pending || pullRequest < 1} onClick={() => fetchRemote(pullRequest)} type="button">{t("抓取快照", "Fetch snapshot")}</button></div>
       {qualify.data && qualify.variables && isCurrent(qualify.variables) && qualify.variables.number === pullRequest &&
         <div className="github-review-diagnostics"><StatusBadge status={qualify.data.qualification.eligible ? "qualified" : "blocked"} />
@@ -465,7 +466,7 @@ function GitHubReviewWorkspace({ client, runID, onOpenApprovals,
       {projection.isLoading && <LoadingState />}
       {projection.isError && <ErrorState error={projection.error} />}
       {projection.data?.standard_code_delivery && <div className="github-review-delivery-truth">
-        <span><strong>{t("交付真实性", "Delivery truth")}</strong>
+        <span><strong>{t("交付检查", "Delivery checks")}</strong>
           <code>{projection.data.standard_code_delivery.receipt_sha256}</code>
           <small>{projection.data.standard_code_delivery.diff.changed_count} {t("个文件", "files")} · {projection.data.standard_code_delivery.verifications.length} {t("条命令", "commands")}</small></span>
         <StatusBadge status={projection.data.standard_code_delivery.status} />
@@ -495,8 +496,8 @@ function GitHubReviewWorkspace({ client, runID, onOpenApprovals,
     {latest && !connectionWriteEnabled && <section className="github-review-section">
       <h3>{t("审批后回写", "Approval-gated write-back")}</h3>
       <EmptyState>{t(
-        "此连接保持只读；重新配置并显式允许写回后，才会显示远端操作。",
-        "This connection is read-only. Explicitly enable write-back in its configuration to expose remote operations.",
+        "当前可查看 PR。需要评论、回复等远端操作时，在连接设置中明确允许逐次审批的写回。",
+        "PR inspection is available. To comment, reply, or make other remote changes, explicitly allow per-call approved write-back in the connection settings.",
       )}</EmptyState>
     </section>}
     {latest && connectionWriteEnabled && <section className="github-review-section">
@@ -537,8 +538,8 @@ function GitHubReviewWorkspace({ client, runID, onOpenApprovals,
     <V2ConfirmDialog open={Boolean(disconnectTarget)} danger returnFocusRef={disconnectButton}
       title={t("删除 GitHub 本机凭据", "Delete local GitHub credential")}
       description={t(
-        `将删除连接 ${disconnectTarget?.id ?? ""}（${disconnectTarget?.repository.full_name ?? ""}）当前使用的本机凭据。使用同一凭据引用的连接也会退出登录。连接设置和历史证据会保留；此操作不会撤销 GitHub 端授权。`,
-        `Delete the local credential currently used by connection ${disconnectTarget?.id ?? ""} (${disconnectTarget?.repository.full_name ?? ""}). Connections sharing its credential reference will also be signed out. Connection settings and historical evidence remain; this does not revoke authorization on GitHub.`,
+        `将删除连接 ${disconnectTarget?.id ?? ""}（${disconnectTarget?.repository.full_name ?? ""}）当前使用的本机凭据。使用同一凭据引用的连接也会退出登录。连接设置和历史证据会保留。GitHub 端授权仍有效，如需撤销请在 GitHub 设置中操作。`,
+        `Delete the local credential used by connection ${disconnectTarget?.id ?? ""} (${disconnectTarget?.repository.full_name ?? ""}). Connections sharing this credential reference will also be signed out. Connection settings and historical evidence remain. GitHub authorization stays active; revoke it in GitHub settings if needed.`,
       )}
       confirmLabel={t("删除本机凭据", "Delete local credential")}
       onCancel={() => setDisconnectTarget(null)}

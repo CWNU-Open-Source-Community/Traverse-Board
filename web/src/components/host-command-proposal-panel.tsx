@@ -181,14 +181,14 @@ function HostCommandOutcome({ client, proposal }: {
   if (!receipt && !proposal.review && !proposal.uncertain) return <p>{t("历史提案已退役，没有执行结果。", "Historical proposal retired without an execution result.")}</p>;
   if (!receipt) return <p role={proposal.review?.decision === "approve" ? "status" : undefined}>
     {proposal.review?.decision === "deny" ? t("提案已拒绝，没有执行结果。", "Proposal denied; no execution result.") :
-      t("已批准，执行结果未确认；不能据此判断命令是否执行或成功。",
-        "Approved; execution is unconfirmed. This does not establish whether the command ran or succeeded.")}</p>;
+      t("审批已通过，执行结果待确认。请刷新命令记录核对状态，再决定下一步。",
+        "Approved; the execution result needs confirmation. Refresh command records to check the state before proceeding.")}</p>;
   return <div className="command-proposal-evidence host-command-outcome">
     <p>{t("已记录执行结果，退出码", "Execution result recorded, exit code")} {receipt.exit_code}</p>
     {receipt.cancelled && <p>{t("命令已取消。", "The command was cancelled.")}</p>}
     {receipt.timed_out && <p>{t("命令已超时。", "The command timed out.")}</p>}
     {(receipt.stdout_truncated || receipt.stderr_truncated || receipt.output_limit_exceeded) &&
-      <p>{t("输出已截断或达到上限，不能视为完整输出。", "Output was truncated or reached its limit; it is not complete.")}</p>}
+      <p>{t("输出达到保存上限，当前显示已保存的部分。", "Output reached the storage limit. The saved portion is displayed here.")}</p>}
     <button className="command-button" type="button" onClick={() => setOpened((current) => !current)}>
       {opened ? t("收起已保存输出", "Hide saved output") : t("查看已保存输出", "Read saved output")}</button>
     {opened && <>

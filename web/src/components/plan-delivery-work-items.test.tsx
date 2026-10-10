@@ -39,7 +39,7 @@ it("records all final-item evidence without starting tests or completing the ite
   const test = setup();
   await screen.findByLabelText(labels[0]);
   expect(screen.getByRole("button", { name: "Complete this item" })).toBeDisabled();
-  expect(screen.getByText(/does not run tests or change automated results/)).toBeInTheDocument();
+  expect(screen.getByText(/automated checks retain their own pass or fail results/)).toBeInTheDocument();
   for (const label of labels) await test.user.type(screen.getByLabelText(label), `${label}: failed check; see job-1`);
   await test.user.click(screen.getByRole("button", { name: "Record manual acceptance and handoff" }));
   await waitFor(() => expect(test.client.recordPlanDeliveryCheckpoint).toHaveBeenCalledTimes(1));
@@ -146,7 +146,7 @@ it("lets on-demand items complete without fabricated manual evidence and preserv
   const button = await screen.findByRole("button", { name: "Complete this item" });
   expect(button).toBeEnabled();
   expect(screen.queryByLabelText(labels[0])).not.toBeInTheDocument();
-  expect(screen.getByText(/does not run checks or mark automated checks as passed/)).toBeInTheDocument();
+  expect(screen.getByText(/plan progress and automated check results are recorded separately/)).toBeInTheDocument();
   await test.user.click(screen.getByRole("button", { name: "Add manual acceptance notes (optional)" }));
   await test.user.type(screen.getByLabelText(labels[0]), "Observed failure, awaiting correction");
   await test.user.click(screen.getByRole("button", { name: "Hide manual notes" }));
@@ -183,7 +183,7 @@ it("shows inherited on-demand completion as an exact event source without reques
   plan.continued_completions = [{ work_item_id: item().id, source_run_id: "original-run", source_work_item_id: "original-item",
     completion_event_id: "original-completion", checkpoint_id: "", handoff_note_id: "", completed_at: "2026-09-09T00:00:00Z" }];
   test.rerender(test.content("run-a", plan));
-  expect(await screen.findByText(/not a manual acceptance record/)).toBeInTheDocument();
+  expect(await screen.findByText(/Review manual acceptance and this execution/)).toBeInTheDocument();
   await test.user.click(screen.getByText("View completion source"));
   expect(screen.getByText("original-completion")).toBeVisible();
   expect(screen.getByText("original-run")).toBeVisible();

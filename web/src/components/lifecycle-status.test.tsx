@@ -17,7 +17,7 @@ it("distinguishes record state from a real running tool without changing failure
     <StatusBadge status="running" />
   </LocaleProvider>);
   expect(screen.getByText("未结束")).toHaveClass("status-open");
-  expect(screen.getByText("未关闭")).toHaveAttribute("title", "仅描述此上下文记录的状态，不决定对话是否可继续，也不表示 Agent 当前正在执行。");
+  expect(screen.getByText("未关闭")).toHaveAttribute("title", "上下文记录状态。继续交流请返回对话，查看当前工作进度请打开执行活动。");
   expect(screen.getByText("失败")).toHaveClass("status-failed");
   expect(screen.getByText("等待审批")).toHaveClass("status-waiting-approval");
   expect(screen.getAllByText("运行中")).toHaveLength(1);

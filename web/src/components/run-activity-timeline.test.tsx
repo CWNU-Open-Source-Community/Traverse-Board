@@ -14,7 +14,7 @@ describe("RunActivityTimeline", () => {
       status: "in_progress", call_id: "new-call", tool_name: "new_live_tool",
       argument_bytes: 24, provisional: true, durable: false }];
     renderTimeline(<RunActivityTimeline activity={value} liveCommentary={live} liveStatus="live" />);
-    expect(screen.getByText("记录时执行中")).toHaveAttribute("title", "已保存事件中的状态，不代表 Agent 当前仍在工作。");
+    expect(screen.getByText("记录时执行中")).toHaveAttribute("title", "事件保存时的执行状态。查看当前进度请核对最新活动。");
     expect(screen.getByText("正在准备调用 · 24 字节")).toBeInTheDocument();
     expect(screen.getByText("临时")).toBeInTheDocument();
     expect(screen.getByText("git diff --check")).toBeInTheDocument();
@@ -28,8 +28,8 @@ describe("RunActivityTimeline", () => {
     expect(screen.getByText("模型调用")).toBeInTheDocument();
     expect(screen.getByText("我会先核对工作区，再运行测试。")).toBeInTheDocument();
     expect(screen.getByText("模型响应完成")).toBeInTheDocument();
-    expect(screen.getByText("不包含私有思维链")).toBeInTheDocument();
-    expect(screen.getByText(/执行记录以 Harness 事件为准/u)).toBeInTheDocument();
+    expect(screen.getByText("公开活动")).toBeInTheDocument();
+    expect(screen.getByText(/实际操作结果请核对执行记录/u)).toBeInTheDocument();
     expect(screen.getByText("模型调用").closest("details")).not.toHaveAttribute("open");
   });
 
@@ -73,7 +73,7 @@ describe("RunActivityTimeline", () => {
     expect(screen.getByText("Universal Code")).toBeInTheDocument();
     expect(screen.getByText("正在检查差异，下一步运行测试。")).toBeInTheDocument();
     expect(screen.getByText("临时")).toBeInTheDocument();
-    expect(screen.getByText(/不会写入对话历史/u)).toBeInTheDocument();
+    expect(screen.getByText(/对话历史保存最终确认的内容/u)).toBeInTheDocument();
   });
 
   it("replaces provisional commentary when its durable identity arrives", () => {
@@ -123,7 +123,7 @@ describe("RunActivityTimeline", () => {
 
     expect(screen.getByText("read_file")).toBeInTheDocument();
     expect(screen.getByText("正在准备调用 · 32 字节")).toBeInTheDocument();
-    expect(screen.getByText(/Go 验证后才会执行/u)).toBeInTheDocument();
+    expect(screen.getByText(/服务端验证通过后执行/u)).toBeInTheDocument();
     expect(screen.queryByText(/README\.md/u)).not.toBeInTheDocument();
   });
 
@@ -150,7 +150,7 @@ describe("RunActivityTimeline", () => {
 
     expect(screen.getByRole("region", { name: "Run activity" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Activity" })).toBeInTheDocument();
-    expect(screen.getByText("No private chain of thought")).toBeInTheDocument();
+    expect(screen.getByText("Public activity")).toBeInTheDocument();
     expect(screen.getByText("No public activity yet")).toBeInTheDocument();
     expect(screen.queryByText("还没有公开活动")).not.toBeInTheDocument();
   });
