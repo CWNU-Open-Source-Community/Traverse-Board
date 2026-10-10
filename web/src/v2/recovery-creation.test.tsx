@@ -153,7 +153,7 @@ describe("first-message creation recovery", () => {
     const intent = prepare(first);
     first.unmount();
     const second = mount(client);
-    await screen.findByText(/这不是最终结论/);
+    await screen.findByText(/本次查询尚未找到创建记录。可点击“重新核对”/);
     fireEvent.click(screen.getByRole("button", { name: "重新核对" }));
     await waitFor(() => expect(client.inspectThreadCreationRequest).toHaveBeenCalledTimes(2));
     expect(client.inspectThreadCreationRequest).toHaveBeenLastCalledWith(workspaceID, `v2-thread-create-${intent.operationID}`, expect.any(AbortSignal));

@@ -132,8 +132,8 @@ export function useNativeClipboard({ workspaceID, threadID = "", disabled = fals
       const result = intent.result, count = (result?.images.length ?? 0) + (result?.attachments.length ?? 0);
       const busy = scope.busy.has(key);
       return <div key={key}>
-        <p>{busy ? "正在核对本次粘贴。" : intent.added ? "已加入核实的附件；原批次是否完整仍未确认。" : result?.batch_complete ?
-          "附件已保存，尚未加入当前消息。" : count ? "找到原请求已保存的附件；原批次是否完整仍未确认。" : "原粘贴结果尚未确认；不会重新读取剪贴板。"}</p>
+        <p>{busy ? "正在核对本次粘贴。" : intent.added ? "已加入找到的附件，原批次是否完整仍待确认。核对附件列表后，可点击“结束本次粘贴核对”。" : result?.batch_complete ?
+          "附件已保存。点击“加入已保存的附件”放入当前消息。" : count ? "已找到原请求保存的附件，原批次是否完整仍待确认。可点击“加入已保存的附件”放入当前消息。" : "原粘贴结果尚待确认，暂未找到已保存的附件。可点击“不加入本条消息”结束本次核对。"}</p>
         {count > 0 && <ul>{[...result!.images, ...result!.attachments].map((item) => <li key={item.id}>{item.name || "图片"}</li>)}</ul>}
         {count > 0 && !intent.added && <button type="button" className="v2-button" disabled={busy || disabled} onClick={() => {
           try { addSaved(key, intent); scope.error = null; } catch (error) { scope.error = errorText(error); } redraw();

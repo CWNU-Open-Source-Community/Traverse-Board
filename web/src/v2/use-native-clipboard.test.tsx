@@ -42,7 +42,7 @@ it("after a lost reply and reopen only inspects the original key and explicitly 
   expect(inspect).toHaveBeenCalledExactlyOnceWith(original); expect(paste).toHaveBeenCalledTimes(1); expect(imported).not.toHaveBeenCalled();
   fireEvent.click(screen.getByText("加入已保存的附件"));
   expect(imported).toHaveBeenCalledExactlyOnceWith([], [file]);
-  expect(screen.getByText("已加入核实的附件；原批次是否完整仍未确认。")).toBeInTheDocument();
+  expect(screen.getByText("已加入找到的附件，原批次是否完整仍待确认。核对附件列表后，可点击“结束本次粘贴核对”。")).toBeInTheDocument();
   expect(savedRecords()).toHaveLength(1);
   fireEvent.click(screen.getByText("结束本次粘贴核对"));
   expect(savedRecords()).toHaveLength(0); expect(paste).toHaveBeenCalledTimes(1);
@@ -113,5 +113,5 @@ it("a late observation does not reset another window's already-added receipt mar
   await act(async () => pending.resolve(result({ status: "partial", batch_complete: false })));
   expect(savedRecords()[0].value.added).toBe(true);
   expect(screen.queryByText("加入已保存的附件")).not.toBeInTheDocument();
-  expect(screen.getByText("已加入核实的附件；原批次是否完整仍未确认。")).toBeInTheDocument();
+  expect(screen.getByText("已加入找到的附件，原批次是否完整仍待确认。核对附件列表后，可点击“结束本次粘贴核对”。")).toBeInTheDocument();
 });

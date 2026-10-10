@@ -50,7 +50,7 @@ export const v2TurnOutcomeKnown = (error: unknown) => v2TurnWasNotQueued(error) 
 const mutationKey = ["v2", "submit-turn"] as const;
 
 export class V2RecoveredSubmissionError extends Error {
-  constructor() { super("上次退出时未取得完整提交结果；核对只读取记录，不会自动重发。"); }
+  constructor() { super("上次退出时提交结果尚待确认。请使用“重试核对”查看原提交记录。"); }
 }
 
 export function registerV2RecoveredTurn(client: ReturnType<typeof useQueryClient>, input: V2TurnInput) {

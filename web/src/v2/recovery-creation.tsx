@@ -157,11 +157,11 @@ export function useV2CreationRecovery(client: APIClient, workspaceID: string,
         if (abort.signal.aborted) return;
         if (thread) verifiedThreads.current.set(intent.operationID, thread);
         setObservations((current) => ({ ...current, [intent.operationID]: thread
-          ? { thread, message: "已找到原对话；打开后将核对首条消息，不会自动重发。" }
-          : { message: "本次查询尚未发现创建记录；这不是最终结论。再次发送相同内容时会先核对原请求。" } }));
+          ? { thread, message: "已找到原对话。点击“打开原对话”查看首条消息的提交结果。" }
+          : { message: "本次查询尚未找到创建记录。可点击“重新核对”；再次发送相同内容时会先核对原请求。" } }));
       }).catch(() => {
         if (!abort.signal.aborted) setObservations((current) => ({ ...current,
-          [intent.operationID]: { message: "暂时无法核对原创建请求。原内容和标识已保留，未自动重发。" } }));
+          [intent.operationID]: { message: "暂时无法核对原创建请求，原内容与请求标识已保留。请点击“重新核对”查看结果。" } }));
       });
     }
     return () => abort.abort();
@@ -195,7 +195,7 @@ export function useV2CreationRecovery(client: APIClient, workspaceID: string,
       return thread;
     } catch (failure) {
       setObservations((current) => ({ ...current, [saved.operationID]: {
-        message: "原创建结果尚未确认；原内容已保存，可以重新核对。", } }));
+        message: "原创建结果尚待确认，内容已保存。请点击“重新核对”查看结果。", } }));
       throw failure;
     }
   };
@@ -221,7 +221,7 @@ export function useV2CreationRecovery(client: APIClient, workspaceID: string,
     {error && <p className="v2-notice tone-warning" role="alert">{error}</p>}
     {intents.map((intent) => <section key={intent.operationID} className="v2-notice" aria-label="上次创建的对话">
       <p>{intent.request.goal.slice(0, 120)}</p>
-      <p role="status">{observations[intent.operationID]?.message ?? "原创建请求已保存，尚未取得完整结果；不会自动创建或发送。"}</p>
+      <p role="status">{observations[intent.operationID]?.message ?? "原创建请求已保存，结果尚待确认。可点击“重新核对”查看记录。"}</p>
       {observations[intent.operationID]?.thread && <button className="v2-composer-chip" onClick={() => {
         try {
           const thread = observations[intent.operationID].thread!;
