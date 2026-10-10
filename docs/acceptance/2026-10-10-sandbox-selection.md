@@ -54,6 +54,11 @@ An additional expanded Docker run timed out in the existing
 source inspection; that run is not counted as a pass. The final focused cleanup
 regressions completed independently.
 
+The first remote CI run also caught an omitted v188 development-history entry
+and the Desktop Bridge method allowlist still expecting 19 exports after the
+fixed settings restart method was added. Both contracts were updated, and their
+targeted regression tests passed locally before the CI rerun.
+
 ## Browser evidence
 
 Playwright opened a real Chromium instance against a static page built from the
