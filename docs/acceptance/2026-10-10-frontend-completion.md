@@ -49,6 +49,9 @@ journey completes.
   complete long briefs, pending-context overflow, escaped/assembled/literal
   secret rejection before writes, delivery/rework accounting and replay.
 - Full Hooks, protocol registry and surface governance packages passed.
+- The broader Batch delivery/workbench and Specialist accounting regression run
+  passed in 126.289s. Vet passed for Application, HTTP, Desktop, Plugins, Hooks
+  and Store.
 - Protocol registry generation/check passed with all new identifiers registered.
 - Plugin lane browser checks used real Go/SQLite lifecycle state and original
   browser captures, including rollback/revocation and 390px layout. These are
@@ -70,3 +73,34 @@ journey completes.
   deleted or reset. Real Docker execution remains unverified on this host.
 - This host is Windows. Darwin cross-compilation and controlled Docker assembly
   tests do not establish interactive macOS or real macOS Docker acceptance.
+- Read-only inspection also confirms that this process is not elevated. A new
+  production WFP network probe requires an elevated token; no fake readiness,
+  elevation workaround or probe was used. The native UI Evidence acceptance
+  helper compiles and remains prepared for an authorized native run.
+
+## First PR CI and packaged candidate
+
+[PR #296](https://github.com/CWNU-Open-Source-Community/Universal-Code/pull/296)
+uses Qiyuanqiii for both its commits and author. The first
+[CI run](https://github.com/CWNU-Open-Source-Community/Universal-Code/actions/runs/38024147163)
+targets `e900bbf6`; its merge checkout `be9d6fcd` has the same tree hash.
+Observed successes include the frontend suite, authority race checks, dependency
+audit, all three real LSP platforms and the real Edge matrix. macOS Keychain and
+POSIX process-tree tests passed. That macOS job then failed two new Docker
+assembly fixtures because its temporary home used the `/var` path alias. Store
+shard 7 found the missing v187 schema-history documentation row. The follow-up
+canonicalizes only test homes and completes the history row; final rerun results
+are available from the PR checks.
+
+The Edge CI artifact includes actual light desktop and dark/reduced-motion 390px
+captures, a deliberately detected regression and successful browser/process/profile
+cleanup. All three image lengths and SHA-256 hashes were verified against the
+original receipt. This matrix uses a synthetic page and the real Edge driver;
+it does not establish the rebuilt workbench's complete real-account journey.
+
+A clean `e900bbf6` Windows candidate built with Go 1.26.9 and Node 24.16.0 passed
+Desktop/WebUI/Wails/assets tests, 15 automated compatibility checks and repeated
+EXE/ZIP hash comparison. The packaged application was not launched. Build metadata,
+SBOM, notices and checksums remain in the ignored evidence directory; later clean
+candidate builds retain their own revision and hashes. Manual WebView2/display and
+recovery checks remain separate acceptance items.

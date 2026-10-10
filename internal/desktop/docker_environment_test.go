@@ -66,7 +66,11 @@ func TestDesktopDockerAssemblyWorksIndependentlyOfLocalBackend(t *testing.T) {
 	if err != nil || localReadiness.Ready {
 		t.Fatalf("expected closed Local backend: %#v %v", localReadiness, err)
 	}
-	root := t.TempDir()
+	// Resolve platform temp aliases before deriving managed worktree paths.
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
 	plane, err := OpenControlPlane(ControlPlaneConfig{DatabasePath: filepath.Join(root, "desktop.db"), HomePath: root,
 		ReadToken: desktopControlPlaneTestToken, ControlToken: desktopControlPlaneControlToken,
 		RunControlEnabled: true, RunExecutionEnabled: true, ExecutionPermissionControlEnabled: true,

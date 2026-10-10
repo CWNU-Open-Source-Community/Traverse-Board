@@ -24,7 +24,11 @@ func TestDesktopUnsupportedLocalBackendDoesNotPreventDockerComposition(t *testin
 	if !WorkspaceSandboxRuntimeAvailable(true, true, &localReadiness, &docker) {
 		t.Fatal("Docker proof could not supply independent generic readiness")
 	}
-	root := t.TempDir()
+	// Resolve platform temp aliases before deriving managed worktree paths.
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
 	plane, err := OpenControlPlane(ControlPlaneConfig{DatabasePath: filepath.Join(root, "desktop.db"), HomePath: root,
 		ReadToken: desktopControlPlaneTestToken, ControlToken: desktopControlPlaneControlToken,
 		RunControlEnabled: true, RunExecutionEnabled: true, ExecutionPermissionControlEnabled: true,

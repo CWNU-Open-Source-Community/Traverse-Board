@@ -32,7 +32,7 @@ func (transport apiEnvironmentDockerTransport) InspectImage(context.Context, str
 }
 
 func TestAPIServeDockerRuntimeAssemblesWithUnsupportedLocalBackend(t *testing.T) {
-	t.Setenv("CYBERAGENT_HOME", t.TempDir())
+	t.Setenv("CYBERAGENT_HOME", newCanonicalCLIHome(t))
 	t.Setenv("MIMO_API_KEY", "")
 	t.Setenv("DEEPSEEK_API_KEY", "")
 	t.Setenv("CYBERAGENT_ANTHROPIC_API_KEY", "")
