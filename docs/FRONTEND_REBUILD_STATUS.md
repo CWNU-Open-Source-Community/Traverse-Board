@@ -5,6 +5,17 @@ Baseline: main `71ede3053b1d71f4c6e4f7053b355ebe301c1a1b`, checked on
 the first recovery/connection fixes; #286 contributes scoped journey fixes.
 Passing those slices does not establish complete product or platform acceptance.
 
+## Neutral glass follow-up — 2026-10-10
+
+PR #294 merged into main `4a5c8909`. The next user-directed visual pass removes
+the separate V2 purple accent and decorative yellow/orange/blue/green palettes.
+Shared neutral material tokens supply white filled primary controls, dark button
+text and high-opacity light/dark/glass surfaces. Semantic errors, code diffs and
+terminal ANSI content retain their meaning. The [palette inventory](branding/neutral-glass-palette.md)
+records before/after counts, accessibility checks and original browser evidence.
+This visual pass leaves the remaining environment, extension and native journey
+roadmap below in place.
+
 ## Product guidance revision — 2026-10-10
 
 The user's latest direction treats language and information architecture as part

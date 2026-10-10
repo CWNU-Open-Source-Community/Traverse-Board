@@ -1,6 +1,6 @@
 .github-review-thread {
   padding: 10px 0;
-  border-top: 1px solid var(--border);
+  border-top: 1px solid var(--prayu-border);
   overflow-wrap: anywhere;
 }
 

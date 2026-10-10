@@ -45,7 +45,6 @@ export const v2ModelProviderPresets: readonly V2ConfiguredModelProviderPreset[] 
     providerName: "Claude",
     modelName: "claude-sonnet-5",
     icon: icons.anthropic,
-    accent: "#806d61",
     kind: "api_key",
     draft: {
       id: "official-anthropic",
@@ -66,7 +65,6 @@ export const v2ModelProviderPresets: readonly V2ConfiguredModelProviderPreset[] 
     providerName: "OpenAI",
     modelName: "gpt-6.1-sol",
     icon: icons.openai,
-    accent: "#536f6b",
     kind: "api_key",
     draft: {
       id: "official-openai",
@@ -87,7 +85,6 @@ export const v2ModelProviderPresets: readonly V2ConfiguredModelProviderPreset[] 
     providerName: "DeepSeek",
     modelName: "deepseek-v4-flash",
     icon: icons.deepseek,
-    accent: "#4d6eaf",
     kind: "api_key",
     draft: {
       id: "official-deepseek",
@@ -108,7 +105,6 @@ export const v2ModelProviderPresets: readonly V2ConfiguredModelProviderPreset[] 
     providerName: "Gemini",
     modelName: "gemini-3.7-flash",
     icon: icons.gemini,
-    accent: "#536ea5",
     kind: "api_key",
     draft: {
       id: "official-google-gemini",
@@ -129,7 +125,6 @@ export const v2ModelProviderPresets: readonly V2ConfiguredModelProviderPreset[] 
     providerName: "Grok",
     modelName: "grok-4.6",
     icon: <GrokIcon />,
-    accent: "#4e555d",
     kind: "api_key",
     draft: {
       id: "official-xai",
@@ -150,7 +145,6 @@ export const v2ModelProviderPresets: readonly V2ConfiguredModelProviderPreset[] 
     providerName: "MiniMax",
     modelName: "MiniMax-M3",
     icon: icons.minimax,
-    accent: "#755f9b",
     kind: "api_key",
     draft: {
       id: "official-minimax",
@@ -171,7 +165,6 @@ export const v2ModelProviderPresets: readonly V2ConfiguredModelProviderPreset[] 
     providerName: "MiMo",
     modelName: "mimo-v2.5-pro",
     icon: icons.xiaomi,
-    accent: "#b7683d",
     kind: "api_key",
     draft: {
       id: "official-mimo",
@@ -192,7 +185,6 @@ export const v2ModelProviderPresets: readonly V2ConfiguredModelProviderPreset[] 
     providerName: "Kimi",
     modelName: "kimi-k3",
     icon: icons.kimi,
-    accent: "#536882",
     kind: "api_key",
     draft: {
       id: "official-kimi",
@@ -213,7 +205,6 @@ export const v2ModelProviderPresets: readonly V2ConfiguredModelProviderPreset[] 
     providerName: "Kimi for Coding",
     modelName: "kimi-for-coding",
     icon: icons.kimi,
-    accent: "#6c5d8f",
     kind: "api_key",
     draft: {
       id: "official-kimi-coding",
@@ -234,7 +225,6 @@ export const v2ModelProviderPresets: readonly V2ConfiguredModelProviderPreset[] 
     providerName: "OpenCode Go",
     modelName: "gpt-5.6-luna",
     icon: icons.opencode,
-    accent: "#57646b",
     kind: "api_key",
     draft: {
       id: "opencode-go",
@@ -255,7 +245,6 @@ export const v2ModelProviderPresets: readonly V2ConfiguredModelProviderPreset[] 
     providerName: "GitHub Copilot",
     modelName: "账户接入",
     icon: icons.copilot,
-    accent: "#4d5868",
     kind: "account",
     setup: { kind: "account", connected: false, accountName: "GitHub 账户" },
   },

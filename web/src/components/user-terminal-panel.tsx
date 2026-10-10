@@ -69,20 +69,21 @@ export function UserTerminalPanel({ runID, sessionID, onSession }: {
       fontSize: 13,
       lineHeight: 1.18,
       scrollback: 5000,
+      // Keep the terminal canvas neutral; ANSI colors preserve command-output meaning.
       theme: {
-        background: "#171512",
-        foreground: "#f2e4cc",
-        cursor: "#f58231",
-        cursorAccent: "#171512",
-        selectionBackground: "#a94b2473",
-        black: "#171512",
+        background: "#181818",
+        foreground: "#ededed",
+        cursor: "#ededed",
+        cursorAccent: "#181818",
+        selectionBackground: "#ffffff38",
+        black: "#181818",
         red: "#ef6b5d",
         green: "#8fbf71",
         yellow: "#e2b45f",
         blue: "#78a9d4",
         magenta: "#c792b6",
         cyan: "#74b6b0",
-        white: "#f2e4cc",
+        white: "#ededed",
       },
     });
     const fit = new FitAddon();

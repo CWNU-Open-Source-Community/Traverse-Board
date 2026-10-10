@@ -18,7 +18,6 @@ const presets: V2ModelProviderPreset[] = [
     providerName: "OpenAI",
     modelName: "GPT-5",
     icon: <Circle data-testid="openai-mark" />,
-    accent: "#506b77",
   },
   {
     id: "anthropic",
@@ -97,8 +96,7 @@ describe("V2 model settings", () => {
     const openAIButton = screen.getByRole("button", { name: /OpenAI，GPT-5/u });
     const icon = within(openAIButton).getByTestId("openai-mark");
     expect(icon.closest(".v2-model-card-icon")).toHaveAttribute("aria-hidden", "true");
-    expect(modelStyles).toContain("backdrop-filter: blur(18px) saturate(145%)");
-    expect(modelStyles).toContain("color: #fff");
+    expect(modelStyles).toContain("backdrop-filter: blur(18px)");
     expect(modelStyles).toContain("prefers-reduced-transparency: reduce");
     expect(modelStyles).toContain("background: var(--v2-control)");
   });
