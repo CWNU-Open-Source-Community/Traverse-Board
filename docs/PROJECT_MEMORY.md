@@ -6,7 +6,7 @@
 > Task, approval, recovery and delivery copy explains the current state and next
 > available action. Technical records expand on demand, while decision effects
 > stay visible. See [product language](PRODUCT_LANGUAGE.md) and the
-> [integrated verification](FRONTEND_REBUILD_STATUS.md): 186 frontend files / 1,829
+> [integrated verification](FRONTEND_REBUILD_STATUS.md): 186 frontend files / 1,834
 > tests, production build and an isolated real-browser pass. Remaining P4/P5 work
 > continues under the same rebuild roadmap.
 

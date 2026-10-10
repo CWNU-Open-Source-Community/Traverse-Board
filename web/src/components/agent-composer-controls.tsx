@@ -142,6 +142,7 @@ function ModelQuickPicker({ client, route }: { client: APIClient; route: string 
   });
   const selected = query.data?.routes.find((candidate) => candidate.name === route);
   const refresh = async () => {
+    if (mutation.isPending || query.isFetching) return;
     const result = await query.refetch();
     if (!result.isError) mutation.reset();
   };
@@ -164,7 +165,7 @@ function ModelQuickPicker({ client, route }: { client: APIClient; route: string 
       {query.isError && <small className="composer-popover-error">{t("模型列表读取失败，请重新读取。", "Model list could not be loaded. Refresh it to continue.")}</small>}
       {options.map((option) => {
         const active = selected?.provider === option.provider && selected.model === option.model;
-        return <button disabled={!client.hasModelControl || mutation.isPending}
+        return <button disabled={!client.hasModelControl || mutation.isPending || query.isFetching}
           key={`${option.provider}/${option.model}`}
           onClick={() => mutation.mutate(option)} role="menuitemradio"
           aria-checked={active} type="button">
@@ -176,7 +177,7 @@ function ModelQuickPicker({ client, route }: { client: APIClient; route: string 
         <small className="composer-popover-note">{t("到模型设置中连接一个供应商，验证通过后在这里选择模型。", "Connect and verify a provider in model settings, then select a model here.")}</small>}
       {!client.hasModelControl && <small className="composer-popover-note">{t("当前可查看模型。切换模型需要服务启用模型管理功能。", "You can view models here. Switching requires model management to be enabled on the service.")}</small>}
       {mutation.isError && <small className="composer-popover-error">{t("模型切换结果需要确认，请重新读取当前状态。", "Refresh the current model to confirm the switch result.")}</small>}
-      {(query.isError || mutation.isError) && <button disabled={query.isFetching} onClick={() => void refresh()} role="menuitem" type="button">
+      {(query.isError || mutation.isError) && <button disabled={query.isFetching || mutation.isPending} onClick={() => void refresh()} role="menuitem" type="button">
         {t("重新读取模型", "Refresh models")}</button>}
     </div>}
   </div>;

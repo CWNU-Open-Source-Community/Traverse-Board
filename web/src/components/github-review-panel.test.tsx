@@ -256,14 +256,40 @@ describe("GitHubReviewPanel", () => {
     const selected = { ...connection(), enabled: false, client_id: undefined,
       credential: { name: "existing-pat", kind: "fine_grained_pat" } };
     const configureGitHubReview = vi.fn().mockResolvedValue({ connection: { ...selected, generation: 2 } });
-    renderPanel(mockClient([selected], { configureGitHubReview }));
+    renderPanel(mockClient([selected], { configureGitHubReview,
+      githubReviewCredential: vi.fn().mockResolvedValue(credentialView(selected, false)) }));
     await screen.findByDisplayValue("existing-pat");
+    expect(await screen.findByText(/This connection is disabled. Select an enabled GitHub connection/u)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Device sign-in" })).not.toBeInTheDocument();
     expect(screen.getByLabelText("GitHub App Client ID")).toBeDisabled();
     await user.click(screen.getByRole("button", { name: "Update connection" }));
     await waitFor(() => expect(configureGitHubReview).toHaveBeenCalledWith(expect.objectContaining({
       credential: selected.credential, client_id: undefined, enabled: false, expected_generation: 1,
     })));
+  });
+
+  it.each(["fine_grained_pat", "oauth_user"] as const)("guides missing %s credentials to an existing reference update", async (kind) => {
+    const user = userEvent.setup();
+    let selected = { ...connection(), client_id: undefined, credential: { name: "missing-credential", kind } };
+    const configureGitHubReview = vi.fn().mockImplementation(async (body) => {
+      selected = { ...selected, credential: body.credential, generation: selected.generation + 1 };
+      return { connection: selected };
+    });
+    renderPanel(mockClient([selected], { configureGitHubReview,
+      githubReviewCredential: vi.fn().mockImplementation(async () => credentialView(selected, selected.credential.name === "saved-credential")),
+      githubReviewConnections: vi.fn().mockImplementation(async () => [credentialView(selected, selected.credential.name === "saved-credential")]),
+    }));
+    expect(await screen.findByText(`The local ${kind === "fine_grained_pat" ? "PAT" : "OAuth"} credential is missing. Enter a stored credential name of the same type in Credential reference and select Update connection. For device sign-in, choose New connection to configure a GitHub App.`)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Device sign-in" })).not.toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "New connection" })).toBeEnabled();
+    await user.clear(screen.getByLabelText("Credential reference"));
+    await user.type(screen.getByLabelText("Credential reference"), "saved-credential");
+    await user.click(screen.getByRole("button", { name: "Update connection" }));
+    await waitFor(() => expect(configureGitHubReview).toHaveBeenCalledWith(expect.objectContaining({
+      credential: { name: "saved-credential", kind }, expected_generation: 1, enabled: true,
+    })));
+    expect(await screen.findByText("Local credential is configured.")).toBeInTheDocument();
+    expect(screen.queryByText(/credential is missing/u)).not.toBeInTheDocument();
   });
 
   it("keeps explicit new-connection mode and creates with generation zero", async () => {
@@ -372,17 +398,19 @@ describe("GitHubReviewPanel", () => {
     expect(screen.queryByText("Local credential deleted for this connection.")).not.toBeInTheDocument();
   });
 
-  it("gates credential deletion on process control and credential store capability", async () => {
+  it.each([true, false])("gates credential actions when storage is unavailable with configured=%s", async (configured) => {
     const disconnectGitHubReview = vi.fn();
     const { unmount } = renderPanel(mockClient([connection()], { hasGitHubReviewControl: false, disconnectGitHubReview }));
     expect(screen.queryByRole("button", { name: "Delete local credential…" })).not.toBeInTheDocument();
     unmount();
-    const unavailable = credentialView();
+    const unavailable = credentialView(connection(), configured);
     unavailable.credential.store_available = false;
     renderPanel(mockClient([connection()], { githubReviewCredential: vi.fn().mockResolvedValue(unavailable), disconnectGitHubReview }));
-    await screen.findByText("Local credential is configured.");
+    await screen.findByText(/The system credential store is unavailable/u);
     expect(screen.getByRole("button", { name: "Delete local credential…" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Device sign-in" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Reload latest settings" })).toBeEnabled();
+    expect(screen.queryByText("Use device sign-in to configure the local credential.")).not.toBeInTheDocument();
     expect(disconnectGitHubReview).not.toHaveBeenCalled();
   });
 

@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { APIClient } from "../api/client";
 import { AgentComposerControls } from "./agent-composer-controls";
@@ -41,9 +41,16 @@ function renderControls(client: APIClient, props: Record<string, unknown> = {}) 
   const queryClient = new QueryClient({ defaultOptions: {
     queries: { retry: false }, mutations: { retry: false },
   } });
-  return render(<QueryClientProvider client={queryClient}>
+  const view = render(<QueryClientProvider client={queryClient}>
     <AgentComposerControls client={client} route="code" {...props} />
   </QueryClientProvider>);
+  return { ...view, queryClient };
+}
+
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((done) => { resolve = done; });
+  return { promise, resolve };
 }
 
 describe("AgentComposerControls", () => {
@@ -108,5 +115,60 @@ describe("AgentComposerControls", () => {
     expect(client.modelAvailability).toHaveBeenCalledTimes(2);
     expect(client.selectModelRoute).toHaveBeenCalledTimes(1);
     expect(screen.getByRole("button", { name: "选择模型，当前 mock-code" })).toBeInTheDocument();
+  });
+
+  it("keeps refresh disabled while a model switch is pending after a failed read", async () => {
+    const user = userEvent.setup();
+    const write = deferred<Awaited<ReturnType<APIClient["selectModelRoute"]>>>();
+    const client = modelClient({ selectModelRoute: vi.fn().mockReturnValue(write.promise) });
+    const { queryClient } = renderControls(client);
+    await user.click(screen.getByRole("button", { name: "选择模型，当前 code" }));
+    const fast = await screen.findByRole("menuitemradio", { name: /mock-fast/ });
+
+    vi.mocked(client.modelAvailability).mockRejectedValueOnce(new Error("read failed"));
+    await act(async () => {
+      await queryClient.invalidateQueries({ queryKey: ["models", "availability"] });
+    });
+    const refresh = await screen.findByRole("menuitem", { name: "重新读取模型" });
+    await user.click(fast);
+    await waitFor(() => expect(client.selectModelRoute).toHaveBeenCalledTimes(1));
+    expect(refresh).toBeDisabled();
+    expect(fast).toBeDisabled();
+    await user.click(refresh);
+    await user.click(screen.getByRole("menuitemradio", { name: /mock-code/ }));
+    expect(client.modelAvailability).toHaveBeenCalledTimes(2);
+    expect(client.selectModelRoute).toHaveBeenCalledTimes(1);
+
+    await act(async () => write.resolve({
+      name: "code", provider: "mock", model: "mock-fast", available: true, harness_ready: true,
+    }));
+    await waitFor(() => expect(screen.queryByRole("menu", { name: "选择模型" })).not.toBeInTheDocument());
+  });
+
+  it("waits for model readback before enabling another switch", async () => {
+    const user = userEvent.setup();
+    const read = deferred<Awaited<ReturnType<APIClient["modelAvailability"]>>>();
+    const client = modelClient();
+    vi.mocked(client.selectModelRoute).mockRejectedValueOnce(new Error("connection lost"));
+    const { queryClient } = renderControls(client);
+    await user.click(screen.getByRole("button", { name: "选择模型，当前 code" }));
+    const fast = await screen.findByRole("menuitemradio", { name: /mock-fast/ });
+    const modelData = queryClient.getQueryData<Awaited<ReturnType<APIClient["modelAvailability"]>>>(
+      ["models", "availability"],
+    )!;
+    await user.click(fast);
+    const refresh = await screen.findByRole("menuitem", { name: "重新读取模型" });
+    vi.mocked(client.modelAvailability).mockReturnValueOnce(read.promise);
+    await user.click(refresh);
+    expect(refresh).toBeDisabled();
+    expect(fast).toBeDisabled();
+    await user.click(fast);
+    expect(client.selectModelRoute).toHaveBeenCalledTimes(1);
+
+    await act(async () => read.resolve(modelData));
+    await waitFor(() => expect(fast).toBeEnabled());
+    expect(screen.queryByRole("menuitem", { name: "重新读取模型" })).not.toBeInTheDocument();
+    await user.click(fast);
+    await waitFor(() => expect(client.selectModelRoute).toHaveBeenCalledTimes(2));
   });
 });

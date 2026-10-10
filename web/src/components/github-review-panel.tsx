@@ -441,8 +441,18 @@ function GitHubReviewWorkspace({ client, runID, onOpenApprovals,
           {t("删除本机凭据…", "Delete local credential…")}</button>
       </div>}
       {credential.isError && <ErrorState error={credential.error} />}
-      {credentialCurrent && <small>{credential.data?.credential.configured ? t("本机凭据已配置。", "Local credential is configured.") :
-        t("请使用设备登录配置本机凭据。", "Use device sign-in to configure the local credential.")}</small>}
+      {credentialCurrent && <small>{!credential.data?.credential.store_available ? t(
+        "系统凭据库当前不可用。请连接支持系统凭据存储的服务，再点击“重新载入最新设置”核对。",
+        "The system credential store is unavailable. Connect to a service with system credential storage, then select Reload latest settings to check again.")
+        : credential.data.credential.configured ? t("本机凭据已配置。", "Local credential is configured.")
+        : !form.connection?.enabled ? t(
+          "此连接已停用。请从“GitHub 连接”选择已启用的连接，或选择“新建连接”重新配置。",
+          "This connection is disabled. Select an enabled GitHub connection, or choose New connection to configure another.")
+        : form.connection.credential.kind === "github_app_device" ? t(
+          "请使用设备登录配置本机凭据。", "Use device sign-in to configure the local credential.")
+        : t(
+          `本机尚未配置 ${form.connection.credential.kind === "fine_grained_pat" ? "PAT" : "OAuth"} 凭据。请在“凭据引用”填写已保存且类型匹配的凭据名称，再点击“更新连接”；需要设备登录时，请选择“新建连接”配置 GitHub App。`,
+          `The local ${form.connection.credential.kind === "fine_grained_pat" ? "PAT" : "OAuth"} credential is missing. Enter a stored credential name of the same type in Credential reference and select Update connection. For device sign-in, choose New connection to configure a GitHub App.`)}</small>}
       {device && <div className="github-review-device"><code>{device.user_code}</code>
         <a href={device.verification_uri} rel="noreferrer" target="_blank">github.com/login/device <ExternalLink size={12} /></a>
         <button disabled={pending || !canSignIn} onClick={() => {

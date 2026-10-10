@@ -29,13 +29,18 @@ at the relevant decision. Independent review corrected guidance for staged MCP
 credentials, configured reasoning effort, unavailable browser/UI Evidence
 capabilities and already-applied or denied revert proposals. Existing identity,
 approval, recovery and capability checks remain the behavioral acceptance criteria.
+Model selection waits for refreshes and pending switches to finish, preserving
+the in-flight write state. GitHub credential guidance follows the connection's
+actual credential type, enabled state and system-store availability.
 
 Verification for this revision:
 
-- Full Vitest: **186 files, 1,829 tests passed** on the integrated code. The full
+- Full Vitest: **186 files, 1,834 tests passed** on the integrated code. The full
   run initially found cross-component assertions referring to old text; their
   selectors were updated while retaining request, binding, recovery and authority
   assertions. The final full run passed without retries or increased timeouts.
+  Deferred-response regressions cover both refresh/switch orderings; GitHub
+  connection tests cover missing PAT/OAuth credentials and unavailable storage.
 - TypeScript, production build and generated API/transcript-key checks passed.
   Existing large-chunk build warnings remain.
 - Production assets served by the real Go API and isolated test database were
