@@ -180,7 +180,7 @@ export function TaskPullRequest({ client, threadID, working, onFeedback, onGit }
         {!snapshot && <p>尚无这份 PR 的 CI 或评论快照，请刷新远端。</p>}
         {snapshot && <>
           <p className="v2-pr-meta">上次抓取：{new Date(snapshot.fetched_at).toLocaleString()} · 提交 <code>{snapshot.identity.head_sha.slice(0, 12)}</code></p>
-          {Boolean(git.data?.changes.length) && <p role="status" className="v2-pr-notice">工作目录还有未提交的改动，以下 CI 对应上方提交。请先提交并推送这些改动，再核对新提交的检查结果。</p>}
+          {Boolean(git.data?.changes.length) && <p role="status" className="v2-pr-notice">工作目录还有未提交的改动，以下 CI 对应上方提交。请先核对本次 PR 的范围，选择相关文件提交并推送，再核对新提交的检查结果。</p>}
           {(drift || refresh.isError) && <p role="status" className="v2-pr-notice">{refresh.isError ? "本次刷新失败，以下保留上次读取的记录。请重试刷新远端 CI 和评论。" : "远端记录与当前本地版本不同。请核对本地提交与远端提交，推送后刷新检查结果。"}</p>}
           {(snapshot.omissions.length > 0 || fresh.data?.omissions.length) ? <details className="v2-pr-details"><summary>部分资料未能读取</summary><ul>{[...new Set([...snapshot.omissions, ...(fresh.data?.omissions ?? [])])].map((reason) => <li key={reason}>{reason}</li>)}</ul></details> : null}
           <section className="v2-pr-records" aria-label="CI 检查"><h3>CI 检查 <span>{snapshot.check_runs.length} 项检查 · {snapshot.jobs.length} 项作业</span></h3>{!snapshot.check_runs.length && !snapshot.jobs.length && <p>CI 结果尚未读取，检查结论待确认。请刷新远端 CI 和评论。</p>}

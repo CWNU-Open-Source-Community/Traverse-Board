@@ -179,7 +179,9 @@ export function V2BrowserCDPControl({ client, runID, permissionMode,
       {mutation.error instanceof Error ? mutation.error.message : "完整 CDP 更新失败"}
     </p>}
     <V2ConfirmDialog busy={mutation.isPending} confirmLabel="开启完整 CDP" danger
-      description="完整 CDP 可以读取 Cookie、捕获和修改网络请求、重放请求并调用任意 CDP 方法。控制范围为 Universal Code 管理的隔离浏览器，系统浏览器和应用界面保持独立。此权限默认随完全访问或调试模式开启，关闭后重新开启需要确认。启用后可在“应用预览”中打开独立浏览器。"
+      description={`完整 CDP 可以读取 Cookie、捕获和修改网络请求、重放请求并调用任意 CDP 方法。控制范围为 Universal Code 管理的隔离浏览器，系统浏览器和应用界面保持独立。此权限默认随完全访问或调试模式开启，关闭后重新开启需要确认。${client.hasFullCDPSessionControl
+        ? "启用后可在“应用预览”中打开独立浏览器。"
+        : "当前连接尚未开放托管浏览器。使用支持此能力的连接后，可在“应用预览”中打开独立浏览器。"}`}
       onCancel={() => {
         mutation.reset();
         setConfirmOpen(false);

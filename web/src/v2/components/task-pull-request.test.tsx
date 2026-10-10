@@ -291,7 +291,7 @@ it("explains that matching remote CI does not validate uncommitted worktree chan
   f.client.githubReviewProjection.mockResolvedValue({ snapshots: [{ id: "saved-ci-1", fetched_at: "2026-09-11T00:00:00Z",
     identity: { number: pr.number, head_sha: head }, omissions: [], check_runs: [], jobs: [], threads: [], loose_comments: [], reviews: [] }] });
   show(f.client, vi.fn(), { seed: (store) => { store.write("thread:thread-1:pr-connection", "connection-1"); store.write("thread:thread-1:pr-number", pr.number); } });
-  await screen.findByText("工作目录还有未提交的改动，以下 CI 对应上方提交。请先提交并推送这些改动，再核对新提交的检查结果。");
+  await screen.findByText("工作目录还有未提交的改动，以下 CI 对应上方提交。请先核对本次 PR 的范围，选择相关文件提交并推送，再核对新提交的检查结果。");
   expect(screen.queryByText("远端记录与当前本地版本不同。请核对本地提交与远端提交，推送后刷新检查结果。")).not.toBeInTheDocument();
   expect(f.client.postControl).not.toHaveBeenCalled();
 });

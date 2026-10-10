@@ -34,11 +34,12 @@ function permission(mode: RunBrowserCDPPermissionView["mode"]): RunBrowserCDPPer
 }
 
 function renderControl({ initial = permission("restricted"), runID = "run-1",
-  mode = "full", executionRuntimeAvailable = true }: {
+  mode = "full", executionRuntimeAvailable = true, sessionControlEnabled = true }: {
   initial?: RunBrowserCDPPermissionView;
   runID?: string;
   mode?: ThreadExecutionPermissionView["mode"] | null;
   executionRuntimeAvailable?: boolean;
+  sessionControlEnabled?: boolean;
 } = {}) {
   const get = vi.fn().mockResolvedValue({
     browser_cdp_permission: initial,
@@ -60,7 +61,7 @@ function renderControl({ initial = permission("restricted"), runID = "run-1",
   } });
   const closeFullCDPSession = vi.fn();
   const client = { hasBrowserCDPPermissionControl: true, hasFullCDPDebug: true,
-    hasFullCDPSessionControl: true,
+    hasFullCDPSessionControl: sessionControlEnabled,
     get, postControl, getFullCDPSession, openFullCDPSession, closeFullCDPSession,
   } as unknown as APIClient;
   const queryClient = new QueryClient({ defaultOptions: {
@@ -123,6 +124,20 @@ describe("V2BrowserCDPControl", () => {
     expect(toggle).toHaveAttribute("aria-checked", "false");
     expect(screen.getByText(/高风险 CDP 需要在当前任务确认并激活完全访问/u)).toBeInTheDocument();
     expect(screen.getByText(/受限导航、DOM 与截图不受影响/u)).toBeInTheDocument();
+  });
+
+  it("explains missing managed-browser support while preserving permission activation", async () => {
+    const user = userEvent.setup();
+    const controls = renderControl({ sessionControlEnabled: false });
+    await user.click(await screen.findByRole("switch", { name: "完整 CDP 控制" }));
+    const dialog = screen.getByRole("dialog", { name: "开启完整 CDP 控制？" });
+    expect(within(dialog).getByText(/当前连接尚未开放托管浏览器/u)).toBeVisible();
+    expect(within(dialog).queryByText(/启用后可在“应用预览”中打开独立浏览器/u)).not.toBeInTheDocument();
+    await user.click(within(dialog).getByRole("button", { name: "开启完整 CDP" }));
+    await waitFor(() => expect(controls.postControl).toHaveBeenCalledTimes(1));
+    expect(screen.queryByRole("button", { name: /启动会话/u })).not.toBeInTheDocument();
+    expect(controls.getFullCDPSession).not.toHaveBeenCalled();
+    expect(controls.openFullCDPSession).not.toHaveBeenCalled();
   });
 
   it("opens a revision-bound managed browser only after per-session confirmation", async () => {
