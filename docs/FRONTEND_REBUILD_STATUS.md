@@ -5,7 +5,7 @@ Baseline: main `71ede3053b1d71f4c6e4f7053b355ebe301c1a1b`, checked on
 the first recovery/connection fixes; #286 contributes scoped journey fixes.
 Passing those slices does not establish complete product or platform acceptance.
 
-## Product guidance revision in progress — 2026-10-10
+## Product guidance revision — 2026-10-10
 
 The user's latest direction treats language and information architecture as part
 of the rebuild. Everyday screens should lead with the current state, the action
@@ -14,12 +14,41 @@ chains of negations with concise guidance tied to real controls. Keep decision
 information, such as the effect of deleting a credential or an unresolved write,
 at the relevant action; put implementation details in expandable diagnostics.
 
-Three parallel lanes cover task/recovery flows, connections/extensions and
-review/diagnostic tools. Integration owns the settings structure and consistent
-language. Existing identity, approval, recovery and capability checks remain the
-behavioral acceptance criteria. Chinese and existing English translations are
-updated together. This revision is under implementation and awaits integrated
-tests and a real-browser check.
+Three parallel lanes updated task/recovery flows, connections/extensions and
+review/diagnostic tools. The connection hub now groups task preparation, tools
+and collaboration, and runtime settings around a return-to-task action. MCP,
+Plugin and LSP setup show their actual stage and next step. Empty and error
+states point to available actions; model, Docker and Safe Web refreshes read
+state without repeating a write. Chinese and existing English translations are
+updated together. [Product language guidance](PRODUCT_LANGUAGE.md) records the
+conventions for future work.
+
+Implementation details use expandable records. Commit hook/signing effects,
+shared credential impact, partial file changes and approval scope remain visible
+at the relevant decision. Independent review corrected guidance for staged MCP
+credentials, configured reasoning effort, unavailable browser/UI Evidence
+capabilities and already-applied or denied revert proposals. Existing identity,
+approval, recovery and capability checks remain the behavioral acceptance criteria.
+
+Verification for this revision:
+
+- Full Vitest: **186 files, 1,829 tests passed** on the integrated code. The full
+  run initially found cross-component assertions referring to old text; their
+  selectors were updated while retaining request, binding, recovery and authority
+  assertions. The final full run passed without retries or increased timeouts.
+- TypeScript, production build and generated API/transcript-key checks passed.
+  Existing large-chunk build warnings remain.
+- Production assets served by the real Go API and isolated test database were
+  checked at 1280px and 390px. Verified connection navigation, immutable saved
+  budgets, staged MCP credential guidance and read-only refresh, model status,
+  Copilot return-focus, task draft retention and permission-menu Escape/focus.
+  Connection, extension and model pages had no horizontal overflow at 390px;
+  browser error logs were empty. Original captures are retained under ignored
+  `build/frontend-rebuild/guidance-*` paths.
+- The browser pass used a local fixture with no real model credentials. Credential
+  forms and approval gates were inspected; remote authentication, MCP discovery,
+  permission changes and remote writes were not exercised. Native platform and
+  complete model-to-delivery acceptance remain in the roadmap below.
 
 ## Current parallel implementation
 
@@ -53,7 +82,7 @@ requirements. No renderer-owned execution or credential authority is introduced.
 - P5: Full project/model-to-delivery, restart/disconnection, long-session,
   keyboard/responsive and native cross-platform acceptance is still outstanding.
 
-## Evidence
+## First implementation evidence
 
 Local verification used Go 1.26.9 and the repository's pinned frontend packages:
 
