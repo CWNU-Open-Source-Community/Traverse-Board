@@ -110,6 +110,30 @@ the subsequent `39349b3b` CI run with unchanged backend code, assertions and
 deadlines. That success establishes the latest run's result; the intermittent
 database delay still needs phase-level evidence if it recurs.
 
+The compatibility follow-up's [CI at `2adba231`](https://github.com/CWNU-Open-Source-Community/Universal-Code/actions/runs/38047260758)
+failed the Windows `multiple-output-pages` subcase after the existing 60-second
+command deadline. The native process was created and its tree was reaped;
+the parent observed zero stdout/stderr bytes. Ownership checks continued and
+lease renewals succeeded. One Job update completed after its context deadline
+with a nil store error, but the command continued to its normal timeout. The
+record leaves PowerShell startup, in-script enumeration/JSON serialization and
+an output read error as separate hypotheses. The runner and application production
+sources match the merged main at `accd4c47`.
+
+The unchanged pagination case passed locally in 1.78 seconds and the original
+operator-first sequence also passed (9.29 seconds). The intermittent failure
+still needs a reproducible cause. A test-only sampler now records CPU/I/O activity for
+the test's own child, bound by parent, creation interval and executable image.
+A single worker and a nonblocking bounded queue keep the kernel queries outside
+the ownership update path. Queries collect only process identity and activity
+metadata; determining a specific cause needs additional evidence. Command deadlines, production
+environment, output/cleanup assertions and the operator-first CI order remain
+unchanged. The new diagnostic check retains the earlier test exit codes.
+The final operator and diagnostic tests passed with the Windows race detector
+(34.048 seconds; pagination 4.66 seconds), the restricted native runner check
+passed (4.127 seconds), and the Linux amd64 application test binary compiled.
+The sampler also returned valid counters for a real fixed-manager child.
+
 The same CI run exposed two model-menu focus failures. Deterministic local
 regressions reproduced restoration depending on a menu item's disabled flag
 after asynchronous completion, and a delayed opening frame taking focus from
@@ -180,9 +204,25 @@ The dedicated daemon initially started. Its namespace settings now persist
 `ssh.agentForwardingEnabled=false` and `mcp.forceLocalGateway=true`. The required
 restart encountered a stale `containerd.sock.ttrpc` reparse point. The daemon
 is currently unreachable, so effective settings and authentication have not
-been verified. Automatic approval review rejected the attempted state-directory
+been verified. The execution tool rejected an attempted state-directory
 backup/restart command with `blocked by policy`; that command did not execute.
-No namespace reset or alternative repair was attempted after that rejection.
+The rejection's policy source remains unidentified. The session has full filesystem
+access and `approval_policy=never`; the [Auto-review documentation](https://learn.chatgpt.com/docs/sandboxing/auto-review)
+scopes that feature to interactive approval modes.
+
+After the user explicitly requested desktop control, native File Explorer renamed
+the dedicated `state/sandboxd` directory to `state/sandboxd.stale-20261010-gui`.
+The directory and its original contents are retained. Before the rename, the
+daemon processes were absent and the namespace's `runtimes` directory was empty.
+Filesystem verification confirmed that the backup exists, its runtime count is
+zero, and the original canonical directory is absent. An official
+`sbx --app-name traverse-runtime daemon start --detach` invocation was then
+rejected by the execution tool before starting. User-side execution of that
+command is pending; daemon recovery, effective settings and real VM isolation
+remain unverified. No settings, credentials, Docker objects or VM data were reset.
+The installed Docker-signed `sbx-gui.exe` was also launched through native desktop
+control, but it exposed no targetable window in either the app or window
+inventory. Only the process created for that UI check was closed afterwards.
 
 SBX now scans the granted workspace after the final authority callback and
 before creating a VM. Multi-link regular files, symlinks, Windows reparse

@@ -516,11 +516,14 @@ jobs:
           )
           go test -v -count=1 -timeout 10m ./internal/app -run ('^(' + ($cliTests -join '|') + ')$')
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          # Preserve the operator-first launch order and retain both results.
+          # Preserve the operator-first launch order and retain all results.
           go test -v -count=1 -timeout 10m ./internal/application -run '^TestOperatorFixedCommandUsesSharedJobLedger$'
           $fixedOperatorExitCode = $LASTEXITCODE
           go test -v -count=1 -timeout 10m ./internal/runner -run '^TestWindowsFixedCommandRuntimeUsesRestrictedNativeProcess$'
+          $fixedRunnerExitCode = $LASTEXITCODE
+          go test -v -count=1 -timeout 3m ./internal/application -run '^TestFixedOperatorWindowsNativeDiagnostic$'
           if ($fixedOperatorExitCode -ne 0) { exit $fixedOperatorExitCode }
+          if ($fixedRunnerExitCode -ne 0) { exit $fixedRunnerExitCode }
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           go test -v -count=1 -timeout 10m ./internal/sandbox -run '^TestWindowsLocal(Sandbox|Backend|Process|FailedStart|ToolchainPreflight)'
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }

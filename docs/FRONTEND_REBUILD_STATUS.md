@@ -10,6 +10,15 @@ from that exact tree. Native host preparation restored Docker Engine 29.6.2 and 
 sbx 0.47.0. SBX exposed an app-name length incompatibility, now corrected to
 `traverse-runtime`; daemon restart and real VM isolation acceptance remain
 open in the [acceptance record](acceptance/2026-10-10-sandbox-selection.md).
+Follow-up CI at `2adba231` completed with a Windows operator pagination timeout;
+the other execution jobs passed. This head has not passed full CI. The dedicated
+SBX daemon state has since been preserved through native File Explorer, while
+the execution tool rejected the subsequent daemon-start command. User-side
+startup and real VM acceptance remain pending.
+The next candidate adds asynchronous native-child CPU/I/O diagnostics while
+retaining the command budget and original failure assertions. Its focused
+Windows race tests and Linux cross-compilation pass; the intermittent timeout's
+cause remains open.
 
 The follow-up starts from main `6a4402e7` after #296 merged. The desktop now
 separates Local, Docker Engine and official Docker Sandboxes preferences from
