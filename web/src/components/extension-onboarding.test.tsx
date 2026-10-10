@@ -43,7 +43,7 @@ it("registers MCP only on submit, reviews each pinned stage, and reads actual ca
   vi.stubGlobal("fetch", fetchMock);
   const openTask = vi.fn();
   mount(<ExtensionSettings client={new APIClient("read", "/api/v1", "control")} selectedRunID="run-one" onOpenTask={openTask} />);
-  await screen.findByText(/当前任务尚无已记录的 MCP 实际调用/);
+  await screen.findByText(/当前任务尚无 MCP 调用记录/);
   await user.click(screen.getByText("登记 MCP Server"));
   await user.type(screen.getByRole("textbox", { name: "Server ID" }), "first-mcp");
   await user.type(screen.getByRole("textbox", { name: "显示名称" }), "First MCP");
@@ -52,20 +52,24 @@ it("registers MCP only on submit, reviews each pinned stage, and reads actual ca
   await user.click(screen.getByRole("button", { name: "提交登记" }));
   const discovery = await screen.findByRole("button", { name: "批准能力发现" });
   expect(discovery).toBeDisabled();
+  expect(screen.getByText("核对登记").closest("li")).toHaveAttribute("aria-current", "step");
   expect(mutations).toHaveLength(1);
   expect(mutations[0].body).toMatchObject({ descriptor: { workspace_id: "project-one", scope: "workspace" } });
   await user.click(screen.getByRole("checkbox", { name: "我已核对描述符，允许连接并发现能力" }));
   await user.click(discovery);
   await screen.findByText(/发现审查已通过/);
+  expect(screen.getByText("批准并发现").closest("li")).toHaveAttribute("aria-current", "step");
   expect(mutations).toHaveLength(2);
   expect(mutations[1].body).toMatchObject({ action: "approve_discovery", expected_descriptor_fingerprint: "a".repeat(64) });
   await user.click(screen.getByRole("button", { name: "重新发现" }));
   const enable = await screen.findByRole("button", { name: "审查并启用能力" });
   expect(enable).toBeDisabled();
+  expect(screen.getByText("审查并启用").closest("li")).toHaveAttribute("aria-current", "step");
   expect(screen.getByText("lookup")).toBeInTheDocument();
   await user.click(screen.getByRole("checkbox", { name: "我已核对当前能力指纹与所有发现列表" }));
   await user.click(enable);
   await user.click(await screen.findByRole("button", { name: "生成首次调用任务草稿" }));
+  expect(screen.getByText("任务中调用").closest("li")).toHaveAttribute("aria-current", "step");
   expect((screen.getByRole("textbox", { name: "调用任务草稿（复制到任务中发送）" }) as HTMLTextAreaElement).value).toContain("first-mcp");
   await user.click(screen.getByRole("button", { name: "打开任务输入区" }));
   expect(openTask).toHaveBeenCalledTimes(1);
@@ -76,7 +80,7 @@ it("registers MCP only on submit, reviews each pinned stage, and reads actual ca
     started_at: "2026-10-07T01:00:00Z", completed_at: "2026-10-07T01:00:01Z" });
   await user.click(screen.getByRole("button", { name: "刷新" }));
   expect(await screen.findByText("调用状态: completed")).toBeInTheDocument();
-  expect(screen.getByText(/这里只显示审计元数据/)).toBeInTheDocument();
+  expect(screen.getByText(/在任务消息和证据中查看具体返回内容/)).toBeInTheDocument();
 });
 
 it("preserves the Plugin file and exact upload on failure, then requires separate untrusted review and enable", async () => {
@@ -125,7 +129,7 @@ it("preserves the Plugin file and exact upload on failure, then requires separat
   await user.click(within(screen.getByRole("group", { name: "启用 Plugin 能力" })).getByRole("checkbox", { name: "hooks" }));
   await user.click(screen.getByRole("checkbox", { name: /我已核对包指纹/ }));
   await user.click(enable);
-  await screen.findByText(/包状态不代表贡献已被当前任务加载或调用/);
+  await screen.findByText(/已启用的贡献可由任务加载/);
   expect(reviews).toEqual([
     expect.objectContaining({ action: "approve", confirm_untrusted: true, expected_generation: 1 }),
     expect.objectContaining({ action: "enable", confirm_untrusted: true, capabilities: ["hooks"], expected_generation: 2 }),

@@ -3,6 +3,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import type { APIClient } from "../api/client";
 import type { CodeIntelConfigurationView } from "../api/types";
 import { useLocale } from "../lib/locale";
+import { ExtensionSteps } from "./extension-onboarding";
 
 export function LSPConfigurationForm({ client, enabled, workspaceID, capabilityKnown = true }: {
   client: APIClient; enabled: boolean; workspaceID: string; capabilityKnown?: boolean;
@@ -24,8 +25,8 @@ export function LSPConfigurationForm({ client, enabled, workspaceID, capabilityK
   }), onSuccess: () => queryClient.invalidateQueries({ queryKey: ["code-intel"] }) });
   const change = (update: () => void) => { update(); stage.reset(); };
   return <details className="extension-onboarding"><summary>{t("配置本地 LSP", "Configure local LSP")}</summary>
-    <p>{t("先登记已有语言服务器及 SHA-256，再单独人工审查。登记不启动程序、不安装软件。审查前的暂存配置只保留在当前服务进程中。",
-      "Register an existing language server and SHA-256, then review it separately. Registration does not start or install software. Pending configurations live only in this service process.")}</p>
+    <p>{t("先准备已安装的语言服务器及 SHA-256，登记后核对来源并审查，再执行一次只读查询。待审查配置保存在当前服务进程中；重启后需重新登记。",
+      "Prepare an installed language server and its SHA-256. Register it, review its source, then run one readonly query. Pending configurations live in this service process and need registration again after a restart.")}</p>
     {!enabled && <p role="status">{!capabilityKnown ? t("LSP 接入能力尚未确认，请刷新状态。", "LSP onboarding capability is unconfirmed; refresh state.") :
       t("当前服务未开放 LSP 设置管理。请检查控制权限与服务版本；使用显式 LSP 配置文件的服务需通过 CLI 或文件配置，或不指定该文件重启后使用设置管理。已配置服务器的状态仍可读取。",
         "LSP settings management is unavailable. Check control access and service version. Services using an explicit LSP config file require CLI/file configuration, or restart without that file to manage settings here. Existing server state remains readable.")}</p>}
@@ -50,7 +51,7 @@ export function LSPConfigurationForm({ client, enabled, workspaceID, capabilityK
           {stage.isPending ? t("正在登记…", "Registering…") : t("登记 LSP 配置", "Register LSP configuration")}</button>
       </fieldset>
     </form>
-    {stage.data && <p role="status">{t("LSP 配置已暂存，尚未审查或启动。核对下方来源与指纹后继续。", "LSP configuration staged; review and startup remain unverified. Inspect its source and fingerprint below.")}</p>}
+    {stage.data && <p role="status">{t("LSP 配置已暂存。下一步核对下方来源与指纹，确认后保存审查。", "LSP configuration staged. Next, inspect the source and fingerprint below, then confirm the review.")}</p>}
     {stage.error && <p className="inline-warning" role="alert">{stage.error.message}</p>}
   </details>;
 }
@@ -83,14 +84,16 @@ export function LSPConfigurationCard({ client, enabled, configuration }: {
     <label className="extension-fingerprint">{t("描述符指纹", "Descriptor fingerprint")}<code title={configuration.descriptor_fingerprint}>{configuration.descriptor_fingerprint}</code></label>
     <label className="extension-fingerprint">SHA-256<code title={configuration.executable_sha256}>{configuration.executable_sha256}</code></label>
     <div className="extension-review">
+      <ExtensionSteps current={reviewed ? 1 : 0} steps={[t("审查配置", "Review configuration"), t("只读查询测试", "Test a readonly query")]} />
+      {!enabled && <p role="status">{t("当前连接可查看配置。连接具备 LSP 设置管理权限的服务后，可保存审查并执行测试。", "Inspect the configuration on this connection. Connect with LSP settings control access to save a review and run a test.")}</p>}
       {!reviewed ? <>
-        <p>{t("核对来源、语言、可执行文件 SHA-256 与描述符指纹后保存审查。审查不启动程序；实际只读测试是下一步。", "Review the source, language, executable SHA-256, and descriptor fingerprint. Saving review does not start the process; an actual readonly test is the next step.")}</p>
+        <p>{t("核对来源、语言、可执行文件 SHA-256 与描述符指纹后保存审查。下一步测试会启动此服务器并执行只读查询。", "Review the source, language, executable SHA-256, and descriptor fingerprint. The next test step starts this server and runs a readonly query.")}</p>
         <label><input type="checkbox" checked={confirmed} disabled={review.isPending} onChange={(event) => setConfirmed(event.target.checked)} />
           {t("我已核对当前 LSP 描述符并允许后续只读测试", "I reviewed this LSP descriptor and permit a subsequent readonly test")}</label>
         <button className="settings-action" disabled={!enabled || !confirmed || review.isPending} onClick={() => review.mutate()} type="button">
           {t("审查并保存 LSP 配置", "Review and save LSP configuration")}</button>
       </> : <>
-        <p>{t("配置已审查，尚不代表语言查询成功。提交测试才会启动已固定的服务器并执行一次只读查询。", "Configuration reviewed; query success remains unverified. Submitting a test starts the pinned server and runs one readonly query.")}</p>
+        <p>{t("配置已审查。选择查询类型并填写文件或符号，提交后启动已固定的服务器并执行一次只读查询。", "Configuration reviewed. Select a query type and provide a file or symbol. Submitting starts the pinned server and runs one readonly query.")}</p>
         <label>{t("只读测试", "Readonly test")}<select aria-label={t("LSP 只读测试", "LSP readonly test")} value={tool} disabled={probe.isPending}
           onChange={(event) => { setTool(event.target.value); probe.reset(); }}>
           <option value="code_document_symbols">文件符号 / Document symbols</option><option value="code_workspace_symbols">工作区符号 / Workspace symbols</option>
@@ -108,7 +111,7 @@ export function LSPConfigurationCard({ client, enabled, configuration }: {
         <p role="status">{t("实际只读查询已返回", "Actual readonly query returned")}: {probe.data.result.state} · {probe.data.result.items.length} {t("项", "items")}{probe.data.result.page.truncated ? t("（已截断）", " (truncated)") : ""}</p>
         <p>{t("能力指纹", "Capability fingerprint")}: {probe.data.result.capability_fingerprint}</p>
         <p>{t("查询指纹", "Query fingerprint")}: {probe.data.result.query_fingerprint}</p>
-        {probe.data.result.items.length === 0 && <p>{t("本次查询未返回符号；这不等于服务器未配置。", "This query returned no symbols.")}</p>}
+        {probe.data.result.items.length === 0 && <p>{t("本次查询返回 0 个符号。检查文件路径或换一个符号查询后重试。", "This query returned 0 symbols. Check the file path or try another symbol query.")}</p>}
         <ul>{probe.data.result.items.map((item, index) => <li key={index}>{item.name || item.kind}{item.path ? ` · ${item.path}` : ""}
           {item.range ? `:${item.range.start.line + 1}:${item.range.start.character + 1}` : ""}</li>)}</ul>
         {probe.data.result.warnings.map((warning, index) => <p className="inline-warning" key={index}>{warning}</p>)}

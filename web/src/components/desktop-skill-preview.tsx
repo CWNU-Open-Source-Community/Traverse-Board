@@ -110,7 +110,7 @@ export function DesktopSkillPreviewDialog({ open, onClose, installationEnabled =
             <label className="desktop-install-confirmation">
               <input checked={confirmed} onChange={(event) => setConfirmed(event.target.checked)}
                 type="checkbox" />
-              <span>{t("确认按不受信任包登记，不授予执行权", "Register as an untrusted package without execution authority")}</span>
+              <span>{t("确认以不受信任状态登记，执行时遵循任务权限与审批", "Register as untrusted; execution follows task permissions and approvals")}</span>
             </label>
           </div>}
           {installed && <div className="desktop-install-success" role="status">
@@ -126,7 +126,7 @@ export function DesktopSkillPreviewDialog({ open, onClose, installationEnabled =
 
         {preview && (
           <footer>
-            <span><ShieldCheck aria-hidden="true" size={15} />{installed ? t("已安全登记", "Safely registered") : t("已验证，未安装", "Validated, not installed")}</span>
+            <span><ShieldCheck aria-hidden="true" size={15} />{installed ? t("已登记到技能库", "Registered in the skill library") : t("结构已验证，待确认安装", "Structure validated; ready for install confirmation")}</span>
             <div className="desktop-dialog-actions">
               {installationEnabled && !installed &&
                 <button className="desktop-select-command" disabled={loading || !confirmed}

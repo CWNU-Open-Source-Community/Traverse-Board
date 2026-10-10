@@ -34,7 +34,7 @@ it("enters, updates and removes a token explicitly, clears plaintext and preserv
   await screen.findByText("Token saved and local presence verified.");
   expect(screen.getByLabelText(tokenLabel)).toHaveValue("");
   expect(change.mock.calls[0][0]).toMatchObject({ action: "set", binding: credentialBinding(), secret: "synthetic-first-token", confirm: true });
-  expect(screen.getByText(/Stored presence does not prove authentication/u)).toBeInTheDocument();
+  expect(screen.getByText(/rediscover the server to check remote authentication/u)).toBeInTheDocument();
   await user.type(screen.getByLabelText(tokenLabel), "synthetic-updated-token");
   await user.click(screen.getByRole("checkbox", { name: confirmLabel }));
   await user.click(screen.getByRole("button", { name: "Update local token" }));

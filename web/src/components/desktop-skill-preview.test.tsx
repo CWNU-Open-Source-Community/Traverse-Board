@@ -32,7 +32,7 @@ describe("DesktopSkillPreviewDialog", () => {
     await user.click(screen.getByRole("button", { name: "选择 SKILL.md、plugin.json 或 .zip" }));
 
     expect(await screen.findByText("review-helper")).toBeInTheDocument();
-    expect(screen.getByText("已验证，未安装")).toBeInTheDocument();
+    expect(screen.getByText("结构已验证，待确认安装")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /安装/ })).not.toBeInTheDocument();
     expect(container.textContent).not.toContain("C:\\");
     expect(container.textContent).not.toContain("source_path");
@@ -89,7 +89,7 @@ describe("DesktopSkillPreviewDialog", () => {
     render(<DesktopSkillPreviewDialog open onClose={vi.fn()} />);
     const choose = screen.getByRole("button", { name: "选择 SKILL.md、plugin.json 或 .zip" });
     await user.click(choose);
-    expect(screen.queryByText("已验证，未安装")).not.toBeInTheDocument();
+    expect(screen.queryByText("结构已验证，待确认安装")).not.toBeInTheDocument();
     await user.click(choose);
     expect(await screen.findByRole("alert")).toHaveTextContent("selection unavailable");
   });

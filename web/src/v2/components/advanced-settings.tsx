@@ -29,7 +29,7 @@ export function V2ExtensionSettings({ client, threadID, workspaces = [], onOpenT
   </>;
   return <div className="v2-shared-settings">
     <p className="v2-settings-lead">{threadID ? `当前任务：${thread.data?.thread.title}。代码智能状态按其工作区读取。`
-      : "未选择任务，显示已登记的扩展与代码智能状态。"}扩展的实际范围见各条记录；关闭操作作用于该扩展或安装，不只是隐藏当前任务中的显示。</p>
+      : "选择接入工作区以添加服务器，或查看下方已登记状态。"}每条记录标明实际范围。关闭会停用对应扩展或安装，并影响使用它的任务。</p>
     {!threadID && <label className="extension-scope-picker">接入工作区
       <select aria-label="接入工作区" value={workspaceID} onChange={(event) => setWorkspaceID(event.target.value)}>
         <option value="">全部已登记状态（选择工作区以接入）</option>
@@ -45,18 +45,18 @@ export function V2ExtensionSettings({ client, threadID, workspaces = [], onOpenT
 export function V2SkillSettings({ client, desktop }: { client: APIClient; desktop: boolean }) {
   const [previewOpen, setPreviewOpen] = useState(false);
   return <><h1>Skill 包</h1><p className="v2-settings-lead">
-    将已有技能包登记到本地技能库。安装不授予执行权限，也不代表当前任务已经加载或执行它。
+    将已有技能包加入本地技能库，再在任务中使用。加载与执行遵循该任务的权限和审批。
   </p><section className="v2-settings-section v2-shared-settings"><div className="v2-settings-card v2-skill-settings-card">
     {desktop ? <>
       <p>先预览 ZIP 包的结构、来源与文件，再确认安装到 Code 或 Cyber 工作面。</p>
       <button className="settings-action" onClick={() => setPreviewOpen(true)} type="button">预览 Skill 包</button>
-      {!client.hasSkillInstallation && <p>当前连接只允许预览，未开放安装。</p>}
+      {!client.hasSkillInstallation && <p>当前连接可预览包结构。具备安装权限的连接可继续确认安装。</p>}
       <DesktopSkillPreviewDialog installationEnabled={client.hasSkillInstallation}
         onClose={() => setPreviewOpen(false)} open={previewOpen} />
     </> : client.hasSkillInstallation ? <>
       <p>网页端可上传 ZIP 包并登记到 Code。结构校验由服务端执行；本机文件选择预览仅在桌面端提供。</p>
       <WebSkillInstall client={client} />
-    </> : <p role="status">当前连接未开放 Skill 安装。已有技能不会因此被删除或修改。</p>}
+    </> : <p role="status">连接具备 Skill 安装权限的服务后，可选择 ZIP 包加入技能库。</p>}
   </div></section></>;
 }
 
@@ -75,7 +75,7 @@ export function V2InspectorPreferences({ onOpenInspector }: {
     applyRunNavigationMode(value);
   };
   return <><h1>Inspector 偏好与诊断</h1><p className="v2-settings-lead">
-    这些显示偏好保存在本机，仅调整 Inspector 的列表间距与高级导航，不改变任务权限或执行状态。
+    选择适合你的列表间距与运行记录导航，偏好会保存在本机。任务权限与执行状态在任务设置中管理。
   </p><section className="v2-settings-section v2-shared-settings"><div className="v2-settings-card v2-inspector-preferences">
     <div><strong>Inspector 内容间距</strong><div className="v2-setting-segmented" role="group" aria-label="Inspector 内容间距">
       {(["comfortable", "compact"] as const).map((value) => <button aria-pressed={density === value}
@@ -106,7 +106,7 @@ export function V2AboutSettings({ client, desktop }: { client: APIClient; deskto
       {diagnosticsOpen && <SafeWebReadinessPanel client={client} />}
     </details>
     {!desktop && <section className="v2-settings-section"><h2>当前界面连接</h2>
-      <p>断开后可重新填写连接信息。此操作只断开当前界面连接，不会停止任务或撤销已受理的操作。</p>
+      <p>断开后可重新填写连接信息。任务和已受理操作会继续在服务中运行；要停止任务，请使用任务中的停止操作。</p>
       <button className="settings-action" onClick={() => { queryClient.clear(); disconnect(); }} type="button">断开连接</button>
     </section>}
   </div>;

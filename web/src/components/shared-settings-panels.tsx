@@ -56,7 +56,7 @@ export function WebSkillInstall({ client }: { client: APIClient }) {
       <p>{selected.name}</p>
       <label><input checked={confirmed} disabled={install.isPending || install.isSuccess}
         onChange={(event) => setConfirmed(event.target.checked)} type="checkbox" />
-        {t("确认按不受信任包登记到 Code，不授予执行权", "Register as an untrusted Code package without execution authority")}</label>
+        {t("确认将此包以不受信任状态登记到 Code，执行时遵循任务权限与审批", "Register this package as untrusted in Code; execution follows task permissions and approvals")}</label>
       <button className="settings-action" disabled={!client.hasSkillInstallation || !confirmed ||
         install.isPending || install.isSuccess} onClick={() => install.mutate(selected)} type="button">
         {t("安装 Skill 包", "Install Skill package")}</button>
@@ -153,8 +153,8 @@ export function ExtensionSettings({ client, selectedRunID, selectedWorkspaceID =
     <header className="extension-heading">
       <div>
         <h1>{t("Code Intel、MCP 与 Plugin", "Code Intel, MCP and Plugins")}</h1>
-        <p>{t("先接入，再明确审查。来源、范围、运行就绪与实际调用分别显示；服务返回状态元数据，不回传语言服务器启动参数或凭据。",
-          "Connect first, then review explicitly. Source, scope, readiness, and actual calls are shown separately. Service metadata does not echo language-server launch arguments or credentials.")}</p>
+        <p>{t("选择一种接入方式，按步骤核对来源并启用。每条记录显示当前阶段和下一步；真实查询与工具调用结果在下方或任务中查看。",
+          "Choose an integration and follow its review steps. Each record shows its current stage and next action. Inspect query and tool call results below or in your task.")}</p>
       </div>
       <button className="settings-action" disabled={inventory.isFetching || codeIntel.isFetching}
         onClick={() => { void inventory.refetch(); if (!selectedRunID || codeIntelWorkspaceID) void codeIntel.refetch(); }} type="button">
@@ -184,8 +184,8 @@ export function ExtensionSettings({ client, selectedRunID, selectedWorkspaceID =
         key={`${qualification.workspace_id}/${qualification.server_id}/qualification`}
         qualification={qualification} />)}
       {codeIntel.data && codeIntelCount === 0 && !codeIntel.data.configurations?.length &&
-        <ExtensionEmpty>{t("尚未配置本地语言服务器。展开上方接入表单，先登记再审查；已配置不等于实际查询成功。",
-          "No local language server configured. Open the form above to register and review one; configuration does not prove query success.")}</ExtensionEmpty>}
+        <ExtensionEmpty>{t("准备已安装的语言服务器，展开“配置本地 LSP”登记并审查，再用一个文件测试符号查询。",
+          "Prepare an installed language server. Open Configure local LSP to register and review it, then test symbols with one file.")}</ExtensionEmpty>}
     </ExtensionCollection>
     <ExtensionCollection title="MCP Client" count={inventory.data?.mcp_servers.length ?? 0}>
       <MCPRegistrationForm capabilityKnown={Boolean(inventory.data)} client={client} enabled={Boolean(client.hasExtensionControl && onboarding?.mcp_registration)}
@@ -194,7 +194,7 @@ export function ExtensionSettings({ client, selectedRunID, selectedWorkspaceID =
         client={client} key={server.id} onOpenTask={onOpenTask} server={server} credentialCapability={onboarding?.mcp_credentials} />)}
       {inventory.data && inventory.data.mcp_servers.length === 0 &&
         <ExtensionEmpty>{selectedRunID ?
-          t("当前 Run / Workspace 没有 MCP Server。", "No MCP server is scoped to this Run / Workspace.") :
+          t("此任务范围尚无 MCP Server。展开“登记 MCP Server”，填写地址后逐步发现和启用工具。", "This task scope has no MCP server yet. Open Register MCP server and enter its address, then discover and enable its tools.") :
           t("此范围尚未登记 MCP Server。先选择工作区并登记，再单独审查。", "No MCP server registered in this scope. Select a workspace, register, then review it.")}</ExtensionEmpty>}
     </ExtensionCollection>
     <ExtensionCollection title={t("MCP 实际调用记录", "Actual MCP calls")} count={inventory.data?.mcp_calls.length ?? 0}>
@@ -205,11 +205,11 @@ export function ExtensionSettings({ client, selectedRunID, selectedWorkspaceID =
           <p>Run: {call.run_id} · {t("完成时间", "Completed")}: {call.completed_at}</p>
           <p>{t("结果大小", "Result size")}: {call.result_bytes} bytes · {call.truncated ? t("已截断", "Truncated") : t("未截断", "Not truncated")}</p>
           <Fingerprint label={t("本次能力指纹", "Call capability fingerprint")} value={call.capability_fingerprint} />
-          <p>{t("这里只显示审计元数据；具体返回内容请在任务消息和证据中读取。", "Audit metadata only; inspect returned content in task messages and evidence.")}</p>
+          <p>{t("在任务消息和证据中查看具体返回内容。此处保留调用状态、时间与能力指纹供核对。", "Read returned content in task messages and evidence. Use the call status, time, and capability fingerprint here to verify the record.")}</p>
         </article>)}
         {inventory.data && inventory.data.mcp_calls.length === 0 && <ExtensionEmpty>{selectedRunID
-          ? t("当前任务尚无已记录的 MCP 实际调用。已登记、发现或启用均不代表调用成功。", "No actual MCP calls recorded for this task. Registration, discovery, and enabling do not prove invocation success.")
-          : t("选择任务后读取该执行的实际调用记录。工作区登记状态不包含调用结果。", "Select a task to inspect actual calls for its Run. Workspace registration state has no invocation results.")}</ExtensionEmpty>}
+          ? t("当前任务尚无 MCP 调用记录。启用工具后，使用“生成首次调用任务草稿”在任务中发起调用，再刷新此处查看结果。", "This task has no MCP call records yet. Enable tools, use Prepare first-call task draft to make a call in the task, then refresh here to inspect the result.")
+          : t("打开一个任务以查看该执行的 MCP 调用记录。", "Open a task to inspect MCP calls for that execution.")}</ExtensionEmpty>}
       </div>
     </ExtensionCollection>
     <ExtensionCollection title="Plugin" count={inventory.data?.plugins.length ?? 0}>
@@ -217,7 +217,7 @@ export function ExtensionSettings({ client, selectedRunID, selectedWorkspaceID =
       {inventory.data?.plugins.map((installation) => <PluginCard action={action}
         client={client} installation={installation} key={installation.id} />)}
       {inventory.data && inventory.data.plugins.length === 0 &&
-        <ExtensionEmpty>{t("尚未安装 Plugin。", "No Plugin is installed.")}</ExtensionEmpty>}
+        <ExtensionEmpty>{t("选择 plugin.v1 ZIP 包开始接入。导入后核对来源与指纹，审查并启用所需能力。", "Choose a plugin.v1 ZIP to get started. After import, inspect its source and fingerprint, then review and enable the capabilities you need.")}</ExtensionEmpty>}
     </ExtensionCollection>
   </section>;
 }
@@ -384,7 +384,17 @@ function PluginCard({ action, client, installation }: {
 }
 
 function ExtensionState({ state }: { state: string }) {
-  return <span className={`extension-state state-${state}`}>{state.replaceAll("_", " ")}</span>;
+  const { t } = useLocale();
+  const labels: Record<string, [string, string]> = {
+    staged: ["待审查", "Awaiting review"], discovery_approved: ["待发现能力", "Ready for discovery"],
+    capabilities_pending: ["待启用能力", "Awaiting enablement"], approved: ["已审查", "Reviewed"],
+    enabled: ["已启用", "Enabled"], disabled: ["已停用", "Disabled"], revoked: ["已撤销", "Revoked"],
+    quarantined: ["需重新审查", "Review needed"], rolled_back: ["已回退", "Rolled back"],
+    ready: ["已就绪", "Ready"], healthy: ["运行正常", "Healthy"], starting: ["正在启动", "Starting"],
+    stopped: ["已停止", "Stopped"], degraded: ["需检查", "Needs attention"], failed: ["运行失败", "Failed"],
+  };
+  const label = labels[state];
+  return <span className={`extension-state state-${state}`}>{label ? t(label[0], label[1]) : state.replaceAll("_", " ")}</span>;
 }
 
 function Fingerprint({ label, value }: { label: string; value: string }) {

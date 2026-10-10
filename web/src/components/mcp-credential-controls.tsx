@@ -20,11 +20,11 @@ export function MCPCredentialControls({ client, server, capability }: {
 }) {
   const { t } = useLocale();
   if (server.native_source || server.transport !== "streamable_http") return <p>{t(
-    "此传输不支持软件内的 MCP Bearer 凭据管理。", "This transport does not support in-app MCP bearer credentials.")}</p>;
+    "查看此服务器或插件的接入配置以管理认证。此处的 Bearer 令牌表单适用于 HTTPS 服务器。", "Review this server or plugin integration configuration to manage authentication. The bearer token form here is available for HTTPS servers.")}</p>;
   if (!server.credential_ref) return <p>{t(
     "描述符未指定凭据。需要认证时，请使用专用凭据名称登记服务器，再在此输入令牌。",
     "No credential is referenced. For authentication, register the server with a dedicated credential name, then enter its token here.")}</p>;
-  if (!capability) return <p role="status">{t("当前服务未开放 MCP 凭据管理。", "MCP credential management is unavailable in this service.")}</p>;
+  if (!capability) return <p role="status">{t("MCP 凭据管理待接入。使用支持系统凭据存储的服务后可在此保存令牌。", "MCP credential management needs service support. Connect to a service with system credential storage to save tokens here.")}</p>;
   return <BoundMCPCredentialControls key={`${clientIdentity(client)}/${server.id}/${server.descriptor_fingerprint}/${server.workspace_id}/${server.run_id ?? ""}/${server.target}/${server.credential_ref}`}
     client={client} server={server} />;
 }
@@ -56,8 +56,8 @@ function BoundMCPCredentialControls({ client, server }: { client: APIClient; ser
     !status.isFetching && !change.isPending && !status.error;
   const error = status.error || change.error;
   return <details className="extension-onboarding"><summary>{t("管理 MCP 认证令牌", "Manage MCP authentication token")}</summary>
-    <p>{t("这里只管理系统凭据库中的 Bearer 令牌。已保存不代表服务器认证、发现或工具调用成功。",
-      "Manage the bearer token in the system credential store. Stored presence does not prove authentication, discovery or a successful tool call.")}</p>
+    <p>{t("将 Bearer 令牌保存到系统凭据库。保存后重新发现服务器，以检查远端认证与能力；随后在任务中验证工具调用。",
+      "Store the bearer token in the system credential store. Then rediscover the server to check remote authentication and capabilities, and verify tool calls in a task.")}</p>
     <p>{t("凭据名称", "Credential name")}: {server.credential_ref} · {server.target}</p>
     <p role="status">{status.isPending ? t("正在读取凭据状态…", "Reading credential presence…") : status.error || !status.data ?
       t("凭据状态未知，请刷新。", "Credential presence is unknown; refresh.") : !status.data.store_available ?
@@ -68,9 +68,9 @@ function BoundMCPCredentialControls({ client, server }: { client: APIClient; ser
     {status.data && status.data.registration_count > 1 && <p className="inline-warning">{t(
       "此凭据名称由多个 MCP 登记共享。更新或删除会影响这些登记。", "Multiple MCP registrations share this credential. Updating or removing it affects those registrations.")}</p>}
     {status.data?.endpoint_conflict && <p className="inline-warning">{t(
-      "此名称同时绑定不同地址，不能安全更改。请为不同服务器登记独立的凭据名称。",
-      "This name binds different endpoints and cannot be safely changed. Register a separate credential name for each server endpoint.")}</p>}
-    {!client.hasExtensionControl && <p>{t("当前连接为只读，不能保存或删除凭据。", "This connection is read-only; credentials cannot be saved or removed.")}</p>}
+      "凭据名称冲突：多个地址引用了此名称。请为每个服务器地址登记独立的凭据名称后重试。",
+      "Credential name conflict: several endpoints reference this name. Register a separate credential name for each endpoint and retry.")}</p>}
+    {!client.hasExtensionControl && <p>{t("当前连接为只读。连接具备控制权限的服务后可保存或删除凭据。", "This connection is read-only. Connect with control access to save or remove credentials.")}</p>}
     <button className="settings-action" type="button" disabled={status.isFetching || change.isPending} onClick={() => {
       setConfirmed(""); change.reset(); void status.refetch();
     }}>{t("刷新凭据状态", "Refresh credential presence")}</button>
@@ -90,8 +90,8 @@ function BoundMCPCredentialControls({ client, server }: { client: APIClient; ser
           {t("删除本地令牌", "Remove local token")}</button>
       </div>
     </fieldset>
-    <p>{t("提交后输入框会清空。删除只移除本地令牌，不撤销远端令牌，也不撤销服务器的审查状态。",
-      "The input clears on submission. Removal deletes only the local token; it does not revoke the remote token or the server review.")}</p>
+    <p>{t("提交后输入框会清空。删除会移除本地令牌；远端令牌有效性与服务器审查状态保留。要撤销远端令牌，请到服务方账户中操作。",
+      "The input clears on submission. Removal deletes the local token; remote token validity and server review remain in place. Revoke the remote token in your service account.")}</p>
     {change.isSuccess && <p role="status">{change.data.configured ? t("令牌已保存，并回读确认存在。", "Token saved and local presence verified.") :
       t("本地令牌已删除，并回读确认不存在。", "Local token removed and absence verified.")}</p>}
     {error && <p className="inline-warning" role="alert">{error instanceof Error ? error.message : t("凭据操作失败，请刷新状态。", "Credential action failed; refresh presence.")}</p>}

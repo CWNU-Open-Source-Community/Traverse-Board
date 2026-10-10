@@ -100,7 +100,7 @@ describe("v2 model provider presets", () => {
     expect(copilot).toMatchObject({
       id: "github-copilot",
       providerName: "GitHub Copilot",
-      modelName: "连接后选择模型",
+      modelName: "账户接入",
       kind: "account",
       setup: { kind: "account", connected: false, accountName: "GitHub 账户" },
     });

@@ -36,7 +36,7 @@ describe("shared advanced settings", () => {
     expect(get).toHaveBeenCalledWith("/threads/thread-one", {}, expect.any(AbortSignal));
     expect(extensionInventory).toHaveBeenCalledWith("run-one", expect.any(AbortSignal));
     expect(extensionInventory).not.toHaveBeenCalledWith("", expect.anything());
-    expect(screen.getByText(/关闭操作作用于该扩展或安装/)).toBeInTheDocument();
+    expect(screen.getByText(/关闭会停用对应扩展或安装/)).toBeInTheDocument();
   });
 
   it("does not silently fall back to global extension scope when the selected Thread fails to load", async () => {
@@ -55,7 +55,7 @@ describe("shared advanced settings", () => {
     mount({ extensionInventory, codeIntelInventory }, "plugins");
     await waitFor(() => expect(extensionInventory).toHaveBeenCalledWith("", expect.any(AbortSignal)));
     expect(codeIntelInventory).toHaveBeenCalledWith("", expect.any(AbortSignal));
-    expect(screen.getByText(/未选择任务/)).toBeInTheDocument();
+    expect(screen.getByText(/选择接入工作区以添加服务器/)).toBeInTheDocument();
   });
 
   it("requires explicit untrusted registration before web installation and keeps its key on retry", async () => {
@@ -69,7 +69,7 @@ describe("shared advanced settings", () => {
     expect(installSkillPackage).not.toHaveBeenCalled();
     const install = screen.getByRole("button", { name: "安装 Skill 包" });
     expect(install).toBeDisabled();
-    await user.click(screen.getByRole("checkbox", { name: /确认按不受信任包登记到 Code/ }));
+    await user.click(screen.getByRole("checkbox", { name: /确认将此包以不受信任状态登记到 Code/ }));
     await user.click(install);
     await screen.findByText("response unavailable");
     await user.click(install);
@@ -85,7 +85,7 @@ describe("shared advanced settings", () => {
     const user = userEvent.setup();
     const installSkillPackage = vi.fn();
     mount({ hasSkillInstallation: false, installSkillPackage }, "skills", "", true);
-    expect(screen.getByText(/当前连接只允许预览/)).toBeInTheDocument();
+    expect(screen.getByText(/当前连接可预览包结构/)).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "预览 Skill 包" }));
     expect(screen.getByRole("dialog", { name: "Skill 包预览" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "安装" })).not.toBeInTheDocument();
@@ -117,7 +117,7 @@ describe("shared advanced settings", () => {
     }));
     await user.click(screen.getByText("费用上限所用价格（可选）"));
     fireEvent.change(screen.getByRole("textbox", { name: "价格文档" }), { target: { value: '{"source":"review"}' } });
-    await user.click(screen.getByRole("button", { name: "导入" }));
+    await user.click(screen.getByRole("button", { name: "导入价格快照" }));
     await waitFor(() => expect(importPriceSnapshot).toHaveBeenCalledWith({ version: "price_snapshot.v1",
       document: '{"source":"review"}' }, expect.any(String)));
     expect(providerCredentialStatuses).toHaveBeenCalledTimes(1);
@@ -177,7 +177,7 @@ describe("shared advanced settings", () => {
       api_version: "api.v1", schema_version: 157 }), interruptThread, controlRunLifecycle }, "about");
     queryClient.setQueryData(["test-connection-cache"], { id: "saved" });
     await screen.findByText("test");
-    expect(screen.getByText(/不会停止任务或撤销已受理的操作/)).toBeInTheDocument();
+    expect(screen.getByText(/任务和已受理操作会继续在服务中运行/)).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "断开连接" }));
     expect(queryClient.getQueryData(["test-connection-cache"])).toBeUndefined();
     expect(useConnectionStore.getState().token).toBe("");

@@ -28,7 +28,7 @@ export type V2ModelSettingsProps = {
 function setupStateLabel(preset: V2ModelProviderPreset): string {
   if (preset.setup?.kind === "account") {
     const account = preset.setup.accountName?.trim() || "账户";
-    return preset.setup.connected ? `${account}已连接` : `尚未连接 ${account}`;
+    return preset.setup.connected ? `${account}已连接` : "登录待接入";
   }
   const configured = preset.setup?.kind === "api_key"
     ? preset.setup.configured : Boolean(preset.credentialConfigured);
@@ -64,7 +64,7 @@ export function V2ModelSettings({ client, presets, onSelectPreset }: V2ModelSett
   return <section aria-labelledby="v2-model-settings-title">
     <header className="v2-model-catalog-heading">
       <h1 id="v2-model-settings-title">模型</h1>
-      <p>选择预设供应商，或使用高级 JSON 接入兼容接口。</p>
+      <p>选择供应商，保存连接信息并完成模型检查。兼容接口可从自定义配置接入。</p>
     </header>
     <ul aria-label="模型供应商" className="v2-model-catalog" role="list">
       <li>
@@ -83,7 +83,7 @@ export function V2ModelSettings({ client, presets, onSelectPreset }: V2ModelSett
             data-model-provider-id={preset.id} type="button">
             <span aria-hidden="true" className="v2-model-card-icon">{preset.icon}</span>
             <span className="v2-model-card-copy"><strong>{preset.providerName}</strong>
-              <span>{preset.modelName}</span></span>
+              <span>{preset.modelName}</span><span>{setupState}</span></span>
           </button>
         </li>;
       })}

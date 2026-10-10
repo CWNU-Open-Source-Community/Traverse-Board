@@ -222,15 +222,14 @@ export function ModelAvailabilitySettings({ client }: { client: APIClient }) {
                     </div>
                   ))}
                 </div>
-                <p>此设置写入 code 默认路由。新对话未单独选模型时会优先使用已通过能力验证的默认模型；若它不可用，创建时会查找其他可用模型。仍引用 code 的旧任务也可能在后续执行中使用此值；其他四条命名路由不会被修改。</p>
+                <p>{t("保存到 code 默认路由后，新对话会优先使用此处已通过能力验证的模型；模型不可用时会在创建任务时选择其他可用模型。仍引用 code 的旧任务在后续执行中也可能使用此路由。其余命名路由保持各自的选择。", "Save to the code default route to prioritize this qualified model in new conversations. If unavailable, task creation looks for another available model. Existing tasks that reference code may also use this route in later execution; other named routes keep their own selections.")}</p>
               </section>
               {routeMutation.isError && <div className="inline-warning" role="alert">
                 {routeMutation.error instanceof Error
                   ? routeMutation.error.message : t("模型路由选择失败", "Model route selection failed")}
               </div>}
               <details className="model-optional-prices">
-                <summary>费用上限所用价格（可选）</summary>
-                <p>仅启用美元费用上限的任务需要价格快照；它用于本地估算，不是供应商账单。</p>
+                <summary>{t("费用上限所用价格（可选）", "Pricing for spending limits (optional)")}</summary>
                 <PriceSnapshotsSection client={client} />
               </details>
             </>
