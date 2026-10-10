@@ -15265,7 +15265,8 @@ CREATE TRIGGER trg_command_runtime_job_insert_scope
 				AND ((NEW.adapter_kind = 'host_unsandboxed' AND profile.profile = 'local')
 					OR (NEW.adapter_kind = 'sandboxed_workspace'
 						AND ((NEW.adapter_backend = 'local_windows_lpac' AND profile.profile = 'local')
-							OR (NEW.adapter_backend = 'docker_standard_code' AND profile.profile = 'docker'))))
+							OR (NEW.adapter_backend = 'docker_standard_code' AND profile.profile = 'docker')
+							OR (NEW.adapter_backend = 'docker_sandboxes' AND profile.profile = 'sbx'))))
 				AND profile.revision = (SELECT MAX(current.revision)
 					FROM run_execution_profile_snapshots current WHERE current.run_id = run.id)
 				AND permission.run_id = run.id AND permission.mission_id = mission.id

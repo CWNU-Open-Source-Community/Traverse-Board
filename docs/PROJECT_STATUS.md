@@ -1,5 +1,12 @@
 # Project Status
 
+> 2026-10-11 sandbox integration: Local, Docker Engine and Windows sbx 0.47.0
+> selection is wired through production execution. Real SBX success, failure,
+> cancellation, VM cleanup, checkpoint and replay checks passed. See the
+> [current sandbox record](acceptance/2026-10-10-sandbox-selection.md) and
+> [frontend rebuild ledger](FRONTEND_REBUILD_STATUS.md) for this slice and the
+> remaining broader acceptance work. The dated records below remain historical.
+
 > 2026-09-16 public review: the dated records below are historical. See [current scope and verification limits](UX_PUBLIC_REVIEW_STATUS.md); this review branch is not a fully accepted release.
 
 Last updated: 2026-09-10 (Phase M/N/O/P local UX convergence)

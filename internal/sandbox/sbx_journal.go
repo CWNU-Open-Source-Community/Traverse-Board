@@ -18,25 +18,25 @@ type sbxInventoryEntry struct {
 	Workspaces []string `json:"workspaces"`
 }
 
-// The envelope and fields are the local CLI contract consumed by Docker's
-// first-party client, not the unrelated experimental hosted Sandbox API:
-// https://github.com/docker/docker-agent/blob/main/pkg/sandbox/sandbox.go
+// The fixed local v0.47 daemon returns SandboxInfo entries as a JSON array.
+// Read it directly so readiness and cleanup do not start another CLI process.
 func (b *SBXBackend) inventory(ctx context.Context) ([]sbxInventoryEntry, error) {
-	result, err := b.call(ctx, []string{"ls", "--json"}, nil, 1024*1024)
-	if err != nil || result.ExitCode != 0 {
+	data, err := b.daemon.Inventory(ctx)
+	if err != nil {
 		return nil, errors.Join(err, ErrSBXCLI)
 	}
-	if err := sbxUniqueJSON(result.Stdout); err != nil {
+	if len(data) > 1024*1024 {
+		return nil, ErrSBXOutputLimit
+	}
+	if err := sbxUniqueJSON(data); err != nil {
 		return nil, err
 	}
-	var value struct {
-		Sandboxes *[]sbxInventoryEntry `json:"sandboxes"`
-	}
-	if err := json.Unmarshal(result.Stdout, &value); err != nil || value.Sandboxes == nil {
+	var entries []sbxInventoryEntry
+	if err := json.Unmarshal(data, &entries); err != nil || entries == nil {
 		return nil, ErrSBXOwnership
 	}
 	ids, names := map[string]bool{}, map[string]bool{}
-	for _, entry := range *value.Sandboxes {
+	for _, entry := range entries {
 		if !sbxIdentifier(entry.ID) || !sbxIdentifier(entry.Name) || ids[entry.ID] || names[entry.Name] || len(entry.Workspaces) > 128 {
 			return nil, ErrSBXOwnership
 		}
@@ -47,7 +47,7 @@ func (b *SBXBackend) inventory(ctx context.Context) ([]sbxInventoryEntry, error)
 			}
 		}
 	}
-	return *value.Sandboxes, nil
+	return entries, nil
 }
 
 type sbxRecord struct {
@@ -164,21 +164,11 @@ func (b *SBXBackend) removeOwned(ctx context.Context, record *sbxRecord) error {
 	if record.ID == "" || entry.ID != record.ID || !sbxMountsMatch(entry, *record) {
 		return ErrSBXOwnership
 	}
-	stopped, stopErr := b.call(ctx, []string{"stop", record.Name}, nil, 4096)
-	if stopErr != nil || stopped.ExitCode != 0 {
-		return errors.Join(ErrSBXCleanup, stopErr)
-	}
-	all, err = b.inventory(ctx)
-	if err != nil {
+	// sandboxd performs the expected-ID comparison while holding its lifecycle
+	// gate. Force deletion stops the complete VM without an earlier name-only
+	// stop that could affect a concurrently replaced instance.
+	if err := b.daemon.Remove(ctx, record.Name, record.ID); err != nil {
 		return errors.Join(ErrSBXCleanup, err)
-	}
-	entry, found, err = sbxFind(all, record.Name)
-	if err != nil || !found || entry.ID != record.ID || !sbxMountsMatch(entry, *record) {
-		return ErrSBXOwnership
-	}
-	removed, rmErr := b.call(ctx, []string{"rm", "--force", record.Name}, nil, 4096)
-	if rmErr != nil || removed.ExitCode != 0 {
-		return errors.Join(ErrSBXCleanup, rmErr)
 	}
 	all, err = b.inventory(ctx)
 	if err != nil {
@@ -215,6 +205,7 @@ func (b *SBXBackend) recoverLocked(ctx context.Context) error {
 		return err
 	}
 	var failures []error
+	var pending []sbxRecord
 	for _, entry := range entries {
 		if !strings.HasSuffix(entry.Name(), ".json") {
 			continue
@@ -239,7 +230,19 @@ func (b *SBXBackend) recoverLocked(ctx context.Context) error {
 		if record.Removed || record.Phase == "unused" {
 			continue
 		}
-		if err := b.removeOwned(ctx, &record); err != nil {
+		pending = append(pending, record)
+	}
+	// The journal/backend locks protect parsing. A disabled or idle instance
+	// must not claim the daemon namespace merely to read completed records.
+	// Invalid records still surface errors, and valid pending records retain
+	// exclusive namespace ownership through the backend's remaining lifetime.
+	if len(pending) != 0 {
+		if err := b.acquireNamespace(); err != nil {
+			return errors.Join(append(failures, err)...)
+		}
+	}
+	for index := range pending {
+		if err := b.removeOwned(ctx, &pending[index]); err != nil {
 			failures = append(failures, err)
 		}
 	}
@@ -274,8 +277,24 @@ func (b *SBXBackend) Close() error {
 		cancel()
 		err := errors.Join(cleanupErr, b.lock.Close())
 		b.lock = nil
+		if b.namespaceLock != nil {
+			err = errors.Join(err, b.namespaceLock.Close())
+			b.namespaceLock = nil
+		}
 		return err
 	}
+	return nil
+}
+
+func (b *SBXBackend) acquireNamespace() error {
+	if b.namespaceLock != nil {
+		return nil
+	}
+	lock, err := sbxAcquireNamespaceLock()
+	if err != nil {
+		return err
+	}
+	b.namespaceLock = lock
 	return nil
 }
 

@@ -35,6 +35,11 @@ type SBXProcessTransport interface {
 
 type sbxProcessTransport struct{}
 
+// Short v0.47 CLI commands share startup state across processes. Serialize
+// them across backend instances; long create/exec sessions keep their own
+// execution deadlines and must not block live observation or cleanup.
+var sbxShortCLIGate = make(chan struct{}, 1)
+
 type sbxOutputBudget struct {
 	mu        sync.Mutex
 	remaining int
@@ -62,6 +67,18 @@ func (w *sbxOutputWriter) Write(p []byte) (int, error) {
 }
 
 func (sbxProcessTransport) Run(ctx context.Context, r SBXProcessRequest) (SBXProcessResult, error) {
+	if len(r.Arguments) >= 3 && r.Arguments[0] == "--app-name" && r.Arguments[1] == SBXAppName &&
+		r.Arguments[2] != "create" && r.Arguments[2] != "exec" {
+		select {
+		case sbxShortCLIGate <- struct{}{}:
+			defer func() { <-sbxShortCLIGate }()
+		case <-ctx.Done():
+			return SBXProcessResult{ExitCode: -1}, ctx.Err()
+		}
+	}
+	if ctx.Err() != nil {
+		return SBXProcessResult{ExitCode: -1}, ctx.Err()
+	}
 	child, cancel := context.WithCancel(ctx)
 	defer cancel()
 	budget := &sbxOutputBudget{remaining: r.OutputLimit, cancel: cancel}
@@ -96,7 +113,13 @@ func sbxHostEnvironment() []string {
 		"LOCALAPPDATA": true, "SYSTEMROOT": true, "WINDIR": true, "SYSTEMDRIVE": true,
 		"PATH": true, "PATHEXT": true, "TEMP": true, "TMP": true, "TMPDIR": true,
 		"XDG_CONFIG_HOME": true, "XDG_RUNTIME_DIR": true, "DBUS_SESSION_BUS_ADDRESS": true}
-	result := []string{"DOCKER_CLI_PLUGIN_ORIGINAL_CLI_COMMAND=", "NO_COLOR=1"}
+	// These local adapter calls need no usage analytics. The documented opt-out
+	// also keeps telemetry flushing off the bounded readiness and cleanup paths.
+	// https://docs.docker.com/ai/sandboxes/faq/#does-the-cli-collect-telemetry
+	// In the accepted v0.47 CLI, DOCKER_CI skips automatic update checks and
+	// interactive diagnostic consent. The separate default-template override
+	// remains excluded below; create always carries the pinned template itself.
+	result := []string{"DOCKER_CLI_PLUGIN_ORIGINAL_CLI_COMMAND=", "NO_COLOR=1", "SBX_NO_TELEMETRY=1", "DOCKER_CI=true"}
 	for _, binding := range os.Environ() {
 		name, _, _ := strings.Cut(binding, "=")
 		if allowed[strings.ToUpper(name)] {

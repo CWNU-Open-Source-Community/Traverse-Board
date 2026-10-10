@@ -11,11 +11,91 @@ latest main in the same isolated worktree on `codex/sandbox-runtime-compatibilit
 The requested design has three explicit environments with Local as the default.
 Local and Docker Engine reuse the existing executable backends. Settings, task
 selection, fixed native restart and SBX lifecycle integration are implemented.
-Production SBX execution remains blocked by `mcp_isolation_unverified`; the
-supported boundary and remaining proof are in [execution environments](../sandbox-environments.md).
+The follow-up wires the packaged static-MCP helper and the version-scoped local
+daemon lifecycle contract into production SBX execution. Current support is
+Windows with sbx 0.47.0 / daemon API 0.38.0; see
+[execution environments](../sandbox-environments.md) and
+[ADR 0172](../adr/0172-sbx-owned-namespace-execution.md).
+
+## Production SBX follow-up
+
+The application now dispatches its zero-tool stdio helper before ordinary CLI or
+Desktop startup. Preparation verifies its actual handshake, executable hash,
+fixed argument and complete stored registration, including working directory and
+empty credential/environment overrides. Creation selects only that static set.
+The guest checks effective credential modes and SSH socket absence before
+entering the explicit, cleared command environment.
+
+All cooperating product writers share an OS-account namespace lock, independent
+of installation and journal location. Each operation creates a fresh random
+name, persists the returned UUID and exact mounts, and rechecks them before exec.
+Cleanup sends the UUID as a server-side `expected_id` condition and confirms
+removal before recording a terminal Job. Host administrators remain trusted;
+the local exec endpoint itself still selects by name.
+
+The final real wrong-ID and same-name replacement test passed in 13.62 seconds. Both
+incorrect deletion requests preserved the current VM; both correct requests
+removed their exact VM. Its guest guard accepted `none` and rejected a synthetic
+`apikey` credential mode with exit 125 before payload dispatch. Evidence is in
+`build/sandbox-backend-selection/sbx-product-live/conditional-removal-1055017084/result.json`.
+
+Real application acceptance passed in 115.11 seconds using the production
+backend, SQLite store, Git Drydock, supervisor prepared-call ledger, Run lease
+and Command Runtime service. Success returned 0, the failing guest returned 7,
+and explicit cancellation retained the cancelled state with actual CLI exit 1.
+Each case retained exact Chinese stdout/stderr (23 bytes each), a conditional
+whole-VM removal receipt, the Run's after checkpoint, and a terminal replay
+without a second dispatch. The cancellation case also observed a stopped
+detached-child heartbeat and no delayed write for 21 seconds after cleanup.
+Results are in `build/sandbox-backend-selection/sbx-product-live/sbx-product-587455417/`
+and `application-acceptance-attempt6.log` in its parent directory.
+
+Repeated CLI startup had exhausted the shared eight-second
+readiness budget. Concurrent calls produced five/ten-second waits, while serial
+calls also sometimes took five seconds; the complete CLI delay cause remains
+unproven. Inventory and both isolation settings now use the fixed local daemon
+API, and the complete stored MCP registration replaces the CLI's partial inspect
+view. Preparation reuses a verified registration directly and invokes `mcp add`
+only for a confirmed missing record. Successful CLI version checks are reused only while a freshly computed
+executable hash still matches. Mutable settings, inventory and helper metadata
+remain fresh. Actual readiness then passed in 0.761 and 0.262 seconds.
+
+The adapter uses the documented telemetry opt-out and the accepted v0.47
+`DOCKER_CI=true` behavior to skip update checks and interactive diagnostics
+consent. These do not authorize uploads; caller template overrides stay filtered.
+Short CLI calls share a cancellable process-wide gate. The observation budget
+and 30-second evidence lifetime remain unchanged.
+
+Fixture validation corrected a short operation key, the public Code/Plan-to-
+Deliver transition, and the actual Run checkpoint cursor. The next real attempt
+passed readiness and exposed a persisted Job scope trigger that still omitted
+the SBX backend/profile pair. Forward migration v189 repairs that production
+integration gap while retaining the other authorization predicates and published
+migrations. Offline full-Job tests now exercise success, failure and cancellation
+through the real SQLite boundary. Failed attempts remain recorded; those attempts
+had stopped before creating a VM.
+
+Final inspection found no SBX VMs, backend containers, networks or drift. The
+ordinary Docker Engine's nine original container IDs were unchanged. The user's
+daemon, authentication, pinned template cache and preserved IPC backups remain.
 
 ## Verification
 
+- Current Windows checks: SBX/helper race regressions passed (8.708s / 1.797s),
+  the production desktop build passed, and both CLI/Desktop helper executables
+  passed all eight handshake, empty-catalog and malformed-input smoke cases.
+  Desktop/embed package tests passed (2.776s / 2.214s), and desktop assembly race
+  checks passed (5.191s). The frontend's two affected test files passed 25 tests;
+  its production build passed. These local results do not replace current-head
+  remote CI or live acceptance on another operating system.
+- Final Linux amd64 and macOS amd64 sandbox test binaries compiled. Release
+  contract checks and product end-to-end checks passed (12.862s / 3.501s).
+- Schema v189 upgrade regression passed (18.34s): published v1-v188 checksums,
+  historical Jobs/actors/permissions/workspaces and the remaining schema stayed
+  intact; SBX prepare/replay succeeded; 13 stale, widened or relabelled SQL cases
+  were rejected. Representative clean-install/historical baseline equivalence
+  checks passed (67.49s), as did the existing v188 history checks (11.14s).
+  Offline full application success/failure/cancellation passed (52.234s).
 - The cleanup fix's [CI at `80f4d428`](https://github.com/CWNU-Open-Source-Community/Universal-Code/actions/runs/38059477832)
   completed successfully across all 22 jobs. Windows fixed-operator pagination
   passed in 53.92 seconds and `native-timeout` passed in 15.28 seconds; these
@@ -75,9 +155,10 @@ supported boundary and remaining proof are in [execution environments](../sandbo
   regressions passed (3.456 seconds). Same-operation cancellation retries reuse
   the original server timestamp; different operations and owners are rejected.
   This uses a controlled Docker transport, with no daemon or real container.
-- SBX fake-transport lifecycle and permission tests passed, including production
-  MCP fail-closed checks. Darwin arm64 sandbox/application test binaries compiled.
-  These runs do not establish real SBX isolation or execution.
+- SBX fake-transport lifecycle and permission tests passed, including helper
+  identity refusal, conditional removal and namespace ownership checks. Darwin
+  arm64 sandbox/application test binaries compiled. Actual Windows VM results
+  are recorded separately from these controlled tests.
 - The real Windows Local attachment shell check passed with the installed
   PowerShell 7 path explicitly configured.
 - Protocol registry validation against the base commit, Surface registry and
@@ -302,7 +383,7 @@ and `ssh-add` returned exit 2 with ENOENT. Credential modes reported `none`;
 some provider variable names still held runtime sentinels. The product's
 `env -i` invocation removed all six selected credential/gateway/SSH variables.
 
-The real CLI exposed two unresolved lifecycle issues:
+The initial real CLI exercise exposed two lifecycle limitations:
 
 - `exec`, `stop` and `rm --force` each rejected the actual local VM UUID as
   not found. Name-based calls do not provide an atomic immutable-ID contract.
@@ -340,10 +421,10 @@ The original nine Docker Desktop container IDs were unchanged. The authenticated
 daemon, deny-all policy, disabled SSH forwarding and pinned template cache remain
 available for subsequent work; stale IPC backups were retained.
 
-The production gate remains closed: the probe is an acceptance fixture, while
-the product still needs its verified helper registration and an immutable local
-execution/removal contract. Passing this owned lifecycle exercise does not make
-name-based operations atomic.
+At that stage the production gate remained closed. The production helper and
+conditional-removal implementation described above now replace that fixed gate.
+This earlier operator exercise is retained as separate boundary evidence;
+it does not turn name-based execution into atomic UUID selection.
 
 Raw, secret-free probe logs and fixture source are retained in
 `build/sandbox-backend-selection/sbx-live/run-8d2dc9c14322/`, including the
