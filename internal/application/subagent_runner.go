@@ -81,6 +81,8 @@ type externalSpecialistSkillContextStore interface {
 }
 
 type SpecialistTurnResult struct {
+	// Internal provenance: executable consumers must not apply display-redacted text.
+	actionMessageRedacted   bool
 	RunID                   string
 	AgentID                 string
 	ParentAgentID           string
@@ -138,6 +140,10 @@ type SubagentRunner struct {
 	cancellationPollInterval time.Duration
 	skillRegistry            *skills.Registry
 	skillRegistryErr         error
+	// Internal execution adapters may require exact sources in the durable brief
+	// before dispatch. Keep the original Store so accounting and Skill extensions
+	// retain their interfaces.
+	validatePreparedContext func(domain.SpecialistContextBatch) error
 }
 
 func NewSubagentRunner(store SubagentRunnerStore, router *llm.Router,
@@ -334,6 +340,11 @@ func (r *SubagentRunner) stepReadyWithLease(ctx context.Context,
 	if err != nil {
 		return r.failAttempt(ctx, result, ref, err)
 	}
+	if r.validatePreparedContext != nil {
+		if err := r.validatePreparedContext(contextBatch); err != nil {
+			return r.failAttempt(ctx, result, ref, err)
+		}
+	}
 	result.ParentInstructions = len(contextBatch.Messages)
 	result.ContextRecovered = contextBatch.Recovered
 	workItems := contextBatch.TaskBrief.WorkItems
@@ -508,6 +519,7 @@ func (r *SubagentRunner) stepReadyWithLease(ctx context.Context,
 		result.Usage = charged.Usage
 		result.ModelOutcome = llm.OutcomeSuccess
 		result.Action = normalized
+		result.actionMessageRedacted = action.Message != normalized.Message
 		safeAction = normalized
 		if turnTokenLimit > 0 && charged.Usage.TotalTokens > turnTokenLimit {
 			return r.failAttempt(ctx, result, ref,
