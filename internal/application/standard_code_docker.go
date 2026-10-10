@@ -374,9 +374,6 @@ func (s *StandardCodeDockerService) execute(ctx context.Context,
 	executionContext, cancel := context.WithCancel(ctx)
 	done := make(chan struct{})
 	go s.monitorCurrentAuthority(executionContext, done, scope, cancel)
-	if output := dockerCommandRuntimeOutputFromContext(ctx); output != nil {
-		output.noteDispatchPossible()
-	}
 	started, startErr := s.docker.Start(executionContext, DockerSandboxStartRequest{
 		AdmissionID:  admission.Admission.ID,
 		OperationKey: standardCodeStageKey(request.OperationKey, "start"),

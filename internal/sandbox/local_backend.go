@@ -64,6 +64,12 @@ var (
 	ErrLocalSandboxWriteLimit  = errors.New("local sandbox write limit exceeded")
 )
 
+// A rejection before process creation has no command tree to reap. This is
+// control-flow proof, not a complete execution receipt or an isolation grant.
+func localNoProcessResult() LocalExecutionResult {
+	return LocalExecutionResult{ExitCode: 125, TreeReaped: true}
+}
+
 // LocalRuntimeCapabilities are process-local startup grants. They are not Run
 // authority and must never be inferred from a selected Profile or permission.
 type LocalRuntimeCapabilities struct {

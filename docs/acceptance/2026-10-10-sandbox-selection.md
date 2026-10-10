@@ -11,10 +11,10 @@ supported boundary and remaining proof are in [execution environments](../sandbo
 
 ## Verification
 
-- Frontend full run: 193 files, 1,910 tests passed before the final browser
-  presentation corrections. The final focused run passed 5 files / 246 tests,
-  including current four-profile and historical three-profile readiness data,
-  and selected Docker/SBX availability. The full count is not extrapolated.
+- Frontend remote CI at `d30fd001`: 193 files / 1,917 tests passed, including
+  the final selected-backend presentation corrections. The local focused run
+  also passed 5 files / 246 tests, covering current four-profile and historical
+  three-profile readiness data and selected Docker/SBX availability.
 - TypeScript type checking and production Vite build passed.
 - Windows desktop and embedded assets: `go test -tags desktop,wv2runtime.error
   ./cmd/cyberagent-desktop ./web -count=1` passed.
@@ -31,6 +31,20 @@ supported boundary and remaining proof are in [execution environments](../sandbo
 - Local/Docker dispatch and output regressions passed (89.396 seconds). They
   distinguish refusal before dispatch, unresolved cleanup after dispatch, and
   confirmed cleanup followed by a result-finalization failure.
+- Additional native Windows Local regressions passed (2.008 seconds; expanded
+  race run 5.403 seconds). They reach real process creation and owned Job cleanup,
+  and distinguish failed creation from failed cleanup confirmation. A failed
+  native Job query preserves uncertainty; a pre-creation refusal returns the
+  known absence of a command tree. These tests are included in the Windows CI
+  filter. Sandbox vet and Darwin arm64 sandbox cross-compilation also passed.
+- Docker first-start provenance regressions passed (187.087 seconds) against
+  real SQLite admissions. They cover readiness expiry, pre-lifecycle validation,
+  lost Start commit results, existing Start/Launch replay, cleanup failure and
+  result-finalization failure after cleanup. Final gate/concurrent cancellation
+  race tests passed (10.264 seconds), and existing Start/WAL-retry/Cancel/replay
+  regressions passed (3.456 seconds). Same-operation cancellation retries reuse
+  the original server timestamp; different operations and owners are rejected.
+  This uses a controlled Docker transport, with no daemon or real container.
 - SBX fake-transport lifecycle and permission tests passed, including production
   MCP fail-closed checks. Darwin arm64 sandbox/application test binaries compiled.
   These runs do not establish real SBX isolation or execution.
@@ -58,6 +72,27 @@ The first remote CI run also caught an omitted v188 development-history entry
 and the Desktop Bridge method allowlist still expecting 19 exports after the
 fixed settings restart method was added. Both contracts were updated, and their
 targeted regression tests passed locally before the CI rerun.
+
+At `d30fd001`, full-repository Go vet, all non-Store Go packages, all eight
+Store shards, frontend, authority race checks, macOS Desktop and real Edge
+evidence passed. Windows Desktop failed two existing
+fixed-operator subtests: `multiple-output-pages` lost an ownership check when
+`GetRun` exceeded its 2-second deadline; `native-timeout` stored a `timed_out`
+receipt with `TreeReaped=true`, then returned `context deadline exceeded`.
+The latter log did not identify the failing lease operation. Test-only
+diagnostics now record Run lease renewal and release timings alongside the
+existing ownership diagnostics. The two subtests passed unchanged locally
+(4.799 seconds), then passed with the added diagnostics (3.386 seconds). These
+rechecks do not establish the remote failure's cause or replace Windows CI.
+Production deadlines and lease handling were not relaxed.
+
+The first Docker start-provenance regression attempt exposed a test fixture
+that had not yet created its host mask, and exceeded its 90-second package
+budget in Git fixture setup. The fixture was corrected and the package budget
+set to 300 seconds for the completed run. Product command and lease deadlines
+were unchanged. That attempt also reproduced a real cancellation replay bug:
+regenerating the server timestamp changed the persisted request fingerprint.
+The sequential and concurrent exact-request cases are covered by the final tests.
 
 ## Browser evidence
 

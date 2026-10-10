@@ -34,12 +34,22 @@ type dockerCommandRuntimeOutput struct {
 }
 
 // This provenance is private to the live executor. A preparation or admission
-// alone never proves dispatch; an attempted Start or an existing Start/Launch
-// may own a container until a durable terminal receipt confirms cleanup.
+// alone never proves dispatch. An uncertain Start WAL, an existing Start/Launch,
+// or entering the lifecycle may own a container until a durable terminal receipt
+// confirms cleanup.
 func (output *dockerCommandRuntimeOutput) noteDispatchPossible() {
 	output.mu.Lock()
 	defer output.mu.Unlock()
 	output.dispatchPossible = true
+}
+
+func noteDockerCommandRuntimeDispatchPossible(ctx context.Context) {
+	if ctx == nil {
+		return
+	}
+	if output := dockerCommandRuntimeOutputFromContext(ctx); output != nil {
+		output.noteDispatchPossible()
+	}
 }
 
 func (output *dockerCommandRuntimeOutput) noOwnedTree() bool {

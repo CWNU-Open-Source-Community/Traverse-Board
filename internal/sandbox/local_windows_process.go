@@ -131,6 +131,13 @@ type localJobCPURateControl struct {
 }
 
 func runLocalProcess(ctx context.Context, spec localProcessSpec) (localProcessResult, error) {
+	return runLocalProcessWithJobWait(ctx, spec, waitLocalJobReaped)
+}
+
+func runLocalProcessWithJobWait(ctx context.Context, spec localProcessSpec,
+	waitJob func(windows.Handle, time.Duration) (bool, error),
+) (localProcessResult, error) {
+	noProcess := localProcessResult{exitCode: localJobExitCode, treeReaped: true}
 	if ctx == nil || spec.profile.sid == nil || !spec.profile.sid.IsValid() ||
 		spec.profile.filesystemCapabilitySID == nil ||
 		!spec.profile.filesystemCapabilitySID.IsValid() ||
@@ -138,36 +145,36 @@ func runLocalProcess(ctx context.Context, spec localProcessSpec) (localProcessRe
 		!spec.profile.registryReadCapabilitySID.IsValid() ||
 		(spec.profile.instrumentationCapabilitySID != nil && !spec.profile.instrumentationCapabilitySID.IsValid()) ||
 		!validLocalProfileName(spec.profile.name) || spec.timeout <= 0 ||
-		spec.writeMaximum < 1 || spec.resources.MaxOutputBytes < 1 {
-		return localProcessResult{}, ErrLocalSandboxBoundary
+		spec.writeMaximum < 1 || spec.resources.MaxOutputBytes < 1 || waitJob == nil {
+		return noProcess, ErrLocalSandboxBoundary
 	}
 	if err := ctx.Err(); err != nil {
-		return localProcessResult{}, err
+		return noProcess, err
 	}
 	executable, executableHandle, err := pinLocalExecutable(spec.executable)
 	if err != nil {
-		return localProcessResult{}, err
+		return noProcess, err
 	}
 	defer windows.CloseHandle(executableHandle)
 	restrictedToken, err := newLocalRestrictedToken()
 	if err != nil {
-		return localProcessResult{}, fmt.Errorf("create restricted Local Sandbox token: %w", err)
+		return noProcess, fmt.Errorf("create restricted Local Sandbox token: %w", err)
 	}
 	defer restrictedToken.Close()
 
 	job, err := newLocalJob(spec.resources)
 	if err != nil {
-		return localProcessResult{}, fmt.Errorf("create Local Sandbox Job: %w", err)
+		return noProcess, fmt.Errorf("create Local Sandbox Job: %w", err)
 	}
 	defer windows.CloseHandle(job)
 	stdout, err := newLocalPipe()
 	if err != nil {
-		return localProcessResult{}, err
+		return noProcess, err
 	}
 	defer stdout.close()
 	stderr, err := newLocalPipe()
 	if err != nil {
-		return localProcessResult{}, err
+		return noProcess, err
 	}
 	defer stderr.close()
 	var stdin windows.Handle
@@ -178,7 +185,7 @@ func runLocalProcess(ctx context.Context, spec localProcessSpec) (localProcessRe
 		stdin, stdinWriter, err = newLocalInputPipe()
 	}
 	if err != nil {
-		return localProcessResult{}, err
+		return noProcess, err
 	}
 	defer func() {
 		if stdin != 0 {
@@ -191,7 +198,7 @@ func runLocalProcess(ctx context.Context, spec localProcessSpec) (localProcessRe
 
 	attributes, err := windows.NewProcThreadAttributeList(4)
 	if err != nil {
-		return localProcessResult{}, err
+		return noProcess, err
 	}
 	defer attributes.Delete()
 	capabilities := localProfileCapabilities(spec.profile)
@@ -199,36 +206,36 @@ func runLocalProcess(ctx context.Context, spec localProcessSpec) (localProcessRe
 		Capabilities: &capabilities[0], CapabilityCount: uint32(len(capabilities))}
 	if err := attributes.Update(localProcThreadAttributeSecurityCapabilities,
 		unsafe.Pointer(&securityCapabilities), unsafe.Sizeof(securityCapabilities)); err != nil {
-		return localProcessResult{}, fmt.Errorf("bind AppContainer at creation: %w", err)
+		return noProcess, fmt.Errorf("bind AppContainer at creation: %w", err)
 	}
 	allApplicationPackagesPolicy := uint32(localProcessCreationAllApplicationPackagesOptOut)
 	if err := attributes.Update(localProcThreadAttributeAllApplicationPackagesPolicy,
 		unsafe.Pointer(&allApplicationPackagesPolicy), unsafe.Sizeof(allApplicationPackagesPolicy)); err != nil {
-		return localProcessResult{}, fmt.Errorf("enforce LPAC policy at creation: %w", err)
+		return noProcess, fmt.Errorf("enforce LPAC policy at creation: %w", err)
 	}
 	jobHandles := []windows.Handle{job}
 	if err := attributes.Update(localProcThreadAttributeJobList,
 		unsafe.Pointer(&jobHandles[0]), unsafe.Sizeof(jobHandles[0])); err != nil {
-		return localProcessResult{}, fmt.Errorf("bind Job at creation: %w", err)
+		return noProcess, fmt.Errorf("bind Job at creation: %w", err)
 	}
 	inherited := []windows.Handle{stdin, stdout.write, stderr.write}
 	if err := attributes.Update(windows.PROC_THREAD_ATTRIBUTE_HANDLE_LIST,
 		unsafe.Pointer(&inherited[0]), uintptr(len(inherited))*unsafe.Sizeof(inherited[0])); err != nil {
-		return localProcessResult{}, fmt.Errorf("bind inherited handle list: %w", err)
+		return noProcess, fmt.Errorf("bind inherited handle list: %w", err)
 	}
 
 	applicationName, err := windows.UTF16PtrFromString(executable)
 	if err != nil {
-		return localProcessResult{}, ErrLocalSandboxBoundary
+		return noProcess, ErrLocalSandboxBoundary
 	}
 	commandLine, err := windows.UTF16PtrFromString(windows.ComposeCommandLine(
 		append([]string{executable}, spec.arguments...)))
 	if err != nil {
-		return localProcessResult{}, ErrLocalSandboxBoundary
+		return noProcess, ErrLocalSandboxBoundary
 	}
 	workingDirectory, err := windows.UTF16PtrFromString(spec.workingDir)
 	if err != nil || len(spec.environment) < 2 {
-		return localProcessResult{}, ErrLocalSandboxBoundary
+		return noProcess, ErrLocalSandboxBoundary
 	}
 	startup := windows.StartupInfoEx{StartupInfo: windows.StartupInfo{
 		Cb:    uint32(unsafe.Sizeof(windows.StartupInfoEx{})),
@@ -242,7 +249,7 @@ func runLocalProcess(ctx context.Context, spec localProcessSpec) (localProcessRe
 	if err := windows.CreateProcessAsUser(restrictedToken, applicationName, commandLine, nil, nil, true,
 		creationFlags, &spec.environment[0], workingDirectory,
 		&startup.StartupInfo, &process); err != nil {
-		return localProcessResult{}, fmt.Errorf("create AppContainer process: %w", err)
+		return noProcess, fmt.Errorf("create AppContainer process: %w", err)
 	}
 	defer windows.CloseHandle(process.Process)
 	defer windows.CloseHandle(process.Thread)
@@ -254,18 +261,15 @@ func runLocalProcess(ctx context.Context, spec localProcessSpec) (localProcessRe
 	if err != nil || !proof.appContainer || !proof.lessPrivileged || !proof.lowIntegrity ||
 		!proof.zeroNetworkCapabilities || !proof.matchingProfileSID ||
 		!proof.matchingCapabilitySIDs {
-		_ = windows.TerminateJobObject(job, localJobExitCode)
-		_, _ = waitLocalProcess(process.Process, 2*time.Second)
-		return localProcessResult{}, errors.Join(err, fmt.Errorf(
+		return cleanupLocalFailedStart(job, process.Process, startedAt, proof, waitJob, errors.Join(err, fmt.Errorf(
 			"local sandbox process token proof failed (appcontainer=%t lpac=%t restricted=%t low_integrity=%t zero_network_capabilities=%t profile_sid=%t filesystem_capability_sid=%t)",
 			proof.appContainer, proof.lessPrivileged, proof.restricted, proof.lowIntegrity,
 			proof.zeroNetworkCapabilities, proof.matchingProfileSID,
-			proof.matchingCapabilitySIDs))
+			proof.matchingCapabilitySIDs)))
 	}
 	if _, err := windows.ResumeThread(process.Thread); err != nil {
-		_ = windows.TerminateJobObject(job, localJobExitCode)
-		_, _ = waitLocalProcess(process.Process, 2*time.Second)
-		return localProcessResult{}, fmt.Errorf("resume AppContainer process: %w", err)
+		return cleanupLocalFailedStart(job, process.Process, startedAt, proof, waitJob,
+			fmt.Errorf("resume AppContainer process: %w", err))
 	}
 	_ = windows.CloseHandle(stdin)
 	stdin = 0
@@ -373,7 +377,7 @@ func runLocalProcess(ctx context.Context, spec localProcessSpec) (localProcessRe
 		}
 	}
 	var waitErr error
-	result.treeReaped, waitErr = waitLocalJobReaped(job, 3*time.Second)
+	result.treeReaped, waitErr = waitJob(job, 3*time.Second)
 	err = errors.Join(err, waitErr)
 	result.stdout, waitErr = finishLocalOutput(outStream,
 		spec.resources.MaxOutputBytes)
@@ -392,6 +396,22 @@ func runLocalProcess(ctx context.Context, spec localProcessSpec) (localProcessRe
 	}
 	result.completedAt = time.Now().UTC()
 	return result, err
+}
+
+// Successful CreateProcessAsUser has already created a suspended command in the
+// owned Job. Root-process termination alone is insufficient: confirm the whole
+// Job is empty before returning a positive tree proof, including failed starts.
+func cleanupLocalFailedStart(job, process windows.Handle, startedAt time.Time,
+	proof localTokenProof, waitJob func(windows.Handle, time.Duration) (bool, error),
+	cause error,
+) (localProcessResult, error) {
+	result := localProcessResult{exitCode: localJobExitCode, startedAt: startedAt, proof: proof}
+	terminateErr := windows.TerminateJobObject(job, localJobExitCode)
+	_, processErr := waitLocalProcess(process, 2*time.Second)
+	var jobErr error
+	result.treeReaped, jobErr = waitJob(job, 3*time.Second)
+	result.completedAt = time.Now().UTC()
+	return result, errors.Join(cause, terminateErr, processErr, jobErr)
 }
 
 func newLocalRestrictedToken() (windows.Token, error) {
