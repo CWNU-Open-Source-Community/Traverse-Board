@@ -20,7 +20,7 @@ describe("TaskConfiguration presentation fixtures", () => {
     }
     render(<Host />);
     await screen.findByText("生效的执行上限");
-    expect(screen.getByText(/并非精确账单/)).toBeInTheDocument();
+    expect(screen.getByText(/实际费用请查看供应商账单/)).toBeInTheDocument();
     expect(screen.getAllByText("项目收窄").length).toBeGreaterThan(0);
     fireEvent.change(screen.getByRole("spinbutton", { name: "回合上限" }), { target: { value: "50" } });
     expect(changed).toHaveBeenLastCalledWith({ max_turns: 50, max_tool_calls: 40 });
@@ -108,8 +108,8 @@ describe("TaskConfiguration presentation fixtures", () => {
     expect(screen.getByRole("region", { name: "Task budget and project configuration" })).toBeInTheDocument();
     expect(screen.getByRole("spinbutton", { name: "Tool call limit" })).toHaveAttribute("placeholder", "Default 100");
     expect(screen.getByRole("spinbutton", { name: "Cost limit (USD)" })).toHaveAttribute("placeholder", "0 means unlimited");
-    expect(screen.getByText(/not exact bills/)).toBeInTheDocument();
-    expect(screen.getByText("Recorded; access is not automatically excluded")).toBeInTheDocument();
+    expect(screen.getByText(/check your provider's bill for actual charges/)).toBeInTheDocument();
+    expect(screen.getByText("Suggestions only; task permissions govern access")).toBeInTheDocument();
     expect(container.textContent).not.toMatch(/[\u3400-\u9fff]/u);
     client.getRunTaskConfiguration.mockResolvedValue({ ...view(), budget: { max_turns: 30, max_tool_calls: 0 }, sources: view().sources.map((source) => ({ ...source, source: "snapshot" })) });
     rerender(<TaskConfiguration client={client as unknown as APIClient} workspaceID="workspace-1" run={{ id: "run-legacy" } as RunView} />);

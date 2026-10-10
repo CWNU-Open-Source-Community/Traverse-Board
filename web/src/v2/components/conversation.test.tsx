@@ -585,7 +585,7 @@ describe("V2Conversation", () => {
       hostCommandProposals: vi.fn().mockResolvedValue({ items: [], page: { limit: 100 }, requestID: "fixture" }),
     }));
     expect(await screen.findByText(item.canonical_url)).toBeVisible();
-    expect(screen.getByText(/当前连接只有审批读取权限/)).toBeVisible();
+    expect(screen.getByText(/当前连接可以查看审批/)).toBeVisible();
     expect(approvalQueue).toHaveBeenCalledWith(item.run_id, expect.any(AbortSignal));
     expect(approvalPreview).toHaveBeenCalledWith(item.run_id, item.id, expect.any(AbortSignal));
     expect(screen.queryByRole("button", { name: /允许一次|本对话允许|拒绝/ })).not.toBeInTheDocument();
@@ -712,7 +712,7 @@ describe("V2Conversation", () => {
     await user.click(screen.getByRole("button", { name: "发送 thread-a" }));
     expect(await screen.findByText("正在发送消息")).toBeInTheDocument();
     expect(screen.queryByText("正在工作")).not.toBeInTheDocument();
-    expect(screen.getByText(/消息将在下一轮处理；受理不代表已经执行。/)).toBeInTheDocument();
+    expect(screen.getByText(/发送后将在下一轮处理，进度会显示在对话中。/)).toBeInTheDocument();
     expect(screen.queryByText(/停止会取消/u)).not.toBeInTheDocument();
 
     const completed = detail("thread-a").thread;

@@ -103,8 +103,8 @@ describe("V2ApprovalCards", () => {
     const { fetchMock, decideApproval } = renderReadOnlyCards(item);
     expect(await screen.findByText("Read-only exact proposal [REDACTED]")).toBeVisible();
     expect(screen.getByRole("region", { name: "待处理审批" })).toBeVisible();
-    expect(screen.getByText(/当前连接只有审批读取权限/)).toBeVisible();
-    expect(screen.getByText("敏感内容已脱敏；这里不会显示凭据值。")).toBeVisible();
+    expect(screen.getByText(/当前连接可以查看审批/)).toBeVisible();
+    expect(screen.getByText("敏感内容已脱敏，请按可见内容核对操作。")).toBeVisible();
     expect(screen.queryByRole("button")).not.toBeInTheDocument();
     expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
     expect(screen.queryByRole("spinbutton")).not.toBeInTheDocument();
@@ -137,7 +137,7 @@ describe("V2ApprovalCards", () => {
 
   it("retains the queue and retries a failed exact preview read without submitting a decision", async () => {
     const { decideApproval, restoreReads } = renderReadOnlyCards(pending(), {}, "preview");
-    expect(await screen.findByText("无法核对操作内容，暂不能批准。")).toBeVisible();
+    expect(await screen.findByText("操作预览读取失败，请重新读取后确认批准范围。")).toBeVisible();
     expect(screen.getByText("arxiv.org")).toBeVisible();
     restoreReads();
     await userEvent.click(screen.getByRole("button", { name: "重试操作预览" }));
@@ -147,7 +147,7 @@ describe("V2ApprovalCards", () => {
 
   it.each([false, true])("shows a stale read-only preview with truncated=%s without offering a decision", async (truncated) => {
     const { decideApproval } = renderReadOnlyCards(pending(), { source_current: false, truncated });
-    expect(await screen.findByText(truncated ? "预览超过显示上限，不能据此批准。" : "操作已变化或不再等待批准。")).toBeVisible();
+    expect(await screen.findByText(truncated ? "预览超过显示上限，需读取完整内容后再批准。" : "操作已变化或审批已处理，请刷新最新状态。")).toBeVisible();
     expect(screen.getByRole("button", { name: "刷新操作预览" })).toBeEnabled();
     expect(screen.queryByRole("button", { name: /允许一次|本对话允许|拒绝/ })).not.toBeInTheDocument();
     expect(decideApproval).not.toHaveBeenCalled();
@@ -187,7 +187,7 @@ describe("V2ApprovalCards", () => {
     button.focus();
     await userEvent.keyboard("{Enter}");
     expect(onReviewFile).toHaveBeenCalledWith({ runID: "run-1", editID: "exact-edit", workspaceID: "original-workspace" }, button);
-    expect(screen.queryByRole("button", { name: "仅批准一次" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "批准一次" })).not.toBeInTheDocument();
     expect(decideApproval).not.toHaveBeenCalled();
   });
 
@@ -196,7 +196,7 @@ describe("V2ApprovalCards", () => {
     const item = pending({ tool_name: "create_file", action_class: "workspace_write", proposal_id: "exact-edit",
       workspace_id: "original-workspace", allowed_actions: [], canonical_url: undefined, exact_target: undefined });
     const { onReviewFile, decideApproval } = renderCards(item, { effect: "file_review_required", ...mismatch });
-    await screen.findByText("无法核对操作内容，暂不能批准。");
+    await screen.findByText("操作预览读取失败，请重新读取后确认批准范围。");
     expect(screen.queryByRole("button", { name: "审阅文件提案" })).not.toBeInTheDocument();
     expect(onReviewFile).not.toHaveBeenCalled(); expect(decideApproval).not.toHaveBeenCalled();
   });
@@ -230,7 +230,7 @@ describe("V2ApprovalCards", () => {
       <V2ApprovalCards client={client} runID="run-1" threadID="thread-1" />
     </QueryClientProvider>);
     expect(await screen.findByText("Publish this draft once")).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "仅批准一次" }));
+    await userEvent.click(screen.getByRole("button", { name: "批准一次" }));
     expect(await screen.findByText(/Agent 已继续处理/)).toBeInTheDocument();
     expect(fetchMock.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(1);
   });
@@ -256,8 +256,8 @@ describe("V2ApprovalCards", () => {
     </QueryClientProvider>);
     expect(await screen.findByText("package.json")).toBeInTheDocument();
     expect(screen.getByText(/批准、差异审阅和写入请使用任务的「审阅改动」入口/)).toBeInTheDocument();
-    expect(screen.queryByText("无法核对操作内容，暂不能批准。")).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "仅批准一次" })).not.toBeInTheDocument();
+    expect(screen.queryByText("操作预览读取失败，请重新读取后确认批准范围。")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "批准一次" })).not.toBeInTheDocument();
     expect(fetchMock.mock.calls.every(([url]) => String(url).includes("/runs/run-1/approvals"))).toBe(true);
   });
 
@@ -293,7 +293,7 @@ describe("V2ApprovalCards", () => {
 
   it("blocks stale previews while keeping denial available", async () => {
     const { decideApproval } = renderCards(pending(), { source_current: false });
-    expect(await screen.findByText("操作已变化或不再等待批准。")).toBeInTheDocument();
+    expect(await screen.findByText("操作已变化或审批已处理，请刷新最新状态。")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "允许一次" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "本对话允许" })).toBeDisabled();
     await userEvent.setup().click(screen.getByRole("button", { name: "拒绝" }));
@@ -303,7 +303,7 @@ describe("V2ApprovalCards", () => {
 
   it("requires a matching proposal preview and offers retry after a loading error", async () => {
     const { approvalPreview } = renderCards(pending(), { proposal_id: "another-proposal" });
-    expect(await screen.findByText("无法核对操作内容，暂不能批准。")).toBeInTheDocument();
+    expect(await screen.findByText("操作预览读取失败，请重新读取后确认批准范围。")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "允许一次" })).toBeDisabled();
     await userEvent.setup().click(screen.getByRole("button", { name: "重试操作预览" }));
     await waitFor(() => expect(approvalPreview).toHaveBeenCalledTimes(2));

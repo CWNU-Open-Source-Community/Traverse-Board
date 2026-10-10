@@ -291,8 +291,8 @@ it("explains that matching remote CI does not validate uncommitted worktree chan
   f.client.githubReviewProjection.mockResolvedValue({ snapshots: [{ id: "saved-ci-1", fetched_at: "2026-09-11T00:00:00Z",
     identity: { number: pr.number, head_sha: head }, omissions: [], check_runs: [], jobs: [], threads: [], loose_comments: [], reviews: [] }] });
   show(f.client, vi.fn(), { seed: (store) => { store.write("thread:thread-1:pr-connection", "connection-1"); store.write("thread:thread-1:pr-number", pr.number); } });
-  await screen.findByText("工作树还有未提交的改动。远端 CI 对应上述提交，不能证明这些未提交改动已经通过。");
-  expect(screen.queryByText("这份远端记录与当前本地代码不一致，不能作为当前代码通过的证明。")).not.toBeInTheDocument();
+  await screen.findByText("工作目录还有未提交的改动，以下 CI 对应上方提交。请先提交并推送这些改动，再核对新提交的检查结果。");
+  expect(screen.queryByText("远端记录与当前本地版本不同。请核对本地提交与远端提交，推送后刷新检查结果。")).not.toBeInTheDocument();
   expect(f.client.postControl).not.toHaveBeenCalled();
 });
 
@@ -313,7 +313,7 @@ it("prioritizes PR checks and comments while keeping exact stale evidence access
   await screen.findByRole("link", { name: "#12 修复入口" });
   await screen.findByText("typecheck");
   expect(screen.getByText("请补充空值处理")).toBeVisible();
-  expect(screen.getByText("这份远端记录与当前本地代码不一致，不能作为当前代码通过的证明。")).toBeVisible();
+  expect(screen.getByText("远端记录与当前本地版本不同。请核对本地提交与远端提交，推送后刷新检查结果。")).toBeVisible();
   expect(screen.getByRole("combobox", { name: "GitHub 连接" })).not.toBeVisible();
   expect(screen.getByRole("textbox", { name: "目标分支" })).not.toBeVisible();
   expect(screen.getByText("快照与完整提交身份").closest("details")).not.toHaveAttribute("open");
@@ -327,7 +327,7 @@ it("prioritizes PR checks and comments while keeping exact stale evidence access
   expect(f.client.postControl).not.toHaveBeenCalled();
   f.client.postControl.mockRejectedValueOnce(new Error("fixture refresh unavailable"));
   await user.click(screen.getByRole("button", { name: "刷新远端 CI 和评论" }));
-  await screen.findByText("本次刷新失败，下面保留上次抓取的记录。");
+  await screen.findByText("本次刷新失败，以下保留上次读取的记录。请重试刷新远端 CI 和评论。");
   expect(screen.getByText("typecheck")).toBeVisible();
   expect(screen.getByText("请补充空值处理")).toBeVisible();
   expect(f.client.postControl).toHaveBeenCalledTimes(1);

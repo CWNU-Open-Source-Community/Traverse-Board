@@ -14,8 +14,8 @@ function effectCopy(result: ThreadExecutionPermissionControlView, t: ReturnType<
   if (result.current_run_effect === "deferred") return t("当前执行保持不变，选择用于下一次执行",
     "The current run is unchanged; this preference applies to the next run.");
   if (result.execution_permission.approval_mode === "full" && result.execution_permission.full_activation !== "active") {
-    return t("完全访问偏好已保存；当前进程尚未激活",
-      "Your Full access preference is saved; it is not active in the current process.");
+    return t("完全访问偏好已保存，当前会话尚未激活。请在任务权限中查看可用状态",
+      "Your Full access preference is saved and awaiting activation in this session. Check availability in task permissions.");
   }
   if (result.current_run_effect === "paused_and_applied") return t("已安全暂停当前执行并应用",
     "The current run was safely paused and the preference applied.");

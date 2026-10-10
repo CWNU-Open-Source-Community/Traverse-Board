@@ -160,7 +160,7 @@ describe("React draft documents across independent windows", () => {
     expect(first.ui.getByRole("button", { name: "确认选用此版本" })).toBeEnabled();
     type(second, "B 新版本");
     notifyOtherWindows();
-    expect(first.ui.getByText("版本列表已变化，请重新核对并选择；原选择不会直接应用。")).toBeVisible();
+    expect(first.ui.getByText("版本列表已变化，请重新核对并选择要使用的版本。")).toBeVisible();
     expect(first.ui.getByRole("button", { name: "确认选用此版本" })).toBeDisabled();
     expect(first.state().heads.map(({ snapshot }) => snapshot.text)).toEqual(expect.arrayContaining(["A", "B 新版本"]));
   });

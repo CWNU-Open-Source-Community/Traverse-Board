@@ -733,7 +733,7 @@ describe("V2ActivityGroup", () => {
     await user.click(screen.getByLabelText("查看网页已抓取的执行详情"));
     expect(screen.getByText("https://example.com/reference")).toBeInTheDocument();
     expect(screen.getByText("可引用")).toBeInTheDocument();
-    expect(screen.getByText(/网页内容是未受信数据/u)).toBeInTheDocument();
+    expect(screen.getByText(/网页内容作为参考资料展示/u)).toHaveTextContent("操作授权以任务要求和审批为准");
     expect(threadActivityDetail).not.toHaveBeenCalled();
   });
 

@@ -39,7 +39,7 @@ it("shows cross-Run applied history separately and keeps unbound checks from pro
   expect(screen.getByText(/覆盖 2 \/ 2 次执行/)).toBeInTheDocument();
   expect(screen.getByText("未绑定代码版本")).toHaveClass("unbound");
   expect(screen.queryByText("适用于当前版本")).not.toBeInTheDocument();
-  expect(screen.getByText("原记录没有保存所检查的代码版本，因此不能证明当前代码通过。")).toBeInTheDocument();
+  expect(screen.getByText("检查记录未绑定代码版本。请对当前代码重新运行检查，再确认结果。")).toBeInTheDocument();
   expect(screen.getByText("此后已有修改")).toBeInTheDocument();
   expect(screen.getByText("当前文件不存在")).toBeInTheDocument();
   const old = screen.getByText("src/app.ts").closest("article")!;
@@ -55,8 +55,8 @@ it("explains incomplete attribution and a non-Git directory without claiming no 
   setup(review({ partial: true, reasons: ["older_runs_omitted"], total_runs: 53, applied_changes: [], unapplied_changes: [], checks: [],
     revision: { state: "available", repository_kind: "none", reasons: [] } }));
   await screen.findByText("尚未使用 Git");
-  expect(screen.getByText(/未列出的内容不能视为没有变化或已经通过/)).toBeInTheDocument();
-  expect(screen.getByText(/没有已记录的应用编辑；这不表示工作目录没有变化/)).toBeInTheDocument();
+  expect(screen.getByText(/请在执行记录和提交页面核对其余改动与检查/)).toBeInTheDocument();
+  expect(screen.getByText(/尚无已记录的应用编辑。工作目录的其他改动可在提交页面核对/)).toBeInTheDocument();
   expect(screen.getByText(/命令、手动编辑等产生的其他变化，请在提交页面核对/)).toBeInTheDocument();
   expect(screen.getByText(/覆盖 2 \/ 53 次执行/)).toBeInTheDocument();
 });
@@ -80,7 +80,7 @@ it("does not describe an unapplied proposal as a later modification or an applie
   await screen.findByText("当前内容尚不同于提案");
   expect(screen.getByText("当前内容与提案相同，仍以应用记录为准")).toBeInTheDocument();
   expect(screen.queryByText("此后已有修改")).not.toBeInTheDocument();
-  expect(screen.getByText(/没有已记录的应用编辑/)).toBeInTheDocument();
+  expect(screen.getByText(/尚无已记录的应用编辑/)).toBeInTheDocument();
 });
 
 it("surfaces delivery actions and distinguishes current run checks from historical checks", async () => {

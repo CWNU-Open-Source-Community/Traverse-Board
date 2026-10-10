@@ -48,7 +48,8 @@ export function TaskReviewTools({ client, runID, threadID, onOpenDelivery, retai
   const [gitReview, setGitReview] = useState(retainedReviews?.git ?? null);
   const [githubReview, setGithubReview] = useState(retainedReviews?.github ?? null);
   return <section className="v2-review-tools" aria-label="所选执行的交付工具">
-    <p>工具范围：<code>{runID}</code>。以下工具读取或操作这次执行的后端绑定；启动能力、审批和实际执行条件仍分别检查。</p>
+    <p>选择工具，查看所选执行的交付状态或准备下一步操作。执行前会核对能力、审批与运行条件。</p>
+    <details><summary>工具使用的执行记录</summary><code>{runID}</code></details>
     <div className="v2-review-tool-picker" role="group" aria-label="选择交付工具">
       {tools.map(({ value, title, description, icon: Icon }) => <button key={value} type="button"
         aria-pressed={selected === value && !showApprovals} onClick={() => { setSelected(value); setShowApprovals(false); }}>

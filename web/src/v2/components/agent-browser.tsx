@@ -53,7 +53,7 @@ function AgentBrowserCard({ client, runID, running }: { client: APIClient; runID
         observed?.session_id === sessionID && next.session_id === sessionID ? next : observed);
       setMessage("");
     },
-    onError: () => { setMessage("停止请求未确认完成，已重新读取当前状态；不会自动重复停止操作。"); void status.refetch(); } });
+    onError: () => { setMessage("停止结果尚待确认，正在重新读取状态。请核对最新状态后再决定是否重试停止。"); void status.refetch(); } });
 
   const imageBinding = current?.screenshot && current.session_id
     ? `${runID}\0${current.session_id}\0${current.screenshot.locator}\0${current.screenshot.sha256}` : "";
@@ -80,8 +80,8 @@ function AgentBrowserCard({ client, runID, running }: { client: APIClient; runID
   return <section className="v2-agent-browser" aria-label="Agent 浏览器">
     <header><div><strong>Agent 浏览器</strong><span className={`v2-agent-browser-state state-${current.state}`}>{stateText(current)}</span></div>
       {canClose && <button type="button" disabled={close.isPending} onClick={() => close.mutate(current.session_id!)}>停止浏览器</button>}</header>
-    {current.headless && active && <p className="v2-agent-browser-note">后台浏览器没有显示窗口；这里仅展示已验证的页面截图。停止浏览器不会停止整个任务。</p>}
-    {!current.headless && canClose && <p className="v2-agent-browser-note">停止浏览器不会停止整个任务。</p>}
+    {current.headless && active && <p className="v2-agent-browser-note">浏览器在后台运行，当前页面以已验证的截图展示。需要结束网页操作时可停止浏览器；整个任务可在对话中停止。</p>}
+    {!current.headless && canClose && <p className="v2-agent-browser-note">需要结束网页操作时可停止浏览器；整个任务可在对话中停止。</p>}
     {(current.title || current.url) && <div className="v2-agent-browser-page">
       {current.title && <strong>{current.title}</strong>}
       {current.url && <a href={current.url} target="_blank" rel="noreferrer">{current.url}<ExternalLink size={14} /></a>}

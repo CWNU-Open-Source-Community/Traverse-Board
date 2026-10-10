@@ -45,7 +45,7 @@ describe("V2RuntimeCapabilityControl", () => {
 
     expect(screen.getByRole("heading", { name: "调试运行时" })).toBeInTheDocument();
     expect(screen.getByText("标准运行时")).toBeInTheDocument();
-    expect(screen.getByText(/完全访问无需重启，但当前执行需暂停并处于静止边界后才能生效/u))
+    expect(screen.getByText(/在当前任务开启完全访问时，先暂停执行并等待资源释放完成即可/u))
       .toBeInTheDocument();
     const debug = screen.getByRole("button", { name: "启用调试模式并重启" });
     expect(screen.queryByRole("button", { name: /启用完全访问并重启/u })).not.toBeInTheDocument();
@@ -53,7 +53,7 @@ describe("V2RuntimeCapabilityControl", () => {
 
     await user.click(debug);
     const dialog = screen.getByRole("dialog", { name: "要开启调试模式吗？" });
-    expect(within(dialog).getByText(/重启不会改写任何任务的已保存权限/u)).toBeInTheDocument();
+    expect(within(dialog).getByText(/任务已保存的权限会保留/u)).toBeInTheDocument();
     await user.click(within(dialog).getByRole("button", { name: "取消" }));
 
     expect(screen.queryByRole("dialog")).not.toBeInTheDocument();

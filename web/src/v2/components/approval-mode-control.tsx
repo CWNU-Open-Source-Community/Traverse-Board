@@ -129,8 +129,8 @@ export function V2ApprovalModeControl({ mode, fullActivation, fullUnavailableRea
       <ShieldOff aria-hidden="true" size={16} /><span><strong>{t("重新激活完全访问权限", "Reactivate Full access")}</strong>
         <small>{t("已保存选择；重新激活仍需确认。", "Your preference is saved; reactivation still requires confirmation.")}</small></span>
     </button>}
-    <small>{t("影响未知、敏感数据外发、破坏性或共享写入操作不会因选择“帮我批准”而自动获准。工具自称只读不代表已通过核验。",
-      "Unknown effects, sensitive data disclosure, destructive operations, and writes to shared resources are not automatically approved by “Approve for me”. A tool's read-only claim is not verification.")}</small>
+    <small>{t("影响未知、敏感数据外发、破坏性操作或共享写入需要单独核对和批准。工具声称只读时，也会按实际影响核实。",
+      "Unknown effects, sensitive data disclosure, destructive operations, and writes to shared resources require separate review and approval. Read-only claims are checked against actual effects.")}</small>
   </>;
 
   return <div aria-busy={pending} className={`v2-permission-control is-${variant}`} ref={shellRef}>

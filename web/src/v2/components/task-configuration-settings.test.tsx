@@ -23,6 +23,8 @@ it("reads the explicit historical Run snapshot without draft controls or live pr
   const client = fixture();
   mount(client);
   await screen.findByText("已保存的执行上限");
+  expect(screen.getAllByRole("heading", { name: "任务预算与项目配置" })).toHaveLength(1);
+  expect(screen.getByRole("heading", { name: "本次执行配置", level: 2 })).toBeInTheDocument();
   expect(client.getRunTaskConfiguration).toHaveBeenCalledWith("run-history", expect.any(AbortSignal));
   expect(client.previewTaskConfiguration).not.toHaveBeenCalled();
   expect(screen.queryByRole("spinbutton")).not.toBeInTheDocument();

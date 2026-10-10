@@ -35,9 +35,9 @@ describe("V2HighRiskActivationDialog", () => {
     expect(within(dialog).getByText(/当前系统用户权限范围/u)).toBeInTheDocument();
     const scope = within(dialog).getByRole("note");
     expect(within(scope).getByText("影响范围")).toBeInTheDocument();
-    expect(within(scope).getByText(/当前执行必须已暂停并处于静止边界/u)).toBeInTheDocument();
-    expect(within(scope).getByText(/不会重启应用/u)).toBeInTheDocument();
-    expect(within(dialog).getByText(/完整 CDP 作为其子开关默认开启/u)).toBeInTheDocument();
+    expect(within(scope).getByText(/请先暂停执行并等待资源释放完成/u)).toBeInTheDocument();
+    expect(within(scope).getByText(/启用范围为当前任务，应用保持运行/u)).toBeInTheDocument();
+    expect(within(dialog).getByText(/完整 CDP 随完全访问默认开启/u)).toBeInTheDocument();
 
     const cancel = within(dialog).getByRole("button", { name: "取消" });
     await waitFor(() => expect(cancel).toHaveFocus());
@@ -57,9 +57,9 @@ describe("V2HighRiskActivationDialog", () => {
     expect(screen.getByText("持久终端和后台进程")).toBeInTheDocument();
     expect(screen.getByText("终端输入与调试控制")).toBeInTheDocument();
     expect(screen.getByText(/完全访问仍需逐个任务明确确认/u)).toBeInTheDocument();
-    expect(screen.getByText(/初始化持久终端、后台进程和限时终端输入运行时/u))
+    expect(screen.getByText(/准备持久终端、后台进程和限时终端输入/u))
       .toBeInTheDocument();
-    expect(screen.getByText(/重启不会改写任何任务的已保存权限/u)).toBeInTheDocument();
+    expect(screen.getByText(/任务已保存的权限会保留/u)).toBeInTheDocument();
     await user.keyboard("{Escape}");
     expect(onCancel).toHaveBeenCalledTimes(1);
 

@@ -96,8 +96,8 @@ export function V2RuntimeCapabilityControl() {
         })()}
       </div>
       <p className="v2-runtime-boundary">
-        完全访问无需重启，但当前执行需暂停并处于静止边界后才能生效。只有调试模式因需要初始化
-        长生命周期终端和后台运行时而重启；重启不会改写任务权限，普通启动会回到标准运行时。
+        开启调试模式会重启应用，准备持久终端和后台进程。重启后任务权限仍保留，请在当前任务重新确认完全访问。
+        普通启动使用标准运行时；在当前任务开启完全访问时，先暂停执行并等待资源释放完成即可。
       </p>
     </div>
     <V2HighRiskActivationDialog error={mutation.isError

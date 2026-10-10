@@ -64,7 +64,7 @@ export function TaskOverview({ client, threadID, onFeedback, onGit, onPullReques
           <div><dt>当前提交</dt><dd><code>{review.revision.head || "未确认提交"}</code></dd></div>
           <div><dt>读取时间</dt><dd>{new Date(review.observed_at).toLocaleString()} · 覆盖 {review.runs.length} / {review.total_runs} 次执行</dd></div></dl>
         </details>
-        {review.partial && <p role="status">此审阅仅覆盖部分记录。未列出的内容不能视为没有变化或已经通过。</p>}
+        {review.partial && <p role="status">此审阅覆盖部分记录。请在执行记录和提交页面核对其余改动与检查。</p>}
         <p className="v2-delivery-muted">下方汇总已记录的文件编辑。命令、手动编辑等产生的其他变化，请在提交页面核对。</p>
         {(review.reasons.length > 0 || review.revision.reasons.length > 0) && <details><summary>审阅范围与缺失信息</summary>
           <ul>{[...new Set([...review.reasons, ...review.revision.reasons])].map((reason) => <li key={reason}>{reason}</li>)}</ul></details>}
@@ -95,7 +95,7 @@ export function TaskOverview({ client, threadID, onFeedback, onGit, onPullReques
         .map((change) => <TaskChange key={`${change.run_id}:${change.edit_id}`} change={change} observedAt={review.observed_at}
           onFeedback={feedback} onReviewFile={onReviewFile} currentRunID={review.current_run_id} />)}
       <h3>已应用的编辑 <span>({review.applied_changes.length})</span></h3>
-      {!review.applied_changes.length && <p>没有已记录的应用编辑；这不表示工作目录没有变化。</p>}
+      {!review.applied_changes.length && <p>尚无已记录的应用编辑。工作目录的其他改动可在提交页面核对。</p>}
       {review.applied_changes.map((change) => <TaskChange key={`${change.run_id}:${change.edit_id}`} change={change} observedAt={review.observed_at} onFeedback={feedback} />)}
       </section><section aria-label="任务检查">
       <h3>检查结果 <span>({review.checks.length})</span></h3>
@@ -122,7 +122,7 @@ function CheckCard({ check, observedAt, isFetching, onFeedback }: {
     <div><strong>{check.title}</strong><StatusBadge status={check.outcome} />
       <span className={`v2-delivery-freshness ${isFetching ? "unavailable" : check.revision_state}`}>
         {isFetching ? "上次检查记录，当前版本尚未确认" : freshness[check.revision_state] ?? "无法核对版本"}</span></div>
-    <p>{check.revision_state === "unbound" ? "原记录没有保存所检查的代码版本，因此不能证明当前代码通过。" : check.reason}</p>
+    <p>{check.revision_state === "unbound" ? "检查记录未绑定代码版本。请对当前代码重新运行检查，再确认结果。" : check.reason}</p>
     <details><summary>来源与时间</summary><p>{check.run_id} · {check.id} · {new Date(check.recorded_at).toLocaleString()}</p>
       {check.exit_code !== undefined && <p>实际退出码：{check.exit_code}</p>}</details>
     <button type="button" onClick={() => onFeedback(`检查：${check.title}\n结果：${check.outcome}\n版本状态：${check.revision_state}\n来源执行：${check.run_id}\n记录：${check.id}\n绑定版本：${check.recorded_revision_sha256 || "未保存"}\n读取时间：${observedAt}`)}>引用检查并继续修复</button>

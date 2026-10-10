@@ -56,7 +56,7 @@ export function ContextDiagnosticsPanel({ value, unavailable, recovery, runID, r
       <p>此执行没有已记录的生成压缩过程。历史版本或规则压缩可能仅保存了摘要。</p> : <>
         <div className="v2-context-notice" role="status"><strong>最近记录：{phases[latest.phase].title}</strong><p>{phases[latest.phase].detail}</p>
           {latest.fallback_code && <p>已采用规则摘要回退：{fallbackLabels[latest.fallback_code]}。</p>}
-          {latest.phase === "generation_started" && runStatus !== "running" && <p>当前执行已不在运行；这条开始记录不能证明生成仍在继续。</p>}
+          {latest.phase === "generation_started" && runStatus !== "running" && <p>当前执行未在运行，最近显示的是生成开始记录。请刷新查看后续记录。</p>}
         </div>
         <details><summary>查看压缩过程（最近 {value.records.length} 条）</summary>
           <ol className="v2-context-diagnostics-list">{value.records.map((item) => <li key={item.sequence}>
@@ -74,6 +74,6 @@ export function ContextDiagnosticsPanel({ value, unavailable, recovery, runID, r
     {matchingRecovery ? <div className="v2-context-notice"><strong>{matchingRecovery.quiescent ? "上轮已停止，可继续对话" : "上轮正在释放资源"}</strong>
       <p>{matchingRecovery.detail}</p><p>{matchingRecovery.quiescent ? "返回对话发送“继续”或补充要求。上次提交若尚未确认，系统会先核对。" : "可以先编辑消息；资源释放后再继续。"}</p>
     </div> : <p>当前执行没有待恢复提示。</p>}
-    <p className="v2-context-help">过程记录与已保存摘要分别读取。这里的消息计数不是当前模型窗口用量；查看不会触发压缩或恢复执行。</p>
+    <p className="v2-context-help">消息计数记录每次压缩的范围，已保存摘要可在下方查看。需要继续执行时，返回对话发送消息。</p>
   </section>;
 }

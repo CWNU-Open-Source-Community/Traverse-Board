@@ -448,7 +448,7 @@ export function V2Conversation({ client, threadID, workspaces, onArchive, onMana
         : await inspectV2TurnRequest(client, input);
       if (result.state === "not_received" || (result.state === "received" && !result.message_id)) {
         setObservations((current) => ({ ...current, [input.operationKey]: result.state === "not_received"
-          ? "服务端暂未找到原提交。可以继续核对，或主动发送原消息；不会自动重发。"
+          ? "服务端暂未找到原提交。请继续核对；确认需要重试时，可主动发送原消息。"
           : "原提交已登记，但消息尚未入队。可以继续核对，或主动继续提交原消息。" }));
         return "unresolved";
       }
@@ -957,14 +957,14 @@ export function V2Conversation({ client, threadID, workspaces, onArchive, onMana
           更早的工作记录加载失败，请重试。
         </div>}
         {transcriptQuery.isError && !transcriptQuery.isFetchNextPageError && <div className="v2-notice tone-warning" role="alert">
-          工作记录加载失败，不能据此判断任务是否已完成。
+          工作记录加载失败，任务结果尚待核对。请重新读取记录。
           <button onClick={() => void transcriptQuery.refetch()} type="button">重试工作记录</button>
         </div>}
         {!client.hasThreadExecutionRead && <div className="v2-notice" role="status">
           当前连接不提供 Agent 活动状态。对话与工作记录仍可查看。
         </div>}
         {executionQuery.isError && <div className="v2-notice tone-warning" role="alert">
-          暂时无法确认 Agent 的当前活动。此读取失败不会关闭对话。
+          Agent 的当前活动尚待确认。请刷新执行状态；已有对话内容仍可查看。
           <button onClick={() => void executionQuery.refetch()} type="button">刷新执行状态</button>
         </div>}
         {view === "conversation" && !transcriptQuery.isLoading && !transcriptQuery.isError && narrative.length === 0 && <div className="v2-transcript-empty">
@@ -1074,7 +1074,7 @@ export function V2Conversation({ client, threadID, workspaces, onArchive, onMana
       <small className="v2-composer-caption">{workspace?.name ?? "本地工作区"} · {working
         ? deliveryMode === "steer"
           ? "文字纠正会进入当前任务后续模型请求；已经开始的操作会保留。"
-          : "消息将在下一轮处理；受理不代表已经执行。"
+          : "发送后将在下一轮处理，进度会显示在对话中。"
         : "Enter 发送，Shift + Enter 换行"}</small>
       </div>
       </div>

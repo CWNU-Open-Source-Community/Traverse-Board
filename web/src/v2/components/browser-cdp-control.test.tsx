@@ -79,7 +79,7 @@ describe("V2BrowserCDPControl", () => {
     const controls = renderControl({ initial: permission("full_debug") });
     const toggle = await screen.findByRole("switch", { name: "完整 CDP 控制" });
     await waitFor(() => expect(toggle).toHaveAttribute("aria-checked", "true"));
-    expect(screen.getByText(/可通过受控生产接口启动、查询并关闭/u)).toBeInTheDocument();
+    expect(screen.getByText(/可为当前任务打开、查看和关闭独立浏览器/u)).toBeInTheDocument();
 
     await user.click(toggle);
 
@@ -102,8 +102,8 @@ describe("V2BrowserCDPControl", () => {
     expect(controls.postControl).not.toHaveBeenCalled();
     const dialog = screen.getByRole("dialog", { name: "开启完整 CDP 控制？" });
     expect(within(dialog).getByText(/读取 Cookie、捕获和修改网络请求/u)).toBeInTheDocument();
-    expect(within(dialog).getByText(/只作用于 Universal Code 管理的隔离浏览器/u)).toBeInTheDocument();
-    expect(within(dialog).getByText(/只设置授权资格，不会启动浏览器/u)).toBeInTheDocument();
+    expect(within(dialog).getByText(/控制范围为 Universal Code 管理的隔离浏览器/u)).toBeInTheDocument();
+    expect(within(dialog).getByText(/启用后可在“应用预览”中打开独立浏览器/u)).toBeInTheDocument();
     await user.click(within(dialog).getByRole("button", { name: "开启完整 CDP" }));
 
     await waitFor(() => expect(controls.postControl).toHaveBeenCalledWith(

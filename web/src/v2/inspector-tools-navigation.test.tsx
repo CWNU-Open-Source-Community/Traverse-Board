@@ -62,7 +62,7 @@ it("keeps direct resource navigation unbound to a previously selected Thread and
   const onOpenSettings = vi.fn();
   render(<V2InspectorTools client={{} as APIClient} tool="run" resourceID="run-history"
     threadID="" onBack={onBack} onOpenSettings={onOpenSettings} />);
-  expect(screen.getByText(/未绑定对话，任务权限设置不可用/)).toBeInTheDocument();
+  expect(screen.getByText(/此记录尚未绑定对话，请返回任务观察选择来源任务后设置权限/)).toBeInTheDocument();
   expect(screen.queryByText(/unrelated-stale-thread/)).not.toBeInTheDocument();
   expect(screen.getByRole("button", { name: "设置" })).not.toBeVisible();
   fireEvent.click(screen.getByText("来源与设置"));

@@ -147,7 +147,7 @@ export function TaskPullRequest({ client, threadID, working, onFeedback, onGit }
       {reviewed && <div className="v2-git-preview"><h3>确认创建草稿 PR</h3><p>{reviewed.draft.repository.full_name} · {reviewed.draft.head_branch} → {reviewed.draft.base_branch}</p>
         <details className="v2-pr-details"><summary>完整提交身份</summary><dl><div><dt>源提交</dt><dd><code>{reviewed.draft.head_sha}</code></dd></div><div><dt>目标提交</dt><dd><code>{reviewed.draft.base_sha}</code></dd></div><div><dt>原请求</dt><dd><code>{validSaved.key}</code></dd></div></dl></details><strong>{reviewed.draft.title}</strong><pre>{reviewed.draft.body}</pre>
         {approval ? <button type="button" disabled={!canCreate || !client.hasApprovalControl} onClick={() => create.mutate({ attempt: validSaved, preview: reviewed, approval, selection: number, scope: store })}>批准并创建这份草稿 PR</button>
-          : <><p>原预览已保存，但审批记录尚未就绪。补齐操作会复用上面这份原预览，不会创建 PR。</p>
+          : <><p>原预览已保存，审批记录尚未就绪。请先补齐原预览的审批，再确认创建 PR。</p>
             <button type="button" disabled={pending || working || observe.isFetching || observe.isError || observed?.state !== "proposed"} onClick={restoreApproval}>补齐原预览的审批</button></>}
         {approval?.Status === "approved" && <p>原审批已批准；清除本机记录不能撤销它。请继续核对或执行原请求。</p>}
         {approval?.Status === "denied" && <p>原审批已拒绝，不能用于创建 PR。</p>}
@@ -180,10 +180,10 @@ export function TaskPullRequest({ client, threadID, working, onFeedback, onGit }
         {!snapshot && <p>尚无这份 PR 的 CI 或评论快照，请刷新远端。</p>}
         {snapshot && <>
           <p className="v2-pr-meta">上次抓取：{new Date(snapshot.fetched_at).toLocaleString()} · 提交 <code>{snapshot.identity.head_sha.slice(0, 12)}</code></p>
-          {Boolean(git.data?.changes.length) && <p role="status" className="v2-pr-notice">工作树还有未提交的改动。远端 CI 对应上述提交，不能证明这些未提交改动已经通过。</p>}
-          {(drift || refresh.isError) && <p role="status" className="v2-pr-notice">{refresh.isError ? "本次刷新失败，下面保留上次抓取的记录。" : "这份远端记录与当前本地代码不一致，不能作为当前代码通过的证明。"}</p>}
+          {Boolean(git.data?.changes.length) && <p role="status" className="v2-pr-notice">工作目录还有未提交的改动，以下 CI 对应上方提交。请先提交并推送这些改动，再核对新提交的检查结果。</p>}
+          {(drift || refresh.isError) && <p role="status" className="v2-pr-notice">{refresh.isError ? "本次刷新失败，以下保留上次读取的记录。请重试刷新远端 CI 和评论。" : "远端记录与当前本地版本不同。请核对本地提交与远端提交，推送后刷新检查结果。"}</p>}
           {(snapshot.omissions.length > 0 || fresh.data?.omissions.length) ? <details className="v2-pr-details"><summary>部分资料未能读取</summary><ul>{[...new Set([...snapshot.omissions, ...(fresh.data?.omissions ?? [])])].map((reason) => <li key={reason}>{reason}</li>)}</ul></details> : null}
-          <section className="v2-pr-records" aria-label="CI 检查"><h3>CI 检查 <span>{snapshot.check_runs.length} 项检查 · {snapshot.jobs.length} 项作业</span></h3>{!snapshot.check_runs.length && !snapshot.jobs.length && <p>没有已抓取的 CI 结果，不能据此判断通过。</p>}
+          <section className="v2-pr-records" aria-label="CI 检查"><h3>CI 检查 <span>{snapshot.check_runs.length} 项检查 · {snapshot.jobs.length} 项作业</span></h3>{!snapshot.check_runs.length && !snapshot.jobs.length && <p>CI 结果尚未读取，检查结论待确认。请刷新远端 CI 和评论。</p>}
           {snapshot.check_runs.map((check) => <article className="v2-delivery-change" key={`check:${check.id}`}><header><strong>{check.name}</strong><StatusBadge status={check.conclusion || check.status} /></header>
             {check.head_sha !== snapshot.identity.head_sha && <p>此检查来自不同提交。</p>}
             {(check.summary.text || check.text.text) && <details><summary>检查输出</summary><pre>{check.summary.text}{check.summary.text && check.text.text ? "\n" : ""}{check.text.text}</pre></details>}

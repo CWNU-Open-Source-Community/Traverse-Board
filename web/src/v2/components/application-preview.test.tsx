@@ -48,6 +48,9 @@ afterEach(() => { cleanup(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
 it("requires a fresh observation after an unknown click and never automatically repeats the action", async () => {
   const { post } = fixture();
   await screen.findByRole("img", { name: "应用页面：独立项目应用" });
+  expect(screen.getByText("run-preview")).not.toBeVisible();
+  fireEvent.click(screen.getByText("浏览器来源"));
+  expect(screen.getByText("run-preview")).toBeVisible();
   expect(screen.getByRole("textbox", { name: "项目应用地址" })).toHaveValue(observed.canonical_url);
   expect(screen.getByRole("combobox", { name: "预览浏览器" })).toHaveValue("chrome");
   fireEvent.click(screen.getByText("操作页面控件（2）"));

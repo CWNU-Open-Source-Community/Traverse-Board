@@ -30,7 +30,7 @@ export function V2InspectorTools({ client, tool, resourceID = "", pane, threadID
     <header><button onClick={onBack} type="button"><ArrowLeft aria-hidden="true" size={16} />返回任务观察</button>
       <strong>{title}</strong></header>
     <div className="v2-resource-scope">
-      {tool !== "schedule" && <p>此页的高级操作仅针对当前记录；{threadID ? "任务权限设置仍针对来源对话。" : "未绑定对话，任务权限设置不可用。"}</p>}
+      {tool !== "schedule" && <p>下方工具使用所选执行或会话记录。{threadID ? "可在“来源与设置”中查看标识，并调整来源对话的任务权限。" : "此记录尚未绑定对话，请返回任务观察选择来源任务后设置权限。"}</p>}
       {tool !== "schedule" && threadID && <SourceThreadActivity client={client} threadID={threadID} />}
       <details className="v2-inspector-resource-details"><summary>来源与设置</summary>
         {resourceID && <p>{tool === "schedule" ? "来源执行：" : "当前记录："}<code>{resourceID}</code></p>}
