@@ -34,7 +34,7 @@ it("enters, updates and removes a token explicitly, clears plaintext and preserv
   await screen.findByText("Token saved and local presence verified.");
   expect(screen.getByLabelText(tokenLabel)).toHaveValue("");
   expect(change.mock.calls[0][0]).toMatchObject({ action: "set", binding: credentialBinding(), secret: "synthetic-first-token", confirm: true });
-  expect(screen.getByText(/rediscover the server to check remote authentication/u)).toBeInTheDocument();
+  expect(screen.getByText(/first review the descriptor and select Approve discovery/u)).toBeInTheDocument();
   await user.type(screen.getByLabelText(tokenLabel), "synthetic-updated-token");
   await user.click(screen.getByRole("checkbox", { name: confirmLabel }));
   await user.click(screen.getByRole("button", { name: "Update local token" }));
@@ -46,6 +46,28 @@ it("enters, updates and removes a token explicitly, clears plaintext and preserv
   expect(JSON.stringify(view.queries.getQueryCache().getAll().map((query) => query.state.data))).not.toContain("synthetic-first-token");
   expect(JSON.stringify(view.queries.getMutationCache().getAll().map((mutation) => mutation.state))).not.toContain("synthetic-first-token");
   expect(Object.values(window.localStorage).join(" ")).not.toContain("synthetic-first-token");
+});
+
+it("updates available next steps when the server review state changes with a stored token", async () => {
+  const client = new APIClient("read", "/api/v1", "control");
+  vi.spyOn(client, "mcpCredentialStatus").mockResolvedValue(credentialStatus(undefined, true));
+  const change = vi.spyOn(client, "changeMCPCredential");
+  const view = mount(client); await open(); await screen.findByText("Local token stored");
+  for (const state of ["staged", "disabled", "quarantined"]) {
+    view.switchServer({ ...view.server, state });
+    expect(screen.getByText(/first review the descriptor and select Approve discovery/u)).toBeInTheDocument();
+  }
+  view.switchServer({ ...view.server, state: "discovery_approved" });
+  expect(screen.getByText(/Once discovery completes, review the capability fingerprint/u)).toBeInTheDocument();
+  expect(screen.queryByText(/first review the descriptor and select Approve discovery/u)).not.toBeInTheDocument();
+  view.switchServer({ ...view.server, state: "capabilities_pending" });
+  expect(screen.getByText(/Then review the capability fingerprint and select Review and enable capabilities/u)).toBeInTheDocument();
+  view.switchServer({ ...view.server, state: "enabled" });
+  expect(screen.getByText(/then follow the returned review state/u)).toBeInTheDocument();
+  view.switchServer({ ...view.server, state: "revoked" });
+  expect(screen.getByText(/Register and review a new server descriptor to reconnect/u)).toBeInTheDocument();
+  expect(screen.queryByText(/select Rediscover/u)).not.toBeInTheDocument();
+  expect(change).not.toHaveBeenCalled();
 });
 
 it.each(["readonly", "unsupported-store", "endpoint-conflict"])("shows presence but blocks mutation for %s", async (kind) => {

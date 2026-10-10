@@ -55,9 +55,25 @@ function BoundMCPCredentialControls({ client, server }: { client: APIClient; ser
   const canChange = client.hasExtensionControl && !!status.data?.store_available && !status.data.endpoint_conflict &&
     !status.isFetching && !change.isPending && !status.error;
   const error = status.error || change.error;
+  const nextStep = ["staged", "disabled", "quarantined"].includes(server.state) ? t(
+    "保存后，先核对描述符并选择“批准能力发现”；批准完成后选择“重新发现”，检查远端认证与能力。",
+    "After saving, first review the descriptor and select Approve discovery. Once approved, select Rediscover to check remote authentication and capabilities.")
+    : server.state === "discovery_approved" ? t(
+      "保存后选择“重新发现”，检查远端认证与能力；发现完成后核对能力指纹，再审查并启用能力。",
+      "After saving, select Rediscover to check remote authentication and capabilities. Once discovery completes, review the capability fingerprint and enable capabilities.")
+    : server.state === "capabilities_pending" ? t(
+      "保存后选择“重新发现”检查远端认证与最新能力，再核对能力指纹并选择“审查并启用能力”。",
+      "After saving, select Rediscover to check remote authentication and the latest capabilities. Then review the capability fingerprint and select Review and enable capabilities.")
+    : server.state === "enabled" ? t(
+      "保存后选择“重新发现”，检查远端认证与能力，并按返回的审查状态继续；工具可用时，在任务中验证调用。",
+      "After saving, select Rediscover to check remote authentication and capabilities, then follow the returned review state. When tools are available, verify calls in a task.")
+    : server.state === "revoked" ? t(
+      "此登记已撤销。重新连接时，请登记并审查新的服务器描述符；此处可管理现有凭据名称的本地令牌。",
+      "This registration is revoked. Register and review a new server descriptor to reconnect. You can manage the existing credential name's local token here.")
+    : t("保存后，查看服务器的当前审查状态与可用操作，按该阶段继续接入。",
+      "After saving, inspect the server's current review state and available actions to continue setup.");
   return <details className="extension-onboarding"><summary>{t("管理 MCP 认证令牌", "Manage MCP authentication token")}</summary>
-    <p>{t("将 Bearer 令牌保存到系统凭据库。保存后重新发现服务器，以检查远端认证与能力；随后在任务中验证工具调用。",
-      "Store the bearer token in the system credential store. Then rediscover the server to check remote authentication and capabilities, and verify tool calls in a task.")}</p>
+    <p>{t("将 Bearer 令牌保存到系统凭据库。", "Store the bearer token in the system credential store.")} {nextStep}</p>
     <p>{t("凭据名称", "Credential name")}: {server.credential_ref} · {server.target}</p>
     <p role="status">{status.isPending ? t("正在读取凭据状态…", "Reading credential presence…") : status.error || !status.data ?
       t("凭据状态未知，请刷新。", "Credential presence is unknown; refresh.") : !status.data.store_available ?
