@@ -3,7 +3,7 @@
 ## Sandbox environment selection — 2026-10-10
 
 PR #297 merged at main `accd4c47`; the compatibility follow-up is PR #298.
-Remote CI at `d056a894` passed all 22 jobs, including Windows operator pagination
+Remote CI at `80f4d428` passed all 22 jobs, including Windows operator pagination
 and 1,920 frontend tests. The asynchronous child-process diagnostics retain the
 original command budget and assertions. The earlier intermittent timeout's
 root cause remains open.
@@ -15,8 +15,13 @@ positive/negative controls, workspace protections and selected network/SSH
 checks have completed. SBX local UUID operations remain unsupported by the
 installed CLI. Daemon restart also exposed an empty inventory while owned
 runtime metadata still existed and the internal backend was unavailable.
-The follow-up preserves uncertain cleanup for that case; complete recovery
-acceptance remains in the [record](acceptance/2026-10-10-sandbox-selection.md).
+The follow-up preserves uncertain cleanup for that case. A subsequent user-side
+start restored both original identities; post-restart MCP controls, exit 0/7,
+client cancellation and owned stop/removal checks passed. Both VMs, their backend
+containers/networks and the probe registrations were removed, with the delayed
+child marker absent. The verified production helper binding and atomic local
+identity contract remain open in the
+[record](acceptance/2026-10-10-sandbox-selection.md).
 
 The follow-up starts from main `6a4402e7` after #296 merged. The desktop now
 separates Local, Docker Engine and official Docker Sandboxes preferences from

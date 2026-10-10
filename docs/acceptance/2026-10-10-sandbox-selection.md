@@ -16,12 +16,19 @@ supported boundary and remaining proof are in [execution environments](../sandbo
 
 ## Verification
 
+- The cleanup fix's [CI at `80f4d428`](https://github.com/CWNU-Open-Source-Community/Universal-Code/actions/runs/38059477832)
+  completed successfully across all 22 jobs. Windows fixed-operator pagination
+  passed in 53.92 seconds and `native-timeout` passed in 15.28 seconds; these
+  are complete subtest durations, including fixture and cleanup work. The seven
+  operator subcases, SBX regressions, native diagnostic suite and the frontend's
+  193 files / 1,920 tests passed. Existing explicit Windows skips remain recorded
+  in the local CI audit. The earlier intermittent timeout remains unexplained.
 - The follow-up [CI at `d056a894`](https://github.com/CWNU-Open-Source-Community/Universal-Code/actions/runs/38052777174)
   completed successfully across all 22 jobs, including Windows Desktop and the
   original fixed-operator checks (pagination 44.10 seconds; operator group
   57.47 seconds). The subsequent PowerShell case took 22.93 seconds and passed.
-  The native diagnostic suite passed in 2.18 seconds; its fixed-manager child
-  exited before a usable native sample was collected. Successful operator cases
+  The native diagnostic suite passed in 2.18 seconds; its fixed-manager sample
+  was unavailable with a native device error. Successful operator cases
   do not print their sampler history, so this run supplies no pagination CPU/I/O
   timeline. This verifies that head; it does not establish
   a root-cause fix for the intermittent pagination timeout described below.
@@ -309,14 +316,38 @@ The real CLI exposed two unresolved lifecycle issues:
 
 The failed dedicated daemon was stopped through the official CLI. The execution
 tool then rejected `daemon start --detach` before process creation with
-`blocked by policy`; user-side restart was requested again. No blanket reset or
-runtime-state deletion was used. Daemon/VM restart exclusion, command exit and
-cancellation, and complete owned-resource cleanup remain pending. The production
-gate remains closed: the probe is an acceptance fixture, while the product still
-needs its verified helper registration and immutable lifecycle contract.
+`blocked by policy`. The user's subsequent PowerShell start restored the same
+two sandbox UUIDs, mounts and stopped state. No reset or runtime-state deletion
+was needed. This recovery distinguishes the observed failed launch from a
+general claim that all sbx restarts fail; its cause remains unestablished.
+
+After that restart, the same static-MCP negative checks passed without changing
+the host marker. The allowed control VM successfully called the canary directly
+and through `mcp-exec` again. Fixed guest commands returned exit 0 and exit 7
+with their expected stdout and stderr. Cancelling an owned foreground CLI left
+the guest's detached child alive: its heartbeat advanced from 0 to 4 after the
+client exited. Official named `stop` and `rm --force` then succeeded with the
+owned identity checked before each operation. This is an operator acceptance
+sequence; it does not establish an atomic UUID selection contract.
+
+Cleanup was confirmed through a successful backend scan as well as the empty
+CLI inventory: both owned container IDs and network IDs were gone, all three
+drift lists were empty, and both exact runtime metadata files were absent.
+After 104 seconds, the guest heartbeat remained at 10 and the delayed-child
+marker was absent. Both owned MCP registrations were removed after their
+command and mode identities were checked. No probe helper process remained.
+The original nine Docker Desktop container IDs were unchanged. The authenticated
+daemon, deny-all policy, disabled SSH forwarding and pinned template cache remain
+available for subsequent work; stale IPC backups were retained.
+
+The production gate remains closed: the probe is an acceptance fixture, while
+the product still needs its verified helper registration and an immutable local
+execution/removal contract. Passing this owned lifecycle exercise does not make
+name-based operations atomic.
 
 Raw, secret-free probe logs and fixture source are retained in
-`build/sandbox-backend-selection/sbx-live/run-8d2dc9c14322/`.
+`build/sandbox-backend-selection/sbx-live/run-8d2dc9c14322/`, including the
+post-recovery assertions and hashes in `verified-checks-recovered.json`.
 
 ### Real Docker Engine acceptance
 
