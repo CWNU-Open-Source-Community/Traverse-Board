@@ -157,8 +157,9 @@ func (b *SBXBackend) removeOwned(ctx context.Context, record *sbxRecord) error {
 		if record.ID == "" {
 			return ErrSBXOwnership
 		}
-		record.Phase, record.Removed = "removed", true
-		return b.save(*record)
+		// A failing daemon backend can return an empty inventory while the VM
+		// still exists. Absence before our successful rm is not a cleanup receipt.
+		return ErrSBXCleanup
 	}
 	if record.ID == "" || entry.ID != record.ID || !sbxMountsMatch(entry, *record) {
 		return ErrSBXOwnership

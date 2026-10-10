@@ -125,9 +125,10 @@ type SBXBackend struct {
 	mu                        sync.Mutex
 	lock                      *os.File
 	ownedJournal              bool
-	// No production setter exists. Until the local CLI supplies a documented
-	// empty/static or disabled gateway contract, isolation cannot be granted.
-	// Package-local fake transports prove the remaining lifecycle separately.
+	// No production setter exists. Live static-gateway probes do not bind the
+	// production create path to a verified helper, or establish immutable-ID
+	// cleanup and reliable recovery inventory. Keep execution closed until those
+	// adapter contracts are implemented; fake transports test lifecycle separately.
 	mcpIsolationProven bool
 	closed             bool
 	lifetime           context.Context

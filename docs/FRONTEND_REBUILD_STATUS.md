@@ -2,30 +2,28 @@
 
 ## Sandbox environment selection — 2026-10-10
 
-Remote CI at `39349b3b` is green across all 22 jobs, including Windows operator
-pagination and 1,920 frontend tests. The earlier SQLite delay remains an
-intermittent observation, with no production deadline or assertion change.
-PR #297 has merged at main `accd4c47`; the runtime compatibility follow-up starts
-from that exact tree. Native host preparation restored Docker Engine 29.6.2 and installed official
-sbx 0.47.0. SBX exposed an app-name length incompatibility, now corrected to
-`traverse-runtime`; daemon restart and real VM isolation acceptance remain
-open in the [acceptance record](acceptance/2026-10-10-sandbox-selection.md).
-Follow-up CI at `2adba231` completed with a Windows operator pagination timeout;
-the other execution jobs passed. This head has not passed full CI. The dedicated
-SBX daemon state has since been preserved through native File Explorer, while
-the execution tool rejected the subsequent daemon-start command. User-side
-startup and real VM acceptance remain pending.
-The next candidate adds asynchronous native-child CPU/I/O diagnostics while
-retaining the command budget and original failure assertions. Its focused
-Windows race tests and Linux cross-compilation pass; the intermittent timeout's
-cause remains open.
+PR #297 merged at main `accd4c47`; the compatibility follow-up is PR #298.
+Remote CI at `d056a894` passed all 22 jobs, including Windows operator pagination
+and 1,920 frontend tests. The asynchronous child-process diagnostics retain the
+original command budget and assertions. The earlier intermittent timeout's
+root cause remains open.
+
+Docker Engine 29.6.2 is restored and real lifecycle/application checks pass.
+Official sbx 0.47.0 now accepts the corrected `traverse-runtime` namespace.
+User authentication, a digest-pinned shell template, two real VMs, static-MCP
+positive/negative controls, workspace protections and selected network/SSH
+checks have completed. SBX local UUID operations remain unsupported by the
+installed CLI. Daemon restart also exposed an empty inventory while owned
+runtime metadata still existed and the internal backend was unavailable.
+The follow-up preserves uncertain cleanup for that case; complete recovery
+acceptance remains in the [record](acceptance/2026-10-10-sandbox-selection.md).
 
 The follow-up starts from main `6a4402e7` after #296 merged. The desktop now
 separates Local, Docker Engine and official Docker Sandboxes preferences from
 task approval modes, with Local as the default and revision-bound settings
 applied through a fixed native restart. Existing CLI startup gates remain explicit.
 The SBX adapter and recovery integration are implemented, but production readiness
-remains blocked on the official MCP isolation contract. See
+remains closed pending production static-MCP wiring and verified lifecycle recovery. See
 [execution environments](sandbox-environments.md) for setup, current support and
 the evidence required to enable SBX execution. This is a recorded implementation
 boundary, not completed real-SBX acceptance.

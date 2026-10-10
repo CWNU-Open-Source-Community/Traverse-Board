@@ -279,6 +279,79 @@ func TestSBXRecoveryOnlyCleansJournaledExactIdentity(t *testing.T) {
 	if fake.count("exec") != 0 || fake.count("rm") != 1 || len(fake.entries) != 1 || fake.entries[0].ID != "foreign-vm" {
 		t.Fatalf("recovery replayed or removed foreign resource: %+v", fake.entries)
 	}
+	path := filepath.Join(b.config.JournalRoot, owned.OperationDigest+".json")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var removed sbxRecord
+	if err := json.Unmarshal(data, &removed); err != nil || !removed.Removed || removed.Phase != "removed" || removed.ID != owned.ID {
+		t.Fatalf("successful rm did not persist removal: %+v error=%v", removed, err)
+	}
+	// A durable confirmed removal needs no new inventory or destructive calls.
+	queries := fake.count("ls")
+	if err := b.RecoverStartup(context.Background()); err != nil || fake.count("ls") != queries || fake.count("stop") != 1 || fake.count("rm") != 1 {
+		t.Fatalf("confirmed removal was repeated: error=%v calls=%+v", err, fake.calls)
+	}
+	after, err := os.ReadFile(path)
+	if err != nil || string(after) != string(data) {
+		t.Fatalf("confirmed journal changed during repeated recovery: error=%v", err)
+	}
+}
+
+func TestSBXRecoveryPreservesMissingInventoryJournal(t *testing.T) {
+	for _, phase := range []string{"created", "dispatching"} {
+		t.Run(phase, func(t *testing.T) {
+			b, fake, r := sbxFixture(t)
+			owned := sbxRecord{AppName: SBXAppName, Version: SBXPolicyVersion, OperationDigest: sbxDigest(r.OperationKey), RequestFingerprint: r.RequestFingerprint,
+				Name: "traverse-sbx-" + strings.Repeat("c", 32), ID: "exact-owned-id", Workspace: r.DrydockRoot, Phase: phase}
+			if err := b.save(owned); err != nil {
+				t.Fatal(err)
+			}
+			path := filepath.Join(b.config.JournalRoot, owned.OperationDigest+".json")
+			before, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			// A failed daemon backend may omit a VM that still has runtime metadata.
+			fake.entries = []sbxInventoryEntry{{ID: owned.ID, Name: owned.Name, Workspaces: []string{owned.Workspace, filepath.Join(owned.Workspace, ".git") + ":ro"}}}
+			fake.inventoryOverride = []byte(`{"sandboxes":[]}`)
+			for attempt := 1; attempt <= 2; attempt++ {
+				if err := b.RecoverStartup(context.Background()); !errors.Is(err, ErrSBXCleanup) {
+					t.Fatalf("recovery %d confirmed absent inventory as removal: %v", attempt, err)
+				}
+				after, err := os.ReadFile(path)
+				if err != nil || string(after) != string(before) {
+					t.Fatalf("recovery %d changed unresolved journal: error=%v", attempt, err)
+				}
+			}
+			if fake.count("ls") != 2 || fake.count("create") != 0 || fake.count("exec") != 0 || fake.count("stop") != 0 || fake.count("rm") != 0 || len(fake.entries) != 1 || fake.entries[0].ID != owned.ID {
+				t.Fatalf("missing inventory mutated or adopted VM: calls=%+v entries=%+v", fake.calls, fake.entries)
+			}
+		})
+	}
+}
+
+func TestSBXRunDoesNotConfirmCleanupFromMissingInventory(t *testing.T) {
+	b, fake, r := sbxFixture(t)
+	fake.exec = func(_ context.Context, f *sbxFakeTransport) (SBXProcessResult, error) {
+		f.mu.Lock()
+		f.inventoryOverride = []byte(`{"sandboxes":[]}`)
+		f.mu.Unlock()
+		return SBXProcessResult{ExitCode: 0}, nil
+	}
+	value, err := b.Run(context.Background(), r, nil)
+	if !errors.Is(err, ErrSBXCleanup) || value.TreeReaped || value.ReceiptFingerprint != "" || fake.count("stop") != 0 || fake.count("rm") != 0 {
+		t.Fatalf("missing inventory produced a whole-VM cleanup receipt: %+v error=%v", value, err)
+	}
+	data, err := os.ReadFile(filepath.Join(b.config.JournalRoot, sbxDigest(r.OperationKey)+".json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var record sbxRecord
+	if err := json.Unmarshal(data, &record); err != nil || record.Removed || record.Phase != "dispatching" || record.ID == "" {
+		t.Fatalf("missing inventory lost active journal: %+v error=%v", record, err)
+	}
 }
 
 func TestSBXPartialCreateCannotAdoptAnUnjournaledID(t *testing.T) {

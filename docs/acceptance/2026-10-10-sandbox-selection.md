@@ -16,6 +16,15 @@ supported boundary and remaining proof are in [execution environments](../sandbo
 
 ## Verification
 
+- The follow-up [CI at `d056a894`](https://github.com/CWNU-Open-Source-Community/Universal-Code/actions/runs/38052777174)
+  completed successfully across all 22 jobs, including Windows Desktop and the
+  original fixed-operator checks (pagination 44.10 seconds; operator group
+  57.47 seconds). The subsequent PowerShell case took 22.93 seconds and passed.
+  The native diagnostic suite passed in 2.18 seconds; its fixed-manager child
+  exited before a usable native sample was collected. Successful operator cases
+  do not print their sampler history, so this run supplies no pagination CPU/I/O
+  timeline. This verifies that head; it does not establish
+  a root-cause fix for the intermittent pagination timeout described below.
 - Full remote [CI at `39349b3b`](https://github.com/CWNU-Open-Source-Community/Universal-Code/actions/runs/38040097864)
   completed successfully: all 22 jobs passed. TypeScript covered 193 files /
   1,920 tests; repository Go vet and 75 tested packages passed, together with all
@@ -202,9 +211,9 @@ cover the length and character boundaries.
 
 The dedicated daemon initially started. Its namespace settings now persist
 `ssh.agentForwardingEnabled=false` and `mcp.forceLocalGateway=true`. The required
-restart encountered a stale `containerd.sock.ttrpc` reparse point. The daemon
-is currently unreachable, so effective settings and authentication have not
-been verified. The execution tool rejected an attempted state-directory
+restart encountered a stale `containerd.sock.ttrpc` reparse point. At that point
+the daemon was unreachable and effective settings and authentication were
+unverified. The execution tool rejected an attempted state-directory
 backup/restart command with `blocked by policy`; that command did not execute.
 The rejection's policy source remains unidentified. The session has full filesystem
 access and `approval_policy=never`; the [Auto-review documentation](https://learn.chatgpt.com/docs/sandboxing/auto-review)
@@ -217,9 +226,10 @@ daemon processes were absent and the namespace's `runtimes` directory was empty.
 Filesystem verification confirmed that the backup exists, its runtime count is
 zero, and the original canonical directory is absent. An official
 `sbx --app-name traverse-runtime daemon start --detach` invocation was then
-rejected by the execution tool before starting. User-side execution of that
-command is pending; daemon recovery, effective settings and real VM isolation
-remain unverified. No settings, credentials, Docker objects or VM data were reset.
+rejected by the execution tool before starting. The user then ran that command
+successfully and completed Docker device authentication. The CLI confirmed
+`qiyuanqiii`; both the sandbox and template inventories were initially empty.
+No settings, credentials, Docker objects or VM data were reset.
 The installed Docker-signed `sbx-gui.exe` was also launched through native desktop
 control, but it exposed no targetable window in either the app or window
 inventory. Only the process created for that UI check was closed afterwards.
@@ -246,11 +256,67 @@ skips. An initial command-argument quoting error exited before test execution;
 the corrected invocation passed. This verifies the Unix preflight code, while
 SBX lifecycle calls in that binary still use the controlled transport.
 
-No SBX login, template pull or real microVM execution has completed. The
-production gate remains closed pending the MCP, effective daemon settings,
-workspace synchronization and resource-identity evidence in the environment
-guide. The candidate MCP probe is a separately tested, zero-tool local fixture;
-it has not been registered with a daemon or exercised from a VM.
+### Real SBX 0.47 acceptance
+
+The dedicated namespace was initialized with `policy init deny-all`. Settings
+readback after the user-started daemon confirmed SSH agent forwarding disabled
+and the local MCP gateway selected. The official Linux amd64 shell template was
+resolved from Docker Hub and pinned to
+`docker.io/docker/sandbox-templates@sha256:bbef0c36f33daa5da4b57b7a504e8c945cdac52bcfe94141a51aee63333fc36e`.
+One owned VM used `--pull missing` to prepare the namespace cache; a second
+owned control VM successfully used `--pull never`. Both used two CPUs, 2 GiB,
+`--skills off`, `--deny-network '**'`, one owned Git worktree and its `.git:ro`
+file. The actual inventory matched both host mount arguments exactly.
+
+The first VM's static MCP set contained only the audited zero-tool stdio probe.
+Guest MCP initialization and all list methods succeeded. Its tools were the
+gateway's `code-mode` and `mcp-exec`; resources, resource templates and prompts
+were empty. A subsequently registered canary service remained excluded:
+dynamic discovery/configuration, direct canary calls and indirect `mcp-exec`
+calls failed. `code-mode` rejected the excluded canary, an empty selection, and
+the gateway builtin `mcp-exec`. The control VM explicitly allowed the canary;
+direct and indirect calls both succeeded and appended exactly two fixed lines
+to the owned host marker. No real account secret or model request was involved.
+
+Guest checks confirmed ordinary workspace writes reached the host, while
+opening `.git` for writing, unlinking, renaming and replacing it all failed
+with `EROFS`. Its hash stayed unchanged. The pointed-to host Git metadata was
+unavailable. A host junction to an owned outside sentinel could neither be read
+nor written from the guest, and the outside sentinel remained unchanged.
+
+HTTP requests to the tested provider, public and host destinations returned
+policy-denied 403 responses. Raw TCP connect alone succeeded to the transparent
+forwarder, but an HTTP payload to an owned host canary received EOF; the host
+listener recorded only its one host-side positive-control request. External raw
+TLS ended with `SSLEOFError`, and external DNS resolution failed. These are the
+tested routes, not a claim about every possible network protocol. `SSH_AUTH_SOCK`
+was still present in the default guest environment, but its socket was absent
+and `ssh-add` returned exit 2 with ENOENT. Credential modes reported `none`;
+some provider variable names still held runtime sentinels. The product's
+`env -i` invocation removed all six selected credential/gateway/SSH variables.
+
+The real CLI exposed two unresolved lifecycle issues:
+
+- `exec`, `stop` and `rm --force` each rejected the actual local VM UUID as
+  not found. Name-based calls do not provide an atomic immutable-ID contract.
+- `daemon restart` returned success, but subsequent named `stop` and `exec`
+  returned backend-unavailable 500 responses. The internal Docker Unix socket
+  was unreachable. `ls --json` returned an empty array although both exact-ID
+  runtime metadata files still existed and the daemon logged failed SDK clients.
+  This is not a valid removal receipt. The recovery adapter now retains its
+  journal and returns uncertain cleanup when a previously recorded VM is merely
+  absent from the first inventory.
+
+The failed dedicated daemon was stopped through the official CLI. The execution
+tool then rejected `daemon start --detach` before process creation with
+`blocked by policy`; user-side restart was requested again. No blanket reset or
+runtime-state deletion was used. Daemon/VM restart exclusion, command exit and
+cancellation, and complete owned-resource cleanup remain pending. The production
+gate remains closed: the probe is an acceptance fixture, while the product still
+needs its verified helper registration and immutable lifecycle contract.
+
+Raw, secret-free probe logs and fixture source are retained in
+`build/sandbox-backend-selection/sbx-live/run-8d2dc9c14322/`.
 
 ### Real Docker Engine acceptance
 
