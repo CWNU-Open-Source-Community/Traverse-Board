@@ -37,7 +37,7 @@ it("uses a read-only GET and renders only a verified screenshot", async () => {
   expect(postControl).not.toHaveBeenCalled();
   expect(downloadVerifiedImage).toHaveBeenCalledWith(expect.stringContaining("session_id=agent-browser-one"),
     status().screenshot, expect.any(AbortSignal));
-  expect(screen.getByText(/没有显示窗口/)).toBeInTheDocument();
+  expect(screen.getByText(/浏览器在后台运行/)).toBeInTheDocument();
   expect(screen.queryByRole("button", { name: /打开/ })).not.toBeInTheDocument();
 });
 
@@ -82,7 +82,7 @@ it("never retries a failed close and refreshes status with GET", async () => {
   await screen.findByRole("alert");
   await waitFor(() => expect(get.mock.calls.length).toBeGreaterThanOrEqual(2));
   expect(postControl).toHaveBeenCalledTimes(1);
-  expect(screen.getByText(/不会自动重复停止操作/)).toBeInTheDocument();
+  expect(screen.getByText(/请核对最新状态后再决定是否重试停止/)).toBeInTheDocument();
 });
 
 it("keeps a newer same-Run session when an old close finishes", async () => {

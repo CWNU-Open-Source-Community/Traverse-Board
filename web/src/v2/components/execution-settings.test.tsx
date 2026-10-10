@@ -65,7 +65,7 @@ describe("V2ExecutionSettings", () => {
     const controls = setup();
     render(controls.ui("thread-1"));
     expect(await screen.findByText("项目：指定验收目录")).toBeInTheDocument();
-    expect(screen.getByText(/请求批准、帮我批准、完全访问是审批偏好/u)).toBeInTheDocument();
+    expect(screen.getByText(/审批偏好决定操作如何获批/u)).toBeInTheDocument();
     expect(controls.postControl).not.toHaveBeenCalled();
     await user.click(screen.getByRole("button", { name: /本地工作区/u }));
     await waitFor(() => expect(controls.postControl).toHaveBeenCalledWith(
@@ -108,7 +108,7 @@ describe("V2ExecutionSettings", () => {
     expect(screen.getByText("先打开一个对话，再选择执行环境。")).toBeInTheDocument();
     expect(controls.get).not.toHaveBeenCalled();
     view.rerender(controls.ui("thread-1"));
-    expect(await screen.findByText(/这里切换环境不会把改动应用回原项目/u)).toBeInTheDocument();
+    expect(await screen.findByText(/文件编辑与沙箱命令都在该目录中进行/u)).toBeInTheDocument();
     expect(screen.queryByText(/普通任务的文件工具使用已接入的项目目录/u)).not.toBeInTheDocument();
   });
 });

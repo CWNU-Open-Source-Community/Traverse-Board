@@ -181,6 +181,9 @@ export type CodeIntelConfigurationReviewRequestView = components["schemas"]["Cod
 export type CodeIntelConfigurationTestRequestView = components["schemas"]["CodeIntelConfigurationTestRequestView"];
 export type CodeIntelConfigurationTestView = components["schemas"]["CodeIntelConfigurationTestView"];
 export type ExtensionMCPServerView = components["schemas"]["ExtensionMCPServerView"];
+export type MCPCredentialBindingView = components["schemas"]["MCPCredentialBindingView"];
+export type MCPCredentialStatusView = components["schemas"]["MCPCredentialStatusView"];
+export type MCPCredentialRequestView = components["schemas"]["MCPCredentialRequestView"];
 export type ExtensionMCPReviewRequestView =
   components["schemas"]["ExtensionMCPReviewRequestView"];
 export type ExtensionRefreshRequestView = components["schemas"]["ExtensionRefreshRequestView"];
@@ -441,3 +444,7 @@ export interface VerificationPlanItemCoveragePage {
   page: Page;
   requestID: string;
 }
+
+export type TaskBudgetSettings = components["schemas"]["TaskBudgetSettings"];
+export type TaskConfigurationRequest = components["schemas"]["TaskConfigurationRequest"];
+export type TaskConfigurationView = components["schemas"]["TaskConfigurationView"];

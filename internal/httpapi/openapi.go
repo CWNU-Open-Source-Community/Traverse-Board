@@ -24,6 +24,7 @@ import (
 	"cyberagent-workbench/internal/githubreview"
 	"cyberagent-workbench/internal/imageattachment"
 	"cyberagent-workbench/internal/llm"
+	"cyberagent-workbench/internal/mcp"
 	"cyberagent-workbench/internal/modelregistry"
 	"cyberagent-workbench/internal/operationreceipt"
 	"cyberagent-workbench/internal/operatoraction"
@@ -665,6 +666,24 @@ func openAPIOperationSpecs() []openAPIOperationSpec {
 			Description: "Stages a manual MCP descriptor in an existing Run or Workspace. The host supplies source provenance; registration starts no process or discovery and does not grant execution authority. Exact repeats return the current persisted state.",
 			DataType:    reflect.TypeOf(ExtensionMCPRegistrationView{}),
 			RequestType: reflect.TypeOf(ExtensionMCPRegistrationRequestView{})},
+		{Path: MCPCredentialPathTemplate, OperationID: "getMCPCredentialStatus",
+			Summary: "Read local MCP bearer credential presence", Tag: "Extensions", NotFound: true,
+			Description: "Reads only local OS credential presence for the exact registered HTTPS descriptor and scope. It does not test remote authentication, discover capabilities or invoke tools. Shared MCP registration metadata is bound to a reference fingerprint; plaintext is never returned.",
+			DataType:    reflect.TypeOf(MCPCredentialStatusView{}),
+			Parameters: []openAPIParameter{pathIdentityParameter("server_id", "MCP server identity"),
+				{Name: "workspace_id", In: "query", Required: true, Description: "Exact descriptor Workspace", Schema: identitySchema()},
+				identityQueryParameter("run_id", "Exact descriptor Run, if Run scoped"),
+				{Name: "expected_descriptor_fingerprint", In: "query", Required: true, Description: "Exact descriptor SHA-256",
+					Schema: map[string]any{"type": "string", "minLength": 64, "maxLength": 64, "pattern": "^[a-f0-9]{64}$"}},
+				{Name: "target", In: "query", Required: true, Description: "Exact registered HTTPS endpoint",
+					Schema: map[string]any{"type": "string", "format": "uri", "minLength": 1, "maxLength": mcp.MaxClientTargetBytes}},
+				{Name: "credential_ref", In: "query", Required: true, Description: "Exact OS credential name",
+					Schema: map[string]any{"type": "string", "minLength": 1, "maxLength": 64}}}},
+		{Path: MCPCredentialPathTemplate, Method: http.MethodPost, OperationID: "changeMCPCredential",
+			Summary: "Set or remove an exact MCP bearer credential", Tag: "Extensions", Control: true, NotFound: true, SuccessStatus: http.StatusOK,
+			Description: "Explicitly confirmed set/delete through the Go-owned OS credential store. Rechecks descriptor, endpoint, scope and shared reference fingerprint. No plaintext fallback, connection, discovery, enablement or remote token revocation occurs.",
+			DataType:    reflect.TypeOf(MCPCredentialStatusView{}), RequestType: reflect.TypeOf(MCPCredentialRequestView{}),
+			Parameters: []openAPIParameter{pathIdentityParameter("server_id", "MCP server identity")}},
 		{Path: ExtensionPluginImportPath, Method: http.MethodPost,
 			OperationID: "importPlugin", Summary: "Import an inert Plugin archive",
 			Tag: "Extensions", Control: true, NotFound: true,
@@ -834,7 +853,14 @@ func openAPIOperationSpecs() []openAPIOperationSpec {
 					string(domain.ThreadActive), string(domain.ThreadArchived), string(domain.ThreadDeleted)}),
 				openAPIParameter{Name: "q", In: "query", Description: "Trimmed literal title substring across all matching tasks; at most 256 Unicode characters. ASCII case-insensitive, other Unicode exact; no message-body search.", Schema: map[string]any{"type": "string", "maxLength": domain.MaxThreadTitleQueryRunes}},
 				booleanQueryParameter("include_deleted", "Include soft-deleted Threads"))},
+		{Path: TaskConfigurationPreviewPath, Method: http.MethodPost, OperationID: "previewTaskConfiguration", Summary: "Preview task budget and project narrowing", Tag: "Runs", SuccessStatus: http.StatusOK,
+			Description: "Read-only bounded workspace configuration preview using the read bearer. Loads inert .prayu/config.yaml through the same Go resolver as creation. Rejections block the entire creation; no source bytes, host paths or secrets are returned. No command, model, network, Skill or capability is executed or granted. Cost limits require an operator price snapshot at execution and do not represent exact billing.",
+			DataType:    reflect.TypeOf(application.TaskConfigurationView{}), RequestType: reflect.TypeOf(application.TaskConfigurationRequest{}), NotFound: true},
+		{Path: RunTaskConfigurationPathTemplate, OperationID: "getRunTaskConfiguration", Summary: "Read immutable task configuration", Tag: "Runs",
+			Description: "Projects only stored Run budget and project snapshot, never live repository configuration. Legacy snapshots use snapshot provenance when operator input was not retained. This read grants no capability.",
+			DataType:    reflect.TypeOf(application.TaskConfigurationView{}), Parameters: []openAPIParameter{runID}, NotFound: true},
 		{Path: ThreadCollectionPath, Method: http.MethodPost,
+
 			OperationID: "createThread", Summary: "Create a Thread", Tag: "Control",
 			Description: "Atomically creates one stable Thread with its initial Mission, Run, Session, closed execution mode, all-denied process authority snapshots, root Agent, and audit events. Network remains disabled unless the request supplies a bounded exact public HTTPS host allowlist.",
 			DataType:    reflect.TypeOf(ThreadCreationControlView{}),
@@ -2559,6 +2585,26 @@ func jsonField(field reflect.StructField) (string, bool, bool) {
 }
 
 func applyOpenAPIFieldMetadata(typeName string, fieldName string, schema map[string]any) {
+	if typeName == "MCPCredentialStatusView" && fieldName == "plaintext_returned" {
+		schema["enum"] = []bool{false}
+	}
+	if typeName == "TaskBudgetSettings" {
+		bounds := map[string][2]float64{
+			"max_turns": {1, domain.MaxTaskTurns}, "max_tokens": {0, float64(domain.MaxTaskTokens)},
+			"max_tool_calls": {1, float64(domain.MaxTaskToolCalls)}, "max_cost_usd": {0, domain.MaxTaskCostUSD},
+			"timeout_seconds": {0, float64(domain.MaxTaskTimeoutSeconds)},
+		}
+		if bound, found := bounds[fieldName]; found {
+			schema["minimum"], schema["maximum"] = bound[0], bound[1]
+		}
+	}
+	if typeName == "TaskConfigurationView" && fieldName == "capability_grant" {
+		schema["enum"] = []bool{false}
+	}
+	if typeName == "TaskConfigurationView" && (fieldName == "fingerprint" || fieldName == "project_fingerprint") {
+		schema["pattern"] = "^[0-9a-f]{64}$"
+	}
+
 	if typeName == "BoundedCommandGrantView" && fieldName == "each_command_requires_review" {
 		schema["enum"] = []bool{true}
 	}
@@ -2842,8 +2888,11 @@ func applyOpenAPIFieldMetadata(typeName string, fieldName string, schema map[str
 	if typeName == "ProviderCredentialStatusView" && fieldName == "provider" {
 		schema["maxLength"] = 64
 	}
-	if (typeName == "ProviderCredentialRequestView" || typeName == "ProviderModelDiscoveryRequest") && fieldName == "secret" {
+	if (typeName == "ProviderCredentialRequestView" || typeName == "ProviderModelDiscoveryRequest" || typeName == "MCPCredentialRequestView") && fieldName == "secret" {
 		schema["writeOnly"] = true
+		if typeName == "MCPCredentialRequestView" {
+			schema["maxLength"] = credential.MaxSecretBytes
+		}
 	}
 	if typeName == "ModelDiscoveryResult" && fieldName == "models" {
 		schema["maxItems"] = 512
@@ -3229,6 +3278,9 @@ var openAPIFieldEnums = map[string][]string{
 	"ProviderCredentialStatusView.protocol_version":            {credential.ProtocolVersion},
 	"ProviderCredentialRequestView.version":                    {credential.ProtocolVersion},
 	"ProviderCredentialRequestView.action":                     {string(application.ProviderCredentialSet), string(application.ProviderCredentialDelete)},
+	"MCPCredentialStatusView.protocol_version":                 {application.MCPCredentialProtocolVersion},
+	"MCPCredentialRequestView.version":                         {application.MCPCredentialProtocolVersion},
+	"MCPCredentialRequestView.action":                          {"set", "delete"},
 	"FileEditProposalSourceView.protocol_version":              {application.FileEditProposalProtocolVersion},
 	"FileEditProposalRequestView.version":                      {application.FileEditProposalProtocolVersion},
 	"FileEditProposalView.protocol_version":                    {application.FileEditProposalProtocolVersion},
@@ -3362,6 +3414,12 @@ var openAPIFieldEnums = map[string][]string{
 	"ThreadView.status":                                        {string(domain.ThreadActive), string(domain.ThreadArchived), string(domain.ThreadDeleted)},
 	"ThreadView.composer_state":                                {"ready", "waiting_approval", "successor_required", "unavailable"},
 	"ThreadView.execution_state":                               {"idle", "running", "stopping", "stop_failed", "waiting_approval", "paused", "completed", "failed", "cancelled", "unknown"},
+	"TaskConfigurationView.version":                            {application.TaskConfigurationVersion},
+	"TaskConfigurationView.project_disposition":                {"absent", "applied", "rejected"},
+	"TaskConfigurationView.profile":                            {"code", "learn", "review", "script"},
+	"TaskConfigurationRequest.profile":                         {"code", "learn", "review", "script"},
+	"ConfigurationSource.source":                               {"default", "operator", "project", "snapshot"},
+	"ConfigurationSource.field":                                {"budget.max_turns", "budget.max_tokens", "budget.max_tool_calls", "budget.max_cost_usd", "budget.timeout_seconds", "read_only", "allowed_profiles", "exclude_paths", "skill_suggestions", "test_command_id", "format_command_id"},
 	"ThreadCreationControlRequestView.version":                 {domain.ThreadCreationProtocolVersion},
 	"ThreadCreationControlRequestView.profile":                 {string(domain.ProfileCode), string(domain.ProfileReview), string(domain.ProfileLearn), string(domain.ProfileScript)},
 	"ThreadCreationControlRequestView.surface":                 {string(domain.ExecutionSurfaceCode), string(domain.ExecutionSurfaceCyber)},

@@ -6,7 +6,7 @@ import type { ThreadView, WorkspaceView } from "../../api/types";
 export type V2SettingsSection = "general" | "permissions" | "appearance" | "voice" |
   "models" | "plugins" | "browser" | "hooks" | "git" | "environment" |
   "worktrees" | "keyboard" | "inspector" | "archived" | "extensions" | "skills" |
-  "advanced-models" | "about" | "shortcuts";
+  "advanced-models" | "about" | "shortcuts" | "connections" | "task-configuration";
 
 const executionLabels = {
   idle: "空闲", running: "执行中", stopping: "正在停止", stop_failed: "停止失败",
@@ -24,7 +24,7 @@ function executionStatus(thread: ThreadView, readFailed: boolean) {
 
 export function V2Sidebar({ threads, workspaces, selectedThreadID, searchOpen, onSearchOpen,
   onNewConversation, onOpenModels, onSelectThread, onOpenSettings, onArchive,
-  onOpenInspector, inspectorActive = false,
+  onOpenInspector, inspectorActive = false, onOpenConnections,
   search = "", appliedSearch = "", searchPending = false, searchTooLong = false, onSearchChange, onSearchCompositionChange,
   hasMore = false, truncated = false, loading = false, loadingMore = false, loadFailed = false,
   loadMoreFailed = false, refreshing = false, onLoadMore, onRefresh, onRetry }: {
@@ -39,6 +39,7 @@ export function V2Sidebar({ threads, workspaces, selectedThreadID, searchOpen, o
   onOpenSettings: () => void;
   onArchive: (thread: ThreadView) => void;
   onOpenInspector?: () => void;
+  onOpenConnections?: () => void;
   inspectorActive?: boolean;
   search?: string; appliedSearch?: string; searchPending?: boolean; searchTooLong?: boolean;
   onSearchChange?: (value: string) => void;
@@ -136,7 +137,9 @@ export function V2Sidebar({ threads, workspaces, selectedThreadID, searchOpen, o
     </div>
     <div className="v2-sidebar-footer">
       {onOpenInspector && <button aria-pressed={inspectorActive} onClick={onOpenInspector} type="button">
-        <Box aria-hidden="true" size={16} />Inspector</button>}
+        <Box aria-hidden="true" size={16} />观察与记录</button>}
+      {onOpenConnections && <button onClick={onOpenConnections} type="button">
+        <PlugZap aria-hidden="true" size={16} />连接与环境</button>}
       <button onClick={onOpenSettings} type="button"><Settings aria-hidden="true" size={16} />设置</button>
     </div>
   </aside>;
@@ -151,14 +154,16 @@ const settingsGroups: Array<{ label: string; items: Array<{
     { id: "shortcuts", label: "快捷键", icon: Keyboard },
     { id: "about", label: "关于", icon: Info },
   ] },
-  { label: "模型与扩展", items: [
+  { label: "连接与环境", items: [
+    { id: "connections", label: "连接与环境", icon: PlugZap },
     { id: "models", label: "模型", icon: Cpu },
     { id: "extensions", label: "扩展与代码智能", icon: PlugZap },
     { id: "skills", label: "Skill 包", icon: PackageSearch },
   ] },
-  { label: "任务与诊断", items: [
+  { label: "任务与观察", items: [
+    { id: "task-configuration", label: "任务预算与项目配置", icon: Settings },
     { id: "permissions", label: "当前任务权限", icon: ShieldCheck },
-    { id: "inspector", label: "Inspector 偏好与诊断", icon: Box },
+    { id: "inspector", label: "观察视图偏好", icon: Box },
   ] },
 ];
 

@@ -559,7 +559,7 @@ it("ends an absent promotion when the source is claimed without treating missing
   await promoteFirst(user); await screen.findByText(/引导结果待确认。connection lost/u);
   f.claim("message-1"); f.hooks.executionObserved = false;
   await user.click(screen.getByRole("button", { name: "核对引导结果" }));
-  await screen.findByText(/原消息已变化或已处理，这次引导不会再执行/u);
+  await screen.findByText(/原消息已变化或已处理，原引导请求已失效/u);
   expect(f.postControl).toHaveBeenCalledTimes(1);
   expect(screen.queryByRole("button", { name: "核对引导结果" })).not.toBeInTheDocument();
 });
@@ -570,7 +570,7 @@ it("ends an absent original-version promotion only after observing a durable sou
   await promoteFirst(user); await screen.findByText(/引导结果待确认。connection lost/u);
   f.revise("message-1");
   await user.click(screen.getByRole("button", { name: "核对引导结果" }));
-  await screen.findByText(/原消息已变化或已处理，这次引导不会再执行/u);
+  await screen.findByText(/原消息已变化或已处理，原引导请求已失效/u);
   expect(f.postControl).toHaveBeenCalledTimes(1);
   expect(screen.queryByRole("button", { name: "核对引导结果" })).not.toBeInTheDocument();
   expect(screen.getByRole("button", { name: "查看消息 1 全文" })).toHaveTextContent("另一窗口修改后的要求");

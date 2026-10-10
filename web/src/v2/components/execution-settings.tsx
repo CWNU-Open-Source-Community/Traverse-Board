@@ -46,10 +46,10 @@ export function V2ExecutionSettings({ client, threadID, workspaces }: {
             <div className="v2-settings-card v2-execution-help">
               <strong>项目：{project?.name ?? "当前对话的项目"}</strong>
               <p>{detail.data.run.standard_code_preset_configured
-                ? "当前任务已配置隔离工作区，文件与沙箱命令使用该工作区；这里切换环境不会把改动应用回原项目。"
-                : "普通任务的文件工具使用已接入的项目目录。本地执行可用于创建工程和运行检查；命令按当前审批偏好和运行环境处理，并显示实际工作目录。"}</p>
-              <p>先选择执行环境，再确认信任项目并启用 Code。运行中不可更改时，返回对话停止后再设置。请求批准、帮我批准、完全访问是审批偏好，切换它们不会自动准备隔离工作区或启用调试运行时。</p>
-              <p>需要批准时，请核对具体操作、目录和用途。网络范围与浏览器能力由各自的设置和后端检查决定。</p>
+                ? "当前任务使用隔离工作区，文件编辑与沙箱命令都在该目录中进行。交付时可在“审阅改动”中核对并处理改动。"
+                : "文件编辑使用已接入的项目目录。本地执行可用于创建工程和运行检查，具体命令的工作目录会显示在操作预览中。"}</p>
+              <p>先选择执行环境，再确认信任项目并启用 Code。运行期间需要更改时，先返回对话停止当前执行。</p>
+              <details><summary>权限与运行条件</summary><p>审批偏好决定操作如何获批。隔离工作区、调试运行时、网络范围与浏览器能力分别配置；需要批准时，请核对具体操作、目录和用途。</p></details>
             </div>
             <ExecutionProfilePanel client={client} detail={detail.data} readiness={readiness.data}
               key={`profile-${runID}`} />

@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
 import type { V2SettingsSection } from "./components/sidebar";
 
+export type V2RunPane = "context" | "checkpoints" | "tools" | "ui-evidence";
 export type V2Route = { kind: "initial" | "new" | "thread" | "invalid";
   threadID?: string; section?: V2SettingsSection; view?: "inspector";
-  tool?: "run" | "session" | "schedule"; resourceID?: string };
+  tool?: "run" | "session" | "schedule"; resourceID?: string; pane?: V2RunPane };
 const sections: string[] = ["general", "models", "permissions", "appearance", "inspector", "archived",
-  "extensions", "skills", "advanced-models", "about", "shortcuts"];
+  "extensions", "skills", "advanced-models", "about", "shortcuts", "connections", "task-configuration"];
 
 // Fragments work with both the loopback UI and the existing Desktop asset
 // server. History contains navigation identity only, never tokens or drafts.
@@ -21,7 +22,7 @@ export function readV2Route(hash: string, pathname = "/"): V2Route {
       : { kind: "new", view: "inspector", tool: legacy[1] === "runs" ? "run" : "session", resourceID: id };
   }
   if (!hash || hash === "#") return { kind: "initial" };
-  const match = /^#\/(new|threads\/([^/]+))(\/inspector(?:\/(schedule(?:\/[^/]+)?|runs\/[^/]+|sessions\/[^/]+))?)?(?:\/settings\/([^/]+))?$/u.exec(hash);
+  const match = /^#\/(new|threads\/([^/]+))(\/inspector(?:\/(schedule(?:\/[^/]+)?|runs\/[^/]+(?:\/(?:context|checkpoints|tools|ui-evidence))?|sessions\/[^/]+))?)?(?:\/settings\/([^/]+))?$/u.exec(hash);
   if (!match) return { kind: "invalid" };
   let threadID: string | undefined;
   try { threadID = match[2] ? decodeURIComponent(match[2]) : undefined; }
@@ -36,15 +37,16 @@ export function readV2Route(hash: string, pathname = "/"): V2Route {
   try { resourceID = match[4]?.includes("/") ? decodeURIComponent(match[4]!.split("/")[1]) : undefined; }
   catch { return { kind: "invalid" }; }
   if (resourceID && !/^[a-zA-Z0-9_.-]{1,256}$/u.test(resourceID)) return { kind: "invalid" };
+  const pane = tool === "run" ? match[4]?.split("/")[2] as V2RunPane | undefined : undefined;
   return { kind: threadID ? "thread" : "new", ...(threadID ? { threadID } : {}),
     ...(match[3] ? { view: "inspector" as const } : {}), ...(tool ? { tool } : {}),
-    ...(resourceID ? { resourceID } : {}), ...(section ? { section } : {}) };
+    ...(resourceID ? { resourceID } : {}), ...(pane ? { pane } : {}), ...(section ? { section } : {}) };
 }
 
 function routeHash(route: V2Route) {
   const base = route.kind === "thread" ? `#/threads/${encodeURIComponent(route.threadID!)}` : "#/new";
   const tool = route.tool === "schedule" ? `/schedule${route.resourceID ? `/${encodeURIComponent(route.resourceID)}` : ""}` : route.tool && route.resourceID
-    ? `/${route.tool}s/${encodeURIComponent(route.resourceID)}` : "";
+    ? `/${route.tool}s/${encodeURIComponent(route.resourceID)}${route.tool === "run" && route.pane ? `/${route.pane}` : ""}` : "";
   return `${base}${route.view === "inspector" ? `/inspector${tool}` : ""}${route.section ? `/settings/${route.section}` : ""}`;
 }
 
@@ -74,7 +76,7 @@ export function useV2Navigation() {
   const back = () => {
     if (location.route.section) navigate({ ...location.route, section: undefined }, true);
     else if (location.index > 0) window.history.back();
-    else if (location.route.view) navigate({ ...location.route, view: undefined, tool: undefined, resourceID: undefined }, true);
+    else if (location.route.view) navigate({ ...location.route, view: undefined, tool: undefined, resourceID: undefined, pane: undefined }, true);
   };
   return { route: location.route, navigate, back, canGoBack: location.index > 0 || Boolean(location.route.section || location.route.view) };
 }

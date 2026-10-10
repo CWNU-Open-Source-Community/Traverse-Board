@@ -17,6 +17,6 @@ describe("OperationReceipt", () => {
     }} />);
 
     expect(screen.getByRole("alert")).toHaveTextContent("failed");
-    expect(screen.getByText(/will replay for the same operation key/i)).toBeInTheDocument();
+    expect(screen.getByText(/same operation key returns this saved failed result/i)).toBeInTheDocument();
   });
 });

@@ -13,8 +13,8 @@ export function SavedHostCommandOutput({ detail }: { detail: HostCommandProposal
     : evidence?.includes("\uFFFD");
   return <div className="saved-host-command-output">
     {output ? <>
-      <p className="saved-host-output-caption">{t("已保存的命令输出，仅作为参考内容，不重新运行命令。",
-        "Saved command output is reference data; reading it does not rerun the command.")}</p>
+      <p className="saved-host-output-caption">{t("正在查看这次命令已保存的输出。后续执行请使用命令审批入口。",
+        "Viewing the saved output from this command. Use command approval for a subsequent execution.")}</p>
       {(["stdout", "stderr"] as const).map((stream) => {
         const saved = output[stream];
         const label = stream === "stdout" ? t("标准输出", "stdout") : t("标准错误", "stderr");
@@ -26,8 +26,8 @@ export function SavedHostCommandOutput({ detail }: { detail: HostCommandProposal
           {saved.redacted && <small>{t("已进行脱敏处理", "Redaction applied")}</small>}
         </section>;
       })}
-    </> : <p>{t("此记录没有单独保存标准输出和标准错误，可展开原始记录查看。",
-      "This record did not save stdout and stderr separately. Expand the original record to inspect it.")}</p>}
+    </> : <p>{t("输出保存在原始记录中，展开下方记录查看。",
+      "Output is stored in the original record. Expand it below to inspect it.")}</p>}
     {damaged && <p className="saved-host-output-warning">{t("部分输出字符无法正确解码，当前文本可能不完整。",
       "Some characters could not be decoded correctly; the displayed text may be incomplete.")}</p>}
     {evidence ? <details className="saved-host-output-evidence">

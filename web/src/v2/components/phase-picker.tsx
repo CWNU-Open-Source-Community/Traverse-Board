@@ -14,8 +14,8 @@ export function V2PhasePicker({ phase, onChange, disabled = false, planAvailable
   const planning = phase === "plan";
   return <button type="button" ref={buttonRef} className={`v2-phase-picker v2-phase-toggle${planning ? " is-active" : ""}`}
     aria-pressed={planning} disabled={disabled || !planning && !planAvailable}
-    title={planning ? "关闭计划模式，恢复默认处理方式；不会发送草稿或改变权限"
-      : !planAvailable ? "当前连接未启用计划模式" : "开启后先分析并形成计划，确认后执行；切换不会发送草稿或改变权限"}
+    title={planning ? "关闭计划模式，发送消息后按默认方式处理"
+      : !planAvailable ? "当前连接未启用计划模式" : "开启后先分析并形成计划，确认计划后执行"}
     onClick={() => onChange(planning ? "deliver" : "plan")}>
     <ListChecks aria-hidden="true" size={14} />计划模式
   </button>;

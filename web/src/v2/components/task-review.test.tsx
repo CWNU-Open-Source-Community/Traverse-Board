@@ -38,7 +38,8 @@ it("reviews each task execution and carries exact edit context into a correction
     <V2TaskReview client={client} detail={detail} working={false} onClose={onClose}
       onRequestChange={onRequestChange} returnFocusRef={createRef()} />
   </QueryClientProvider>);
-  expect(within(screen.getByRole("group", { name: "交付流程" })).getAllByRole("button")).toHaveLength(4);
+  expect(within(screen.getByRole("group", { name: "交付流程" })).getAllByRole("button")).toHaveLength(5);
+  expect(screen.getByRole("button", { name: "检查与交付" })).toBeVisible();
   expect(screen.queryByRole("button", { name: "编辑明细" })).not.toBeInTheDocument();
   expect(screen.getByRole("button", { name: "查看改动" })).toHaveAttribute("aria-pressed", "true");
   await openHistory(user, "编辑明细");
@@ -209,13 +210,13 @@ it("requires an explicit configured preset and can read an older execution's exi
   renderReview(client, new QueryClient({ defaultOptions: { queries: { retry: false } } }), detail);
   expect(get.mock.calls.some(([path]) => String(path).startsWith("/runs/"))).toBe(false);
   await openHistory(user, "检查与交付");
-  expect(screen.getByText(/此执行尚未配置 Standard Code/)).toBeInTheDocument();
+  expect(screen.getByText(/此执行使用普通编码流程/)).toBeInTheDocument();
   expect(screen.queryByRole("button", { name: "生成当前交付报告" })).not.toBeInTheDocument();
   expect(get).toHaveBeenCalledWith("/runs/run-2", {}, expect.any(AbortSignal));
   await user.selectOptions(screen.getByRole("combobox", { name: "选择审阅的执行记录" }), "run-1");
   await screen.findByRole("button", { name: "重试交付配置" });
   expect(screen.queryByRole("button", { name: "生成当前交付报告" })).not.toBeInTheDocument();
-  expect(screen.queryByText(/此执行尚未配置 Standard Code/)).not.toBeInTheDocument();
+  expect(screen.queryByText(/此执行使用普通编码流程/)).not.toBeInTheDocument();
   await user.click(screen.getByRole("button", { name: "重试交付配置" }));
   await user.click(await screen.findByRole("button", { name: "生成当前交付报告" }));
   expect(get).toHaveBeenCalledWith("/runs/run-1", {}, expect.any(AbortSignal));

@@ -14,8 +14,8 @@ export function LifecycleStatusLabel({ status, kind = "run" }: Props) {
   const { t } = useLocale();
   const open = openLifecycle(status, kind);
   return <span title={kind === "session"
-    ? t("仅描述此上下文记录的状态，不决定对话是否可继续，也不表示 Agent 当前正在执行。", "Describes only this context record; it does not determine whether the conversation can continue or whether the Agent is currently executing.")
-    : t("仅描述此执行记录的状态，不决定对话是否可继续，也不表示 Agent 当前正在执行。", "Describes only this execution record; it does not determine whether the conversation can continue or whether the Agent is currently executing.")}>
+    ? t("上下文记录状态。继续交流请返回对话，查看当前工作进度请打开执行活动。", "Context record state. Return to the conversation to continue chatting; open execution activity for current progress.")
+    : t("执行记录状态。继续交流请返回对话，查看当前工作进度请打开执行活动。", "Execution record state. Return to the conversation to continue chatting; open execution activity for current progress.")}>
     {open ? kind === "session" ? t("未关闭", "Not closed") : t("未结束", "Not ended") : <StatusLabel status={status} />}
   </span>;
 }
@@ -25,8 +25,8 @@ export function LifecycleStatusBadge({ status, kind = "run" }: Props) {
   const open = openLifecycle(status, kind);
   const label = open ? kind === "session" ? t("未关闭", "Not closed") : t("未结束", "Not ended") : undefined;
   return <span title={kind === "session"
-    ? t("仅描述此上下文记录的状态，不决定对话是否可继续，也不表示 Agent 当前正在执行。", "Describes only this context record; it does not determine whether the conversation can continue or whether the Agent is currently executing.")
-    : t("仅描述此执行记录的状态，不决定对话是否可继续，也不表示 Agent 当前正在执行。", "Describes only this execution record; it does not determine whether the conversation can continue or whether the Agent is currently executing.")}>
+    ? t("上下文记录状态。继续交流请返回对话，查看当前工作进度请打开执行活动。", "Context record state. Return to the conversation to continue chatting; open execution activity for current progress.")
+    : t("执行记录状态。继续交流请返回对话，查看当前工作进度请打开执行活动。", "Execution record state. Return to the conversation to continue chatting; open execution activity for current progress.")}>
     <StatusBadge status={open ? "open" : status} label={label} />
   </span>;
 }

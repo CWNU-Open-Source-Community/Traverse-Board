@@ -45,6 +45,38 @@ beforeEach(() => window.localStorage.clear());
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 
 describe("first-message creation recovery", () => {
+  it("retries an unknown creation with the original key and budget after reopening, even when the draft budget changes", async () => {
+    const client = fixture();
+    client.createThread.mockRejectedValueOnce(new Error("response lost"));
+    const originalRequest = { ...request, budget: { max_turns: 20, max_tokens: 1_000 } };
+    const first = mount(client);
+    const original = prepare(first, originalRequest);
+    await act(async () => { await expect(first.helper().resolve(original)).rejects.toThrow("response lost"); });
+    first.unmount();
+    const reopened = mount(client);
+    const resumed = prepare(reopened, { ...request, budget: { max_tokens: 1_000, max_turns: 20 } });
+    expect(resumed.operationID).toBe(original.operationID);
+    const edited = prepare(reopened, { ...request, budget: { max_turns: 10, max_tokens: 500 } });
+    expect(edited.operationID).not.toBe(original.operationID);
+    await act(async () => {
+      await expect(reopened.helper().resolve({ ...original, request: edited.request })).rejects.toThrow("原创建请求无法可靠核对");
+      await reopened.helper().resolve(resumed);
+    });
+    expect(client.createThread.mock.calls).toEqual([
+      [originalRequest, `v2-thread-create-${original.operationID}`],
+      [originalRequest, `v2-thread-create-${original.operationID}`],
+    ]);
+    expect(reopened.store().read(`creation:${original.operationID}`, null)).toEqual(original);
+  });
+
+  it("rejects corrupt persisted numeric budgets without issuing a creation request", async () => {
+    const client = fixture();
+    const view = mount(client);
+    const intent = prepare(view, { ...request, budget: { max_tokens: 1_000 } });
+    act(() => view.store().write(`creation:${intent.operationID}`, { ...intent, request: { ...intent.request, budget: { max_tokens: null } } }));
+    await act(async () => { await expect(view.helper().resolve(intent)).rejects.toThrow("原创建请求无法可靠核对"); });
+    expect(client.createThread).not.toHaveBeenCalled();
+  });
   it("recovers a lost create response by GET after reopening and opens the now-running original Thread", async () => {
     const client = fixture();
     client.createThread.mockRejectedValueOnce(new Error("response lost"));
@@ -121,7 +153,7 @@ describe("first-message creation recovery", () => {
     const intent = prepare(first);
     first.unmount();
     const second = mount(client);
-    await screen.findByText(/这不是最终结论/);
+    await screen.findByText(/本次查询尚未找到创建记录。可点击“重新核对”/);
     fireEvent.click(screen.getByRole("button", { name: "重新核对" }));
     await waitFor(() => expect(client.inspectThreadCreationRequest).toHaveBeenCalledTimes(2));
     expect(client.inspectThreadCreationRequest).toHaveBeenLastCalledWith(workspaceID, `v2-thread-create-${intent.operationID}`, expect.any(AbortSignal));

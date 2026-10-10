@@ -19,7 +19,7 @@ describe("ScheduledTasksWorkspace", () => {
       diagnosticBundle: vi.fn(),
     });
 
-    await screen.findByText("No scheduled Runs");
+    await screen.findByText("No observation schedules yet. Set a time and target above to begin.");
     await user.click(screen.getByRole("button", { name: "Create and observe" }));
     await waitFor(() => expect(createScheduledJob).toHaveBeenCalledTimes(1));
     expect(createScheduledJob.mock.calls[0]?.[0]).toBe("run-1");

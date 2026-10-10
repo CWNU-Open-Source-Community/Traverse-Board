@@ -41,7 +41,7 @@ export function V2ApprovalModeControl({ mode, fullActivation, fullUnavailableRea
   const SelectedIcon = selected.icon;
   const coldFull = mode === "full" && fullActivation === "inactive";
   const unavailable = fullUnavailableReason?.trim() ||
-    t("当前环境未提供完全访问权限。", "Full access is not available in the current environment.");
+    t("完全访问需要当前运行环境提供支持，请查看服务的权限配置。", "Full access requires runtime support. Check the service's permission configuration.");
   const status = t(`完全访问${activationLabels[fullActivation]}`, `Full access ${activationLabels[fullActivation]}`);
   const confirmationOpen = confirmation !== null && confirmation.mode === mode &&
     confirmation.activation === fullActivation && !disabled && fullActivation !== "unavailable";
@@ -122,6 +122,10 @@ export function V2ApprovalModeControl({ mode, fullActivation, fullUnavailableRea
         </button>;
       })}
     </div>
+    {fullActivation === "unavailable" && <details className="v2-permission-availability">
+      <summary>{t("查看完全访问的启用条件", "View Full access requirements")}</summary>
+      <p id={`${id}-unavailable`}>{unavailable}</p>
+    </details>}
     {coldFull && <button className="v2-permission-downgrade" disabled={blocked}
       onClick={(event) => choose("full", event.currentTarget)}
       role={variant === "menu" ? "menuitem" : undefined}
@@ -129,8 +133,8 @@ export function V2ApprovalModeControl({ mode, fullActivation, fullUnavailableRea
       <ShieldOff aria-hidden="true" size={16} /><span><strong>{t("重新激活完全访问权限", "Reactivate Full access")}</strong>
         <small>{t("已保存选择；重新激活仍需确认。", "Your preference is saved; reactivation still requires confirmation.")}</small></span>
     </button>}
-    <small>{t("影响未知、敏感数据外发、破坏性或共享写入操作不会因选择“帮我批准”而自动获准。工具自称只读不代表已通过核验。",
-      "Unknown effects, sensitive data disclosure, destructive operations, and writes to shared resources are not automatically approved by “Approve for me”. A tool's read-only claim is not verification.")}</small>
+    <small>{t("影响未知、敏感数据外发、破坏性操作或共享写入需要单独核对和批准。工具声称只读时，也会按实际影响核实。",
+      "Unknown effects, sensitive data disclosure, destructive operations, and writes to shared resources require separate review and approval. Read-only claims are checked against actual effects.")}</small>
   </>;
 
   return <div aria-busy={pending} className={`v2-permission-control is-${variant}`} ref={shellRef}>
@@ -170,7 +174,6 @@ export function V2ApprovalModeControl({ mode, fullActivation, fullUnavailableRea
       ref={settingsRef} tabIndex={-1}>
       <header><div><h2>{t("执行权限", "Execution permissions")}</h2><p>{status}</p></div></header>{options}
     </section>}
-    {fullActivation === "unavailable" && <p className="v2-inline-error" id={`${id}-unavailable`}>{unavailable}</p>}
     {pending && <span role="status">{t("正在更新权限…", "Updating permissions…")}</span>}
     {error && <p className="v2-inline-error" role="alert">{error.trim() || t("权限更新失败", "Failed to update permissions")}</p>}
     {confirmationOpen && createPortal(<V2ConfirmDialog open busy={pending}

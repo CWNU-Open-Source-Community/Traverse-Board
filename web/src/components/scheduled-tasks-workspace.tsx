@@ -169,13 +169,13 @@ export function ScheduledTasksWorkspace({ client, initialRunID = "" }: {
   const workerLabel = health.isError
     ? t("观察器状态暂时无法确认", "Observer status could not be confirmed")
     : !worker ? t("正在检查观察器状态…", "Checking observer status…")
-      : !worker.enabled ? t("本次启动未启用观察器", "Observer is disabled for this launch")
+      : !worker.enabled ? t("观察器待启用", "Observer awaits enablement")
         : worker.state === "running" ? worker.selection_scope === "confirmed_read_only"
           ? t("观察器运行中", "Observer is running") : t("调度器运行中", "Scheduler is running")
           : worker.state === "ready" ? t("观察器正在启动", "Observer is starting")
             : t("观察器已停止或正在退出", "Observer is stopped or shutting down");
   const scopeLabel = worker?.selection_scope === "confirmed_read_only"
-    ? t("仅观察已确认的只读计划", "Observes confirmed read-only schedules")
+    ? t("观察范围：已确认的只读计划", "Observation scope: confirmed read-only schedules")
     : worker?.selection_scope === "all_jobs"
       ? t("显式全计划调度（包含旧计划）", "Explicit scheduling of all jobs, including legacy jobs")
       : worker?.enabled ? t("调度范围尚未确认", "Scheduling scope is unknown") : "";
@@ -207,11 +207,11 @@ export function ScheduledTasksWorkspace({ client, initialRunID = "" }: {
         </button>
       </header>
 
-      <p>{t("定时查看任务状态并记录变化，不调用模型。创建后，每次打开应用都会继续已确认的观察计划；退出应用期间暂停观察。",
-        "Check task status and record changes without model calls. Confirmed schedules continue when you reopen the app; observation stops while the app is closed.")}</p>
+      <p>{t("定时读取任务状态并记录变化。已确认的观察计划随应用开启继续，退出应用后暂停；模型调用保持关闭。",
+        "Read task status on a schedule and record changes. Confirmed observation schedules continue while the app is open and pause when it closes; model calls remain disabled.")}</p>
       {worker?.selection_scope === "all_jobs" && <p>{t(
-        "当前以显式启动参数调度全部计划，旧计划也可能执行。此页新建的计划仍仅作只读观察。",
-        "This explicitly launched worker schedules all jobs, including legacy jobs. New schedules created here remain read-only observations.")}</p>}
+        "当前调度范围包含旧计划，它们也可能执行。此页新建计划用于只读观察，请核对列表中的旧计划。",
+        "The current scheduling scope includes legacy jobs, which may also execute. New schedules on this page perform read-only observation; review legacy jobs in the list.")}</p>}
 
       <div className="scheduled-summary" aria-label={t("定时 Run 摘要", "Scheduled Run summary")}>
         <span>{t("全部", "Total")} <strong>{jobs.length}</strong></span>
@@ -268,8 +268,8 @@ export function ScheduledTasksWorkspace({ client, initialRunID = "" }: {
       </form>
 
       {!client.hasScheduledJobControl && <p className="inline-warning">{t(
-        "本次启动未开放定时 Run 控制；列表和诊断仍保持只读。",
-        "Scheduled Run control was not enabled for this launch; listing and diagnostics remain read-only.")}</p>}
+        "当前可查看计划和导出诊断。启用定时执行控制并连接控制凭证后，可创建或调整观察计划。",
+        "Plans and diagnostic exports are available. Enable scheduled execution control and connect a control credential to create or adjust observation schedules.")}</p>}
       {error && <p className="inline-warning" role="alert">
         {error instanceof Error ? error.message : t("定时 Run 操作失败", "Scheduled Run operation failed")}
       </p>}
@@ -286,7 +286,7 @@ export function ScheduledTasksWorkspace({ client, initialRunID = "" }: {
           </button>)}
           {!list.isLoading && jobs.length === 0 && <div className="utility-empty-state">
             <CalendarClock aria-hidden="true" size={25} />
-            <strong>{t("暂无定时 Run", "No scheduled Runs")}</strong>
+            <strong>{t("还没有观察计划，在上方设置时间和目标开始。", "No observation schedules yet. Set a time and target above to begin.")}</strong>
           </div>}
         </div>
 
@@ -333,7 +333,7 @@ export function ScheduledTasksWorkspace({ client, initialRunID = "" }: {
             </section> : null}
           </> : <div className="utility-empty-state">
             <CalendarClock aria-hidden="true" size={25} />
-            <strong>{t("选择定时 Run 查看执行窗口", "Select a scheduled Run to inspect its execution window")}</strong>
+            <strong>{t("选择观察计划，查看下次检查时间和最近结果。", "Select a schedule to inspect its next check and latest result.")}</strong>
           </div>}
         </div>
       </div>

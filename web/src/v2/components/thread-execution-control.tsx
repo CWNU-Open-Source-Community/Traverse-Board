@@ -89,7 +89,7 @@ export function V2PausedThreadControl({ client, threadID, runID }: {
   };
   return <div className="v2-paused-thread" role="status">本轮已暂停。发送新消息会恢复任务并继续处理；也可以仅解除暂停。
     {client.hasRunLifecycle && <button disabled={pending} onClick={submit}
-      title="仅恢复运行，不会重试失败的操作；未处理的要求仍等新消息继续" type="button">
+      title="恢复运行状态；发送新消息后继续处理要求，失败的操作需另行发起" type="button">
       {pending ? "正在解除…" : "解除暂停"}</button>}
     {attempt?.status === "error" && <p role="alert">解除暂停未确认，可重试：{attempt.error?.message}</p>}
   </div>;

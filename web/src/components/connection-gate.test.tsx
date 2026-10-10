@@ -37,8 +37,8 @@ describe("ConnectionGate", () => {
     const user = userEvent.setup();
     render(<QueryClientProvider client={new QueryClient()}><ConnectionGate /></QueryClientProvider>);
 
-    const input = screen.getByLabelText("只读访问令牌");
-    const controlInput = screen.getByLabelText(/控制访问令牌/);
+    const input = screen.getByLabelText("查看令牌");
+    const controlInput = screen.getByLabelText(/操作令牌/);
     expect(input).toHaveAttribute("type", "password");
     expect(controlInput).toHaveAttribute("type", "password");
     await user.type(input, "ephemeral-token");
@@ -68,7 +68,7 @@ describe("ConnectionGate", () => {
     }), { status: 200 })));
     const user = userEvent.setup();
     render(<QueryClientProvider client={new QueryClient()}><ConnectionGate /></QueryClientProvider>);
-    await user.type(screen.getByLabelText("只读访问令牌"), "read-only-token");
+    await user.type(screen.getByLabelText("查看令牌"), "read-only-token");
     await user.click(screen.getByRole("button", { name: "连接" }));
     await waitFor(() => expect(useConnectionStore.getState().token).toBe("read-only-token"));
     expect(useConnectionStore.getState().threadExecutionReadEnabled).toBe(true);
@@ -88,8 +88,8 @@ describe("ConnectionGate", () => {
     }), { status: 200 })));
     const user = userEvent.setup();
     render(<QueryClientProvider client={new QueryClient()}><ConnectionGate /></QueryClientProvider>);
-    await user.type(screen.getByLabelText("只读访问令牌"), "read-token-fixture");
-    await user.type(screen.getByLabelText(/控制访问令牌/), "control-token-fixture");
+    await user.type(screen.getByLabelText("查看令牌"), "read-token-fixture");
+    await user.type(screen.getByLabelText(/操作令牌/), "control-token-fixture");
     await user.click(screen.getByRole("button", { name: "连接" }));
     expect(await screen.findByRole("alert")).toHaveTextContent("capability response is invalid");
     expect(useConnectionStore.getState().token).toBe("");

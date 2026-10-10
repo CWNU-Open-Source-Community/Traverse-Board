@@ -89,7 +89,7 @@ describe("HostCommandProposalPanel", () => {
   it("keeps unknown Host execution visible without a continuation action", async () => {
     const client={hasRunExecution:true,hostCommandProposals:vi.fn().mockResolvedValue({items:[{...proposal,review:approvedReview(),uncertain:true}]})} as unknown as APIClient;
     renderPanel(client,"thread-1");
-    expect(await screen.findByText("Approved; execution is unconfirmed. This does not establish whether the command ran or succeeded.")).toBeInTheDocument();
+    expect(await screen.findByText("Approved; the execution result needs confirmation. Refresh command records to check the state before proceeding.")).toBeInTheDocument();
     expect(screen.queryByRole("button",{name:"Continue from saved outcome"})).not.toBeInTheDocument();
   });
 

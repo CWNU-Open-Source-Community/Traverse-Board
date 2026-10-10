@@ -212,15 +212,15 @@ export function TaskGit({ client, threadID, working, onFeedback, onPullRequest, 
           <p>{shownResult.receipt_saved ? "执行收据已保存。" : "执行收据尚未保存；是否完成以上方对原操作的核对状态为准。"}</p>
         </details>}
         {shownResult.reason && <p>{shownResult.reason}</p>}
-        {shownResult.worktree_path && <><p>独立目录：{shownResult.worktree_path}</p><p>当前任务仍使用原目录。新目录从已提交版本创建，不包含本任务未提交的修改；在此开始新任务时不会复制当前任务的权限。</p>
+        {shownResult.worktree_path && <><p>独立目录：{shownResult.worktree_path}</p><p>新目录已从已提交版本创建。要在其中工作，点击“在此目录开始新任务”并确认新任务权限；原任务和未提交修改保留在原目录。</p>
           {onOpenWorktree && <button type="button" disabled={!client.hasWorkspaceImport || openWorktree.isPending} onClick={() => openWorktree.mutate(shownResult.worktree_path!)}>在此目录开始新任务</button>}</>}
         {shownResult.state === "completed" && shownResult.spec?.operation === "push_branch" && <button type="button" onClick={onPullRequest}>继续创建或查看 PR</button>}
       </div>}
       {localError && <p role="alert">{localError}</p>}
       {openWorktree.isError && <ErrorState error={openWorktree.error} />}
       {execute.isError && <p role="alert">操作响应未能确认，已保留原请求。{execute.error.message}</p>}
-      {drifted && <p className="v2-git-form-notice" role="status">仓库版本已变化。文件选择和输入仍保留，请核对当前状态并重新预览；旧确认不能继续执行。</p>}
-      {!drifted && form.value.previewed && !preview && <p className="v2-git-form-notice" role="status">已保留上次操作表单。预览确认不会随页面恢复，请重新预览本次操作。</p>}
+      {drifted && <p className="v2-git-form-notice" role="status">仓库版本已变化，原预览确认已失效。文件选择和输入已保留，请核对当前状态后重新预览。</p>}
+      {!drifted && form.value.previewed && !preview && <p className="v2-git-form-notice" role="status">上次操作表单已保留。请重新预览并确认当前操作。</p>}
       <form className="v2-delivery-form" onSubmit={(event) => {
         event.preventDefault(); if (mutationBlocked || prepare.isPending || (needsFiles && missingPaths.length) || unavailableRemote || unavailableBranch) return;
         const spec: ThreadGitSpec = { operation,
@@ -264,8 +264,8 @@ export function TaskGit({ client, threadID, working, onFeedback, onPullRequest, 
           <label>凭据名称<input list={`task-git-credentials-${threadID}`} value={credentialName} disabled={Boolean(saved) || prepare.isPending} onChange={(event) => { changed(); setCredentialName(event.target.value); }} placeholder="选择或填写已保存的 GitHub 凭据名称" /></label>
           <datalist id={`task-git-credentials-${threadID}`}>{credentials.data?.filter((item) => item.credential.configured && item.connection.credential.kind !== "github_app_device").map((item) => <option value={item.connection.credential.name} key={item.connection.id}>{item.connection.repository.full_name}</option>)}</datalist>
           <button type="button" onClick={onPullRequest}>到 PR 页面接入 GitHub</button>
-          <p>只推送当前分支已提交的代码，工作目录中尚未提交的修改不包含在推送中。</p></>}
-        <p className="v2-git-limits">内置 Git 操作不运行本地 hooks，提交不生成 GPG 或 SSH 签名。项目要求的本地检查与签名需另行完成。</p>
+          <p>推送范围为当前分支已有提交。要包含工作目录中的修改，请先提交所选文件。</p></>}
+        <details className="v2-git-limits"><summary>项目检查与提交签名</summary><p>内置 Git 操作跳过本地 hooks，生成无签名提交。项目要求的本地检查与 GPG 或 SSH 签名需另行完成。</p></details>
         {(unavailableRemote || unavailableBranch) && <p role="alert">原目标已不可用，请明确选择当前有效的目标后重新预览。</p>}
         <button type="submit" className="v2-delivery-primary" disabled={mutationBlocked || prepare.isPending || (needsFiles && (!paths.length || missingPaths.length > 0)) || unavailableRemote || unavailableBranch}>{prepare.isPending ? "正在生成预览…" : "预览本次操作"}</button>
       </form>
@@ -287,6 +287,7 @@ export function TaskGit({ client, threadID, working, onFeedback, onPullRequest, 
         </dl></details>
         {preview.diff && <ReviewDiff patch={preview.diff} source={`Git 预览：${preview.preview_fingerprint}\n分支：${preview.branch}\n提交：${preview.head_oid}\n目录：${preview.repository_root}`} onFeedback={onFeedback} />}
         {!preview.can_execute && <p role="alert">{preview.blocked_reason || "此预览当前不能执行。"}</p>}
+        {preview.spec.operation === "commit" && <p>本次提交会跳过本地 hooks，生成无签名提交。请确认这种提交方式符合项目要求。</p>}
         <p>确认后仅执行这份预览；内容或分支变化时需要重新预览。</p>
         <button type="button" className="v2-delivery-primary" disabled={mutationBlocked || prepare.isPending || !store || !preview.can_execute || Boolean(state.data && gitFormRevision(preview) !== gitFormRevision(state.data))} onClick={() => void confirm()}>{checking ? "正在重新核对仓库…" : execute.isPending ? "正在执行…" : `确认${operations[preview.spec.operation as Operation] ?? "执行"}`}</button>
       </section>}

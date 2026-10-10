@@ -260,7 +260,7 @@ it("uses the returned managed worktree path only after confirmation and opens it
   await user.click(screen.getByRole("button", { name: "确认创建独立工作目录" }));
   const open = await screen.findByRole("button", { name: "在此目录开始新任务" });
   expect(screen.getByText(`独立目录：${returnedPath}`)).toBeInTheDocument();
-  expect(screen.getByText(/当前任务仍使用原目录/u)).toBeInTheDocument();
+  expect(screen.getByText(/原任务和未提交修改保留在原目录/u)).toBeInTheDocument();
   expect(f.importWorkspace).not.toHaveBeenCalled();
   expect(view.onOpenWorktree).not.toHaveBeenCalled();
   await user.click(open);
@@ -302,7 +302,7 @@ it.each([
   expect(f.postControl).not.toHaveBeenCalled();
 });
 
-it("keeps author and commit limits visible while exact preview evidence is expandable", async () => {
+it("keeps the author and commit effects visible while project requirements and exact evidence remain expandable", async () => {
   const f = fixture();
   f.hooks.preview = async (thread, spec) => ({ ...gitPreview(thread, spec), commit_author: { name: "Local Author", email: "local@example.invalid" } });
   mount(f);
@@ -315,7 +315,12 @@ it("keeps author and commit limits visible while exact preview evidence is expan
   await user.click(screen.getByRole("button", { name: "提交", pressed: true }));
   expect(confirmation).toBeInTheDocument();
   expect(within(confirmation).getByText("提交作者：Local Author <local@example.invalid>")).toBeVisible();
-  expect(screen.getByText(/内置 Git 操作不运行本地 hooks/u)).toBeVisible();
+  expect(within(confirmation).getByText("本次提交会跳过本地 hooks，生成无签名提交。请确认这种提交方式符合项目要求。")).toBeVisible();
+  const projectRequirements = screen.getByText(/内置 Git 操作跳过本地 hooks/u);
+  expect(projectRequirements).not.toBeVisible();
+  await user.click(screen.getByText("项目检查与提交签名"));
+  expect(projectRequirements).toBeVisible();
+  expect(projectRequirements).toHaveTextContent("生成无签名提交");
   expect(within(confirmation).getByText(/提交说明末尾会附加 Traverse-Operation/u)).toBeVisible();
   expect(within(confirmation).getByText("本次所选文件（1）")).toBeVisible();
   expect(within(confirmation).getByText(fingerprint)).not.toBeVisible();
@@ -362,7 +367,7 @@ it("restores selected files and input after remount while awaiting a fresh GET a
   expect(screen.getByRole("button", { name: "预览本次操作" })).toBeDisabled();
   await act(async () => { refreshed(gitState("task-a")); });
   await ready();
-  expect(screen.getByText(/已保留上次操作表单/u)).toBeVisible();
+  expect(screen.getByText(/上次操作表单已保留/u)).toBeVisible();
   expect(f.previews()).toHaveLength(1);
   expect(f.executions()).toEqual([]);
   f.hooks.state = undefined;
@@ -586,14 +591,14 @@ it.each(["success", "acknowledged"] as const)("clears the consumed preview basis
   expect(view.queryClient.getQueryData<ThreadGitState>(["thread", "task-a", "git"])?.binding_fingerprint).toBe("f".repeat(64));
   expect(screen.getByText("选择文件（0）")).toBeInTheDocument();
   expect(screen.queryByText(/仓库版本已变化/u)).not.toBeInTheDocument();
-  expect(screen.queryByText(/已保留上次操作表单/u)).not.toBeInTheDocument();
+  expect(screen.queryByText(/上次操作表单已保留/u)).not.toBeInTheDocument();
   expect(screen.queryByRole("region", { name: "Git 操作确认" })).not.toBeInTheDocument();
   expect(f.executions()).toHaveLength(1);
   await user.click(screen.getByRole("button", { name: "提交" }));
   expect(screen.getByRole("textbox", { name: "提交说明" })).toHaveValue("keep this explanation for a later commit");
   view.showGit(false); view.showGit(true);
   await ready();
-  expect(screen.queryByText(/仓库版本已变化|已保留上次操作表单/u)).not.toBeInTheDocument();
+  expect(screen.queryByText(/仓库版本已变化|上次操作表单已保留/u)).not.toBeInTheDocument();
   expect(f.executions()).toHaveLength(1);
 });
 
@@ -615,6 +620,6 @@ it("does not consume a newer shared form when an earlier execution finishes late
   expect(screen.getByRole("textbox", { name: "提交说明" })).toHaveValue("later independent form");
   expect(screen.getByRole("checkbox", { name: /^chosen\.txt/u })).not.toBeChecked();
   expect(screen.getByRole("checkbox", { name: /^user-staged\.txt/u })).toBeChecked();
-  expect(screen.getByText(/已保留上次操作表单/u)).toBeVisible();
+  expect(screen.getByText(/上次操作表单已保留/u)).toBeVisible();
   expect(f.executions()).toHaveLength(1);
 });

@@ -22,7 +22,7 @@ describe("Inspector saved record browser", () => {
     const saved = await screen.findByRole("button", { name: "打开运行记录 run-open" });
     expect(saved).toHaveTextContent("Not ended");
     expect(saved).not.toHaveTextContent("running");
-    expect(screen.getByText(/查看历史执行与上下文记录/)).toHaveTextContent("打开记录不会启动执行");
+    expect(screen.getByText(/选择历史执行或会话/)).toHaveTextContent("需要继续任务时，回到对应对话发送消息");
     expect(getPage).toHaveBeenCalledExactlyOnceWith("/runs", { limit: 50 }, "", expect.any(AbortSignal));
   });
 

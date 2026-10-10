@@ -24,11 +24,14 @@ export function PriceSnapshotsSection({ client }: { client: APIClient }) {
   return (
     <section className="model-availability-section">
       <h3><Tag aria-hidden="true" size={14} />{t("价格快照", "Price snapshots")}</h3>
+      <p>{t("启用美元费用上限时，导入价格文档以估算任务预算。实际费用可在供应商账单中查看。", "Import a pricing document to estimate task budgets when using a USD spending limit. View actual charges in your provider account.")}</p>
       {query.isLoading && <LoadingState label={t("加载价格快照", "Loading price snapshots")} />}
       {query.isError && <ErrorState error={query.error} />}
       {query.data && (
         <div className="provider-credential-list">
-          {query.data.items.length === 0 && <div className="projection-placeholder">{t("尚无导入", "none imported")}</div>}
+          {query.data.items.length === 0 && <div className="projection-placeholder">{client.hasControl
+            ? t("尚无价格快照。粘贴下方价格文档后导入。", "No price snapshots yet. Paste a pricing document below and import it.")
+            : t("尚无价格快照。连接具备控制权限的服务后可导入。", "No price snapshots yet. Connect with control access to import one.")}</div>}
           {query.data.items.map((item) => (
             <div className="provider-credential-row" key={item.id}>
               <div><strong>{item.id}</strong><small>{item.source} · {item.currency} · {item.entry_count} {t("条", "entries")}</small></div>
@@ -45,7 +48,7 @@ export function PriceSnapshotsSection({ client }: { client: APIClient }) {
           <button className="command-button" disabled={importMutation.isPending || !document}
             onClick={() => importMutation.mutate()} type="button">
             {importMutation.isPending ? <LoaderCircle aria-hidden="true" className="spin" size={15} /> : <Tag aria-hidden="true" size={15} />}
-            {t("导入", "Import")}
+            {t("导入价格快照", "Import price snapshot")}
           </button>
           {importMutation.error && <div className="inline-warning" role="alert">
             {importMutation.error instanceof Error ? importMutation.error.message : t("价格导入失败", "Price import failed")}

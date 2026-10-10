@@ -848,7 +848,7 @@ describe("V2 custom Provider settings", () => {
 
     expect(screen.getByLabelText("搜索策略")).toHaveValue("auto");
     expect(screen.getByLabelText("声明供应商具备原生 Web Search")).not.toBeChecked();
-    expect(screen.getByText(/兼容 Responses API 不代表支持原生搜索/u)).toBeInTheDocument();
+    expect(screen.getByText(/先确认供应商提供哪种搜索能力/u)).toBeInTheDocument();
 
     await user.selectOptions(screen.getByLabelText("搜索策略"), "provider_native");
     expect(screen.getByLabelText("声明供应商具备原生 Web Search")).toBeChecked();
@@ -895,7 +895,7 @@ describe("V2 custom Provider settings", () => {
     fireEvent.click(screen.getByRole("button", { name: "高级设置：自定义连接、模型与搜索" }));
     expect(screen.getByLabelText("搜索策略")).toHaveValue("provider_native");
     expect(screen.getByLabelText("声明供应商具备原生 Web Search")).toBeChecked();
-    expect(screen.getByText(/系统不会静默改用 DuckDuckGo/u)).toBeInTheDocument();
+    expect(screen.getByText(/需要更换搜索方式/u)).toBeInTheDocument();
     expect(screen.getByLabelText("默认模型")).toHaveValue(existing.default_model);
     expect(screen.getByLabelText("API Key")).toHaveValue("");
     expect(controls.upsertProviderDefinition).not.toHaveBeenCalled();
@@ -909,7 +909,7 @@ describe("V2 custom Provider settings", () => {
     await user.click(await screen.findByRole("button", { name: /Acme AI/u }));
     await user.selectOptions(screen.getByLabelText("搜索策略"), "web");
     expect(screen.getByRole("option", { name: "普通网页搜索（DuckDuckGo）" })).toBeInTheDocument();
-    expect(screen.getByText(/搜索查询会发送到 DuckDuckGo/u)).toHaveTextContent("仍受当前任务的网页访问范围限制");
+    expect(screen.getByText(/搜索查询会发送到 DuckDuckGo/u)).toHaveTextContent("遵循当前任务的网页访问范围");
     expect(screen.getByLabelText("声明供应商具备原生 Web Search")).not.toBeChecked();
     expect(controls.upsertProviderDefinition).not.toHaveBeenCalled();
     await user.click(screen.getByRole("button", { name: "保存" }));

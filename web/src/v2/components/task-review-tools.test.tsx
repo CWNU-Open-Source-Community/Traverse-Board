@@ -171,7 +171,7 @@ it("loads advanced tools only after selection and binds every panel to the expli
   expect(api.uiEvidence).not.toHaveBeenCalled();
 
   await chooseTool(user, "批量交付");
-  await screen.findByText("暂无 batch-delivery.v1 计划");
+  await screen.findByText("还没有批量交付计划。可在对话中提出需要独立完成并合并的子任务。");
   expect(api.getRunBatchDeliveries).toHaveBeenCalledWith("run-history", expect.any(AbortSignal));
   expect(api.gitAdvancedProjection).not.toHaveBeenCalled();
   await chooseTool(user, "高级 Git");
@@ -183,7 +183,7 @@ it("loads advanced tools only after selection and binds every panel to the expli
     "run-history", "connection-1", 0, expect.any(AbortSignal)));
   expect(api.uiEvidence).not.toHaveBeenCalled();
   await chooseTool(user, "UI 取证");
-  await screen.findByText("尚未创建 UI 验证 Attempt");
+  await screen.findByText(/还没有浏览器验证/u);
   expect(api.uiEvidence).toHaveBeenCalledWith("run-history", expect.any(AbortSignal));
   await user.selectOptions(screen.getByRole("combobox", { name: "选择审阅的执行记录" }), "run-current");
   expect(screen.getByText(/选择工具后才会读取对应状态/)).toBeInTheDocument();
@@ -232,7 +232,7 @@ it("refuses to substitute the current Run when the selected historical Run disap
   await user.click(screen.getByRole("button", { name: "更多交付工具" }));
   await user.selectOptions(screen.getByRole("combobox", { name: "选择审阅的执行记录" }), "run-history");
   await chooseTool(user, "批量交付");
-  await screen.findByText("暂无 batch-delivery.v1 计划");
+  await screen.findByText("还没有批量交付计划。可在对话中提出需要独立完成并合并的子任务。");
   const changed = detail();
   changed.runs = changed.runs.filter(({ run }) => run.id !== "run-history");
   view.rerender(view.node(changed));

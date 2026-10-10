@@ -34,7 +34,7 @@ describe.each(["menu", "settings"] as const)("V2ApprovalModeControl English %s",
     expect(screen.getByText("Execution permissions")).toBeVisible();
     expect(screen.getByText("Full access inactive")).toBeVisible();
     expect(screen.getByRole(role, { name: "Request approval" })).toHaveAccessibleDescription(/public network requests need approval/u);
-    expect(screen.getByText(/A tool's read-only claim is not verification/u)).toBeVisible();
+    expect(screen.getByText(/Read-only claims are checked against actual effects/u)).toBeVisible();
     expect(view.container.textContent).not.toMatch(/[\u3400-\u9fff]/u);
     await user.click(screen.getByRole(role, { name: "Approve for me" }));
     expect(initial.onRequestChange).toHaveBeenCalledExactlyOnceWith({ mode: "auto", confirmFull: false });
@@ -80,7 +80,7 @@ describe.each(["menu", "settings"] as const)("V2ApprovalModeControl English %s",
     expect(screen.getByText(`Full access ${fullActivation}`)).toBeVisible();
     if (fullActivation === "unavailable") {
       expect(screen.getByRole(role, { name: "Full access" })).toHaveAccessibleDescription(
-        "Currently unavailable Full access is not available in the current environment.");
+        "Currently unavailable Full access requires runtime support. Check the service's permission configuration.");
     }
     expect(view.container.textContent).not.toMatch(/[\u3400-\u9fff]/u);
     expect(initial.onRequestChange).not.toHaveBeenCalled();
@@ -93,6 +93,7 @@ describe.each(["menu", "settings"] as const)("V2ApprovalModeControl English %s",
     await open(user);
     expect(screen.getByRole("status")).toHaveTextContent("Updating permissions…");
     expect(screen.getByRole("alert")).toHaveTextContent("Failed to update permissions");
+    await user.click(screen.getByText("View Full access requirements"));
     expect(screen.getByText("Provider has disabled this capability")).toBeVisible();
     expect(view.container.textContent).not.toMatch(/[\u3400-\u9fff]/u);
     expect(initial.onRequestChange).not.toHaveBeenCalled();
@@ -271,12 +272,14 @@ describe.each(["menu", "settings"] as const)("V2ApprovalModeControl %s", (varian
     const user = userEvent.setup();
     const initial = props({ variant, fullActivation: "unavailable", fullUnavailableReason: "供应商未开放此能力", error: "权限更改未完成" });
     render(<V2ApprovalModeControl {...initial} />);
-    expect(screen.getByText("供应商未开放此能力")).toBeVisible();
     expect(screen.getByRole("alert")).toHaveTextContent("权限更改未完成");
     await open(user);
     const full = screen.getByRole(role, { name: "完全访问权限" });
     expect(full).toBeDisabled();
     expect(full).toHaveAccessibleDescription("当前不可用 供应商未开放此能力");
+    expect(screen.getByText("供应商未开放此能力")).not.toBeVisible();
+    await user.click(screen.getByText("查看完全访问的启用条件"));
+    expect(screen.getByText("供应商未开放此能力")).toBeVisible();
     await user.click(full);
     expect(initial.onRequestChange).not.toHaveBeenCalled();
     await user.click(screen.getByRole(role, { name: "帮我批准" }));
@@ -338,10 +341,14 @@ describe("V2ApprovalModeControl changing host state", () => {
     expect(initial.onRequestChange).not.toHaveBeenCalled();
   });
 
-  it("provides a readable fallback when the unavailable reason is blank", () => {
+  it("provides a readable fallback in the permission menu when the unavailable reason is blank", async () => {
+    const user = userEvent.setup();
     render(<V2ApprovalModeControl {...props({ mode: "full", fullActivation: "unavailable", fullUnavailableReason: " " })} />);
     expect(screen.getByRole("button", { expanded: false })).toHaveTextContent("完全访问权限 · 不可用");
-    expect(screen.getByText("当前环境未提供完全访问权限。")).toBeVisible();
+    expect(screen.queryByText("查看完全访问的启用条件")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { expanded: false }));
+    await user.click(screen.getByText("查看完全访问的启用条件"));
+    expect(screen.getByText("完全访问需要当前运行环境提供支持，请查看服务的权限配置。")).toBeVisible();
   });
 
   it("supports keyboard menu navigation, Escape and Tab without choosing a mode", async () => {

@@ -124,7 +124,7 @@ describe("ThreadTranscript", () => {
     expect(summary).toHaveFocus();
     await userEvent.click(summary);
     expect(disclosure).toHaveAttribute("open");
-    expect(screen.getByText(/Public model content may contain judgments/u)).toBeInTheDocument();
+    expect(screen.getByText(/Use the public model reply as a reference/u)).toBeInTheDocument();
   });
 
   it("renders one clickable non-authorizing Web evidence presentation", () => {
@@ -144,7 +144,7 @@ describe("ThreadTranscript", () => {
     expect(link).toHaveAttribute("target", "_blank");
     expect(link).toHaveAttribute("rel", "noopener noreferrer");
     expect(screen.getByText("partial")).toBeInTheDocument();
-    expect(screen.getByText(/Untrusted, non-authorizing Web evidence/u)).toBeInTheDocument();
+    expect(screen.getByText(/Use this page content to check the source/u)).toBeInTheDocument();
   });
 
   it("does not relabel an expired non-citeable failure as stale evidence", () => {

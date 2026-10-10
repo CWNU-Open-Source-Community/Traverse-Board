@@ -44,7 +44,7 @@ export function V2WorkspaceStart({ client, onSelect }: {
       ? "目录未能接入。请确认输入的是服务电脑上已存在的文件夹完整路径。"
       : importing.error.code === "POLICY_DENIED" || importing.error.code === "UNAUTHENTICATED" || importing.error.code === "NOT_FOUND"
         ? "此连接不能接入目录。请检查服务是否启用了目录导入，并使用控制令牌重新连接。"
-        : "暂时无法确认目录是否已接入。可以使用相同路径重试，已有项目不会被替换。"
+        : "目录接入结果尚待确认。请使用相同路径重试，已有项目会保留。"
     : "目录未能接入，请检查连接后重试。输入的路径和任务草稿已保留。";
   return <div className="v2-workspace-start">
     <button className="v2-composer-chip" disabled={importing.isPending}
@@ -64,7 +64,7 @@ export function V2WorkspaceStart({ client, onSelect }: {
       <form onSubmit={(event) => { event.preventDefault(); if (client.hasWorkspaceImport && directory.trim() && !importing.isPending)
         importing.mutate(directory.trim()); }}>
         <div className="v2-project-import-body">
-          <p id={descriptionID}>输入运行 Universal Code 服务的电脑上的文件夹完整路径。接入会登记已有目录，不会上传、复制或改写其中的文件；后续任务使用该项目，执行仍遵守任务权限。</p>
+          <p id={descriptionID}>输入运行 Universal Code 服务的电脑上的文件夹完整路径。接入后可在这个目录中开始任务，文件保留在原位置，任务按你选择的权限执行。</p>
           {client.hasWorkspaceImport ? <label>项目文件夹路径<input autoComplete="off" disabled={importing.isPending}
             maxLength={4096} onChange={(event) => setDirectory(event.target.value)} placeholder="D:\Projects\my-project 或 /home/me/my-project"
             ref={input} required spellCheck={false} type="text" value={directory} /></label>

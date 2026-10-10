@@ -13,14 +13,14 @@ const fieldLabels: Record<string, string> = { command: "命令", executable: "�
   url: "网址", host: "主机", effect: "操作类型", review_scope: "用途与风险范围", bounded_review: "有界审批说明",
   grant_ttl_seconds: "原定有效秒数", grant_max_uses: "原定命令次数", grant_uses_remaining: "剩余次数", grant_expires_at: "到期时间" };
 const effectText: Record<ApprovalPreviewView["effect"], string> = {
-  command_process: "仅批准这批固定命令或本次标准输入，限定原 Run 的进程。宿主工作目录与网络声明不能保证隔离；输入或权限变化后须重新评估。",
-  mcp_server_and_tool: "仅批准此服务的启动、能力发现和本次工具调用。工具的外部副作用未经验证；服务配置、参数或权限变化后须重新评估。",
+  command_process: "本次批准覆盖这批固定命令或本次标准输入，范围限于来源执行的进程。请按宿主文件与网络可能可达的范围评估影响；输入或权限变化后需重新审批。",
+  mcp_server_and_tool: "本次批准覆盖此服务的启动、能力发现和当前工具调用。外部影响仍待核实，请核对服务配置与参数；配置、参数或权限变化后需重新审批。",
   dry_run: "批准后只记录这一次模拟执行，不启动真实进程。拒绝会终止这份提案。",
-  record_git_approval: "仅授权这份 Git 提案一次；执行前仍会核对仓库、权限和预览是否变化。此按钮不执行 Git 操作，拒绝后该提案不能执行。",
+  record_git_approval: "批准后保存这份 Git 提案的单次授权。Git 操作在后续执行时会再次核对仓库、权限和预览；可在工作记录中查看进度。拒绝会关闭此提案的执行入口。",
   file_review_required: "这里可以拒绝这份编辑。批准、差异审阅和写入请使用任务的「审阅改动」入口。",
-  fetch_public_https: "允许一次仅覆盖本次读取；本对话允许仅覆盖此精确主机在当前对话内的公开 HTTPS 读取。拒绝会将本次读取的拒绝结果返回给 Agent。",
-  browser_sensitive_action: "仅批准当前页面的这一次操作。Agent 会继续处理；页面或权限变化时，原操作不会执行。",
-  unavailable: "此类操作暂不支持在这里批准。",
+  fetch_public_https: "“允许一次”覆盖本次读取；“本对话允许”覆盖此主机在当前对话内的公开 HTTPS 读取。拒绝后，Agent 会收到本次读取的拒绝结果。",
+  browser_sensitive_action: "本次批准覆盖当前页面上的这一次操作，Agent 随后继续处理。页面或权限变化后需重新确认操作。",
+  unavailable: "此类操作暂不支持在这里批准，请回到对话查看对应的操作入口。",
 };
 
 export function V2ApprovalCards({ client, runID, threadID, onReviewFile }: {
@@ -51,7 +51,7 @@ export function V2ApprovalCards({ client, runID, threadID, onReviewFile }: {
     {query.isSuccess && query.data.items.length === 0 && <p className="v2-notice" role="status">没有待处理审批。</p>}
     {Boolean(query.data?.items.length) && <section aria-label="待处理审批" className="v2-approval-stack">
       {!client.hasApprovalControl && <p className="v2-notice" role="status">
-        当前连接只有审批读取权限；批准、拒绝或继续恢复需要审批控制权限。
+        当前连接可以查看审批。需要批准、拒绝或恢复时，请使用具有审批控制权限的连接。
       </p>}
       {query.data?.items.map((item) => <ApprovalCard client={client} item={item} key={item.id}
         onDecided={decided} runID={runID} onReviewFile={onReviewFile} />)}
@@ -113,7 +113,7 @@ function ApprovalCard({ client, item, runID, onDecided, onReviewFile }: {
         : "读取尚未恢复；可以发送消息让 Agent 继续。"
         : preview.data?.effect === "dry_run" && action !== "deny"
           ? "模拟执行已记录，没有启动真实进程。"
-          : action !== "deny" ? "批准已记录，尚未执行该操作。" : "该提案不会获准执行。";
+          : action !== "deny" ? "批准已记录，操作等待执行；可在工作记录中查看进度。" : "此提案已关闭。";
       onDecided(`${action === "deny" ? "已拒绝。" : "已批准。"}${next}`);
     },
     onError: () => { void preview.refetch(); },
@@ -124,12 +124,12 @@ function ApprovalCard({ client, item, runID, onDecided, onReviewFile }: {
   return <article className="v2-approval-card">
     <header><span>{webFetch ? <Globe2 aria-hidden="true" size={17} />
       : <ShieldAlert aria-hidden="true" size={17} />}</span>
-      <div><strong>{recovering ? "恢复上次网页读取" : webFetch ? "允许读取这个网站？"
+      <div><strong>{recovering ? webFetch ? "恢复上次网页读取" : "恢复上次审批决定" : webFetch ? "允许读取这个网站？"
         : dryRun ? "批准这次模拟执行？" : "需要你的批准"}</strong>
         <small>{recovering ? item.status === "approved" ? "已允许，等待恢复" : "已拒绝，等待恢复"
           : webFetch ? item.exact_target : item.tool_name}</small></div></header>
     {preview.isLoading && <p role="status">正在读取这次操作的精确预览…</p>}
-    {preview.isError && <div role="alert"><p>无法核对操作内容，暂不能批准。</p>
+    {preview.isError && <div role="alert"><p>操作预览读取失败，请重新读取后确认批准范围。</p>
       <button onClick={() => void preview.refetch()} type="button">重试操作预览</button></div>}
     {preview.data && <>
       <dl className="v2-approval-facts">
@@ -141,18 +141,18 @@ function ApprovalCard({ client, item, runID, onDecided, onReviewFile }: {
       {preview.data.workspace_id && <details><summary>查看操作目录身份</summary><code>{preview.data.workspace_id}</code></details>}
       <p>{preview.data.effect === "file_review_required" && onReviewFile
         ? "先查看这份编辑的差异，再决定是否批准和应用。" : effectText[preview.data.effect]}</p>
-      {preview.data.redacted && <p>敏感内容已脱敏；这里不会显示凭据值。</p>}
+      {preview.data.redacted && <p>敏感内容已脱敏，请按可见内容核对操作。</p>}
       {(!preview.data.source_current || preview.data.truncated) && <p role="alert">
-        {preview.data.truncated ? "预览超过显示上限，不能据此批准。" : "操作已变化或不再等待批准。"}
+        {preview.data.truncated ? "预览超过显示上限，需读取完整内容后再批准。" : "操作已变化或审批已处理，请刷新最新状态。"}
         <button onClick={() => void preview.refetch()} type="button">刷新操作预览</button></p>}
     </>}
-    {recovering && <p>上次决定已经保存。继续只会恢复同一决定，不会更改授权范围。</p>}
+    {recovering && <p>上次决定已经保存。点击“继续恢复”会沿用原决定和授权范围完成后续处理。</p>}
     {client.hasApprovalControl && !recovering && item.allowed_actions.includes("deny") && <input
       aria-label={`${item.tool_name} 的拒绝原因`} disabled={mutation.isPending} maxLength={2048}
       onChange={(event) => setReason(event.target.value)} placeholder="拒绝原因（可选）" value={reason} />}
     {client.hasApprovalControl && item.allowed_actions.includes("approve_for_run") && <fieldset disabled={mutation.isPending}>
-      <legend>本 Run 的有界审批</legend>
-      <p>按这份用途与风险范围计数，每条新命令仍需单独确认。已有授权的次数与到期时间不会因再次确认而重置。</p>
+      <legend>本次执行的限时、限次审批</legend>
+      <p>每条新命令确认后计入此用途与风险范围。已有授权沿用原次数与到期时间。</p>
       <label>有效秒数<input aria-label="有界审批有效秒数" type="number" min={1} max={900} value={grantTTL} disabled={existingGrant}
         onChange={(event) => setGrantTTL(event.target.valueAsNumber)} /></label>
       <label>命令次数<input aria-label="有界审批命令次数" type="number" min={1} max={8} value={grantUses} disabled={existingGrant}
@@ -170,7 +170,7 @@ function ApprovalCard({ client, item, runID, onDecided, onReviewFile }: {
       {client.hasApprovalControl && item.allowed_actions.includes("approve_once") && <button className="primary" disabled={!canApprove}
         onClick={() => mutation.mutate("approve_once")} type="button">
         {mutation.isPending ? <LoaderCircle className="spin" size={15} /> : <Check aria-hidden="true" size={15} />}
-        {recovering ? "继续恢复" : dryRun ? "批准模拟一次" : webFetch ? "允许一次" : "仅批准一次"}</button>}
+        {recovering ? "继续恢复" : dryRun ? "批准模拟一次" : webFetch ? "允许一次" : "批准一次"}</button>}
       {client.hasApprovalControl && webFetch && item.allowed_actions.includes("approve_for_thread") && <button className="primary"
         disabled={!canApprove} onClick={() => mutation.mutate("approve_for_thread")} type="button">
         <Check aria-hidden="true" size={15} />{recovering ? "继续恢复" : "本对话允许"}</button>}

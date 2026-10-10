@@ -13,6 +13,7 @@ import (
 	"path"
 	"path/filepath"
 	"strings"
+	"unicode/utf8"
 
 	"gopkg.in/yaml.v3"
 
@@ -77,6 +78,14 @@ func Load(ctx context.Context, configPath string) (Config, error) {
 		return Config{}, ctx.Err()
 	}
 	configPath = filepath.Clean(configPath)
+	absolute, err := filepath.Abs(configPath)
+	if err != nil {
+		return Config{}, err
+	}
+	resolved, err := filepath.EvalSymlinks(absolute)
+	if err != nil || !sameInstructionPath(absolute, resolved) {
+		return Config{}, errors.New("project config path cannot contain symlink or junction indirection")
+	}
 	info, err := os.Lstat(configPath)
 	if err != nil {
 		return Config{}, fmt.Errorf("project config stat: %w", err)
@@ -92,12 +101,25 @@ func Load(ctx context.Context, configPath string) (Config, error) {
 		return Config{}, fmt.Errorf("project config open: %w", err)
 	}
 	defer file.Close()
+	opened, err := file.Stat()
+	if err != nil || !os.SameFile(info, opened) {
+		return Config{}, errors.New("project config changed during open")
+	}
 	raw, err := io.ReadAll(io.LimitReader(file, MaxConfigBytes+1))
 	if err != nil {
 		return Config{}, fmt.Errorf("project config read: %w", err)
 	}
 	if len(raw) == 0 || len(raw) > MaxConfigBytes {
 		return Config{}, fmt.Errorf("project config must contain between 1 and %d bytes", MaxConfigBytes)
+	}
+	after, statErr := os.Lstat(configPath)
+	resolved, resolveErr := filepath.EvalSymlinks(absolute)
+	if statErr != nil || resolveErr != nil || !sameInstructionPath(absolute, resolved) ||
+		!os.SameFile(info, after) || info.Size() != after.Size() || !info.ModTime().Equal(after.ModTime()) {
+		return Config{}, errors.New("project config changed concurrently")
+	}
+	if !utf8.Valid(raw) || strings.ContainsRune(string(raw), 0) {
+		return Config{}, errors.New("project config must be UTF-8 without NUL bytes")
 	}
 	// Decode into a node tree first so aliases, merge keys, depth, and node
 	// counts can be rejected before any field is trusted.
@@ -133,13 +155,19 @@ func Load(ctx context.Context, configPath string) (Config, error) {
 // LoadWorkspace loads <root>/.prayu/config.yaml when it exists. A missing
 // config is not an error; callers decide whether one is required.
 func LoadWorkspace(ctx context.Context, workspaceRoot string) (Config, bool, error) {
-	workspaceRoot = filepath.Clean(workspaceRoot)
-	if strings.TrimSpace(workspaceRoot) == "" || strings.ContainsRune(workspaceRoot, 0) {
-		return Config{}, false, errors.New("workspace root is invalid")
+	root, _, _, _, err := instructionBoundary(workspaceRoot, ".")
+	if err != nil {
+		return Config{}, false, err
 	}
-	rootInfo, err := os.Lstat(workspaceRoot)
-	if err != nil || !rootInfo.IsDir() {
-		return Config{}, false, fmt.Errorf("workspace root is not a directory: %w", err)
+	workspaceRoot = root
+	configDir := filepath.Join(root, ConfigDirName)
+	if _, err := os.Lstat(configDir); errors.Is(err, fs.ErrNotExist) {
+		return Config{}, false, nil
+	} else if err != nil {
+		return Config{}, false, err
+	}
+	if err := validateInstructionDirectoryChain(root, configDir); err != nil {
+		return Config{}, true, err
 	}
 	configPath := filepath.Join(workspaceRoot, ConfigDirName, ConfigFileName)
 	info, err := os.Lstat(configPath)
@@ -165,7 +193,7 @@ func rejectHostileYAML(root *yaml.Node) error {
 		if count > MaxYAMLNodes {
 			return errors.New("YAML node count exceeds the bound")
 		}
-		if node.Kind == yaml.AliasNode {
+		if node.Kind == yaml.AliasNode || node.Anchor != "" || node.Tag == "!!merge" {
 			return errors.New("YAML aliases and anchors are forbidden")
 		}
 		for _, child := range node.Content {

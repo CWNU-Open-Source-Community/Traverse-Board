@@ -6,6 +6,8 @@
 .v2-app-preview h3 { font-size:16px; margin:0 0 12px; }
 .v2-preview-services { padding-bottom:20px; margin-bottom:20px; border-bottom:1px solid var(--v2-border, #d7dbe0); }
 .v2-preview-identity { line-height:1.7; overflow-wrap:anywhere; color:var(--v2-muted, #666c73); }
+.v2-preview-identity > summary { cursor:pointer; }
+.v2-app-preview summary:focus-visible { outline:2px solid var(--v2-accent); outline-offset:3px; }
 .v2-preview-service-list { list-style:none; margin:12px 0; padding:0; display:grid; gap:8px; }
 .v2-preview-service-list button { width:100%; align-items:flex-start; flex-direction:column; text-align:left; overflow-wrap:anywhere; }
 .v2-preview-service-list button[aria-pressed="true"], .v2-preview-candidates button[aria-pressed="true"] { border-color:var(--v2-accent, #78a8f8); background:var(--v2-accent-soft, #78a8f815); }

@@ -17,7 +17,7 @@ export function InspectorRecordBrowser({ client, onOpen }: {
   const [kind, setKind] = useState<RecordKind | null>(null);
   return <section className="v2-record-browser" aria-label="全部运行与会话">
     <h2>全部运行与会话</h2>
-    <p>查看历史执行与上下文记录。打开记录不会启动执行。</p>
+    <p>选择历史执行或会话，查看当时的工作记录与上下文。需要继续任务时，回到对应对话发送消息。</p>
     <div className="v2-record-kinds" role="group" aria-label="记录类型">
       <button aria-pressed={kind === "run"} onClick={() => setKind("run")} type="button">运行记录</button>
       <button aria-pressed={kind === "session"} onClick={() => setKind("session")} type="button">会话记录</button>

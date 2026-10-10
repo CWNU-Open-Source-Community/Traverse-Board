@@ -122,7 +122,7 @@ test("shows saved instruction/reference/summary provenance and sends a correctio
   expect(screen.getByText(/累计归纳 22 条消息/u)).toBeVisible();
   expect(screen.getByText(/2 条条目省略/u)).toBeVisible();
   expect(screen.getByText(/当前只显示部分记录/u)).toBeVisible();
-  expect(screen.getByText(/项目文件与此执行固定的指令版本不同/u)).toBeVisible();
+  expect(screen.getByText(/项目指令文件已有变化，此执行沿用创建时固定的版本/u)).toBeVisible();
   expect(screen.queryByText("do not expose this raw file")).not.toBeInTheDocument();
   expect(view.requestChange).not.toHaveBeenCalled();
   await user.type(screen.getByLabelText("需要继续保留的目标、限制或纠正"), "保留中文示例，但改用 JSON 输出。");
@@ -177,7 +177,7 @@ test("makes a truncated or redacted public summary explicit without inventing a 
   expect(await screen.findByText("只剩公开片段")).toBeVisible();
   expect(screen.getByText(/当前只展示部分摘要/u)).toBeVisible();
   expect(screen.getByText(/显示文本已脱敏/u)).toBeVisible();
-  expect(screen.getByText(/不是当前模型窗口的完整清单/u)).toBeVisible();
+  expect(screen.getByText(/查看此执行保存的项目指令、引用和摘要/u)).toBeVisible();
 });
 
 test("shows rolling inherited excerpts as readable history with explicit omissions and no execution action", async () => {

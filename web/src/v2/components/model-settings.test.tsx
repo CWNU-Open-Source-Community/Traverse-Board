@@ -72,9 +72,12 @@ describe("V2 model settings", () => {
     expect(within(items[2]).getByRole("button", {
       name: "Anthropic，Claude Opus，已保存 API Key",
     })).toHaveTextContent("AnthropicClaude Opus");
+    expect(within(items[1]).getByText("尚未保存 API Key")).toBeVisible();
+    expect(within(items[2]).getByText("已保存 API Key")).toBeVisible();
     expect(within(items[3]).getByRole("button", {
-      name: "GitHub Copilot，Copilot，尚未连接 GitHub 账户",
+      name: "GitHub Copilot，Copilot，登录待接入",
     })).toHaveTextContent("GitHub CopilotCopilot");
+    expect(within(items[3]).getByText("登录待接入")).toBeVisible();
     expect(screen.queryByText("需要 API Key")).not.toBeInTheDocument();
     expect(screen.queryByText("已接入")).not.toBeInTheDocument();
     const openAIButton = screen.getByRole("button", { name: /OpenAI，GPT-5/u });

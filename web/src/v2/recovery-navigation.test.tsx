@@ -2,7 +2,7 @@ import { QueryClient, QueryClientProvider, type InfiniteData } from "@tanstack/r
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactNode } from "react";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 import type { APIClient } from "../api/client";
 import type { RunDetailView, ThreadView, WorkspaceView } from "../api/types";
@@ -30,6 +30,14 @@ vi.mock("../components/run-activity-timeline", () => ({
     <output aria-label="Activity Run">{activity.run_id}</output>,
 }));
 vi.mock("../components/workspace-explorer", () => ({ WorkspaceExplorer: () => null }));
+
+beforeAll(async () => {
+  // This suite exercises real recovery callbacks and route ownership. Await
+  // real lazy modules during setup so Vite's first transformation is not part
+  // of the first mutation/navigation deadline. First-use loading and errors
+  // have separate coverage in app-lazy and app-lazy-error tests.
+  await Promise.all([import("./components/inspector-tools"), import("./components/settings")]);
+});
 
 const timestamp = "2026-10-09T00:00:00Z";
 const sourceRunID = "run-source";
@@ -240,7 +248,7 @@ describe("recovery navigation through the real V2 workbench", () => {
     await screen.findByRole("heading", { name: `Goal for ${h.returnedRunID}` });
     expect(window.location.hash).toBe(`#/new/inspector/runs/${h.returnedRunID}`);
     expect(screen.getByLabelText("Activity Run")).toHaveTextContent(h.returnedRunID);
-    expect(screen.getByText(/未绑定对话，任务权限设置不可用/u)).toBeInTheDocument();
+    expect(screen.getByText(/此记录尚未绑定对话，请返回任务观察选择来源任务后设置权限/u)).toBeInTheDocument();
     expect(screen.queryByRole("status", { name: "来源任务的 Agent 活动" })).not.toBeInTheDocument();
     expect(useConnectionStore.getState().selectedThreadID).toBe("");
     expect(h.get).toHaveBeenCalledWith(`/runs/${h.returnedRunID}`, {}, expect.any(AbortSignal));
@@ -273,8 +281,10 @@ describe("recovery navigation through the real V2 workbench", () => {
         await user.click(screen.getByText("来源与设置"));
         const details = screen.getByText("来源与设置").closest("details")!;
         await user.click(within(details).getByRole("button", { name: "设置" }));
+        await waitFor(() => expect(window.location.hash).toBe(`${sourceHash}/settings/general`));
         await screen.findByRole("heading", { name: "常规", level: 1 });
         await user.click(screen.getByRole("button", { name: "返回应用" }));
+        await waitFor(() => expect(window.location.hash).toBe(sourceHash));
       } else {
         await visitHash(detour === "record" ? `#/threads/${sourceThreadID}/inspector/runs/run-other`
           : `#/threads/thread-other/inspector/runs/${sourceRunID}`);

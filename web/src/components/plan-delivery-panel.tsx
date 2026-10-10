@@ -112,10 +112,10 @@ export function PlanDeliveryPanel({ state, client, detail, threadID }: {
           t("当前有效人工记录", "Current manual records")} {formatNumber(state.ready_checkpoints)} / {formatNumber(state.required_checkpoints)}</span>
         }
         {state.selection && state.delivery_gate_enforced && !manualRequired && <span>{t("人工说明按需记录；计划项仍须实际完成", "Manual notes on demand; Plan items still require actual completion")}</span>}
-        {state.selection && !state.delivery_gate_enforced && <span>{t("此旧版计划未启用逐项人工验收；执行与检查仍遵循原有要求。", "This legacy Plan does not require per-item manual acceptance; its execution and verification requirements still apply.")}</span>}
+        {state.selection && !state.delivery_gate_enforced && <span>{t("此旧版计划沿用原有执行与检查要求，按原验收流程交付。", "This legacy Plan retains its original execution and verification requirements. Use its original acceptance workflow to deliver.")}</span>}
       </div>
-      {!state.proposal && <p>{t("回到对话描述目标并继续准备计划。方案形成后，在这里选择方向；配置环境不会替你生成或批准计划。",
-        "Continue the conversation to prepare a plan. Choose a direction here once a proposal exists; configuring the environment does not generate or approve a plan.")}</p>}
+      {!state.proposal && <p>{t("回到对话描述目标，准备计划。方案形成后，在这里选择方向并确认进入交付。",
+        "Describe the goal in the conversation to prepare a plan. Once proposals are ready, choose a direction here and confirm delivery.")}</p>}
       {detail?.mode.phase === "plan" && detail.run.status === "running" && state.proposal && <div className="plan-delivery-actions">
         <p>{t("选择方向或进入交付前，需暂停当前执行。", "Pause the current execution before selecting a direction or entering Deliver.")}</p>
         {client?.hasRunLifecycle && <button className="command-button" disabled={selecting || Boolean(detail.execution_lease?.active)}
@@ -178,7 +178,7 @@ export function PlanDeliveryPanel({ state, client, detail, threadID }: {
           </button>
         </div>
       )}
-      {adopted && <p role="status">{t("方案已采用，正在确认进入交付的结果；不会重复选择方案。", "The plan is adopted. Confirming entry into Deliver; the selection will not be repeated.")}</p>}
+      {adopted && <p role="status">{t("方案已采用，正在核对进入交付的结果。", "The plan is adopted. Checking the result of entering Deliver.")}</p>}
       {intent.data?.state === "pending" && <p role="status">{t("计划操作处理中，关闭后可回到此执行查看结果。", "The plan operation is pending; return to this execution after closing to see the result.")}</p>}
       {intent.data?.state === "unknown" && (
         <div className="inline-warning" role="alert">

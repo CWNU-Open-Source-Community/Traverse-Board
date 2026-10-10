@@ -254,5 +254,6 @@ The complete slice ledger remains in [PROGRESS_BOOK](PROGRESS_BOOK.md), current 
 | v183 | 候选收据绑定到统一 Plugin 安装生命周期 | Candidate receipts bound to the unified Plugin installation lifecycle |
 | v184 | Run 选择固定到真实 Plugin Skill 组件 | Run selections pinned to real Plugin Skill components |
 | v185 | 现有命令 Job 账本记录显式操作者调用来源 | Explicit operator invocation provenance in the existing command Job ledger |
+| v186 | 受控任务创建支持有界预算与只能收紧的项目配置，固定 Run 配置快照并保留旧创建约束 | admit bounded budgets and narrowing-only project configuration in controlled task creation, pin Run configuration snapshots and preserve legacy creation guards |
 
 </details>

@@ -15,7 +15,7 @@ test("received result and an interrupted start never claim a saved summary or li
   expect(screen.getByText(/尚不能据此确认摘要已保存/u)).toBeVisible();
   expect(screen.queryByText("压缩摘要已保存")).not.toBeInTheDocument();
   view.rerender(<ContextDiagnosticsPanel runID="run-1" runStatus="paused" value={{ records: [receipt("generation_started")], truncated: false }} />);
-  expect(screen.getByText(/不能证明生成仍在继续/u)).toBeVisible();
+  expect(screen.getByText(/当前执行未在运行，最近显示的是生成开始记录/u)).toBeVisible();
 });
 
 test("saved fallback shows actionable reason and preserves source identity in expandable history", async () => {

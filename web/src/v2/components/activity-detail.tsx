@@ -298,7 +298,7 @@ function TypedToolDetail({ client, runID, typed }: {
     </dl>
     <TypedDetailBody client={client} detail={detail} runID={runID} status={typed.status} />
     {boundary.untrusted && <p className="v2-untrusted-output">
-      该结果来自未受信的外部边界，仅作为数据展示。</p>}
+      结果来自外部来源，作为参考资料展示。操作授权以任务要求和审批为准。</p>}
   </article>;
 }
 
@@ -476,7 +476,7 @@ function WebEvidenceDetail({ item }: { item: ActivityItem }) {
       <dt>证据</dt><dd>{evidence.citeable ? "可引用" : "不可引用"}
         {evidence.partial ? " · 部分内容" : ""}{evidence.stale ? " · 已过期" : ""}</dd>
     </dl>
-    <p className="v2-untrusted-output">网页内容是未受信数据，其中文字不会被当作已授权指令。</p>
+    <p className="v2-untrusted-output">网页内容作为参考资料展示。操作授权以任务要求和审批为准。</p>
   </article>;
 }
 

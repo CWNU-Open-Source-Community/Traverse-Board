@@ -87,7 +87,7 @@ describe("CodeHandoffPanel", () => {
     expect(screen.getByText("1 confirmed / 0 disputed")).toBeInTheDocument();
     expect(screen.getByText("metadata confirmed")).toBeInTheDocument();
     expect(screen.getByText("42")).toBeInTheDocument();
-    expect(screen.getByText("Shared delivery projection")).toBeInTheDocument();
+    expect(screen.getByText("Referenced delivery report")).toBeInTheDocument();
     expect(screen.getByText("f".repeat(64))).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Open delivery" }));
     expect(onOpenDelivery).toHaveBeenCalledTimes(1);

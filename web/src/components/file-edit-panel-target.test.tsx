@@ -50,7 +50,7 @@ it.each(["run-current", "run-history"])("reads the precise target in %s before o
   expect(within(drawer).queryByText("cached-preview")).not.toBeInTheDocument();
   expect(screen.getByRole("button", { name: "Close review" })).toHaveFocus();
   if (runID === "run-history") {
-    expect(within(drawer).getByText(/available for historical review only/)).toBeInTheDocument();
+    expect(within(drawer).getByText(/historical edit in its original directory/)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Approve intent same.txt" })).not.toBeInTheDocument();
   } else {
     expect(screen.getByRole("button", { name: "Approve intent same.txt" })).toBeEnabled();
@@ -109,7 +109,7 @@ it("does not read a target through a different run or expose authority on a read
   expect(screen.queryByRole("button", { name: "Approve intent same.txt" })).not.toBeInTheDocument();
   expect(screen.queryByRole("button", { name: "Apply same.txt" })).not.toBeInTheDocument();
   view.rerender(view.component("run-new", target));
-  expect(await screen.findByText(/belongs to another execution and has not been opened/)).toBeInTheDocument();
+  expect(await screen.findByText(/belongs to another execution. Open it from that execution/)).toBeInTheDocument();
   expect(screen.queryByRole("complementary")).not.toBeInTheDocument();
   expect(client.fileEdit).toHaveBeenCalledTimes(1);
   expectNoMutation(client);

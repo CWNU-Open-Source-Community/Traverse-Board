@@ -15,11 +15,11 @@ describe("Run projection panels", () => {
       getRunBatchDeliveries: vi.fn().mockResolvedValue({ items: [] }),
     } as unknown as APIClient;
     const { container } = render(provider(<BatchDeliveriesPanel client={client} runID="run-1" />));
-    await screen.findByText("No batch-delivery.v1 plans");
-    expect(container.textContent).toContain("selected Run");
+    await screen.findByText("No batch delivery plans yet. Describe independently deliverable subtasks in the conversation to prepare one.");
+    expect(container.textContent).toContain("selected execution");
     expect(container.textContent).toContain("current Full process activation");
     if (enabled) {
-      expect(container.textContent).toContain("is not an OS sandbox");
+      expect(container.textContent).toContain("runs repository code directly on the host");
     } else {
       expect(container.textContent).toContain("--enable-batch-validation-execution");
       expect(container.textContent).toContain("--enable-permission-control");
@@ -27,7 +27,7 @@ describe("Run projection panels", () => {
       expect(container.textContent).toContain("control credential");
       expect(container.textContent).toContain("operator approval");
     }
-    expect(screen.queryByRole("button", { name: "Merge in DAG order" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Merge in dependency order" })).not.toBeInTheDocument();
   });
 
   it("explains the independent Desktop batch control switch while preserving read access", async () => {
@@ -146,7 +146,7 @@ describe("Run projection panels", () => {
     const user = userEvent.setup();
     const { container } = render(provider(<BatchDeliveriesPanel client={client} runID="run-1" />));
 
-    expect(await screen.findByText(/Forced closed: delete/)).toBeInTheDocument();
+    expect(await screen.findByText(/Execution scope: the project tools above/)).toBeInTheDocument();
     const accept = screen.getByRole("button", { name: "Accept" });
     expect(accept).toBeDisabled();
     await user.type(screen.getByLabelText("Independent review summary"), "Reviewed exact diff");

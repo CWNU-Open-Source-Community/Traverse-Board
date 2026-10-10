@@ -79,12 +79,12 @@ export function V2DraftConflict({ state, client, workspaceID, onResolve }: {
             </article>;
           })}</div>
         </fieldset>
-        {staleSelection && <p role="status">版本列表已变化，请重新核对并选择；原选择不会直接应用。</p>}
+        {staleSelection && <p role="status">版本列表已变化，请重新核对并选择要使用的版本。</p>}
         {copyStatus?.token === state.headToken && <p role="status">{copyStatus.message}</p>}
         {actionError?.token === state.headToken && <p className="v2-draft-conflict-error" role="alert">{actionError.message}</p>}
         <div className="v2-draft-conflict-actions">
           <button type="button" disabled={!selected} onClick={confirm}>确认选用此版本</button>
-          <span>只更新草稿，不会发送或重发已有请求。</span>
+          <span>选用后替换输入框中的草稿，确认内容后再发送。</span>
         </div>
       </div>}
     </>}

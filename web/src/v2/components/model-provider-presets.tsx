@@ -176,7 +176,7 @@ export const v2ModelProviderPresets: readonly V2ConfiguredModelProviderPreset[] 
     draft: {
       id: "official-mimo",
       displayName: "Xiaomi MiMo 官方 API",
-      note: "MiMo 按量付费 Responses API；不与 Token Plan 的独立凭据和端点混用。",
+      note: "MiMo 按量付费 Responses API；请使用此服务的专用凭据。Token Plan 请单独配置对应端点和凭据。",
       websiteURL: "https://mimo.xiaomi.com/",
       endpointURL: "https://api.xiaomimimo.com/v1/responses",
       transport: "openai_responses",
@@ -239,7 +239,7 @@ export const v2ModelProviderPresets: readonly V2ConfiguredModelProviderPreset[] 
     draft: {
       id: "opencode-go",
       displayName: "OpenCode Go",
-      note: "OpenCode Go 订阅网关；这里配置 Go API Key，不与 OpenCode Zen 路由混用。",
+      note: "OpenCode Go 订阅网关；请使用 Go API Key。OpenCode Zen 请单独配置对应路由。",
       websiteURL: "https://opencode.ai/",
       endpointURL: "https://opencode.ai/zen/go/v1/responses",
       transport: "openai_responses",
@@ -253,7 +253,7 @@ export const v2ModelProviderPresets: readonly V2ConfiguredModelProviderPreset[] 
   {
     id: "github-copilot",
     providerName: "GitHub Copilot",
-    modelName: "连接后选择模型",
+    modelName: "账户接入",
     icon: icons.copilot,
     accent: "#4d5868",
     kind: "account",

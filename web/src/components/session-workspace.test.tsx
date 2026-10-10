@@ -42,7 +42,7 @@ describe("SessionWorkspace", () => {
       expect.any(AbortSignal)));
     await waitFor(() => expect(screen.getByText("Bound execution record state").parentElement).toHaveTextContent("completed"));
     expect(screen.getByText("Bound execution record state")).toBeVisible();
-    expect(screen.getByRole("note")).toHaveTextContent("This view shows context records for this execution");
+    expect(screen.getByRole("note")).toHaveTextContent("Context records for this execution");
     expect(screen.getByLabelText("Run-local Session message")).not.toBeVisible();
     await userEvent.setup().click(screen.getByText("Add input to this Session (advanced)"));
     expect(screen.getByLabelText("Run-local Session message")).toBeDisabled();
@@ -61,7 +61,7 @@ describe("SessionWorkspace", () => {
     expect(screen.getByText("Not closed")).toBeVisible();
     await waitFor(() => expect(screen.getByText("Bound execution record state").parentElement).toHaveTextContent("Not ended"));
     expect(screen.getByText("Not closed").closest("[title]")).toHaveAttribute("title",
-      "Describes only this context record; it does not determine whether the conversation can continue or whether the Agent is currently executing.");
+      "Context record state. Return to the conversation to continue chatting; open execution activity for current progress.");
     expect(composer).not.toBeVisible();
     await user.click(screen.getByText("Add input to this Session (advanced)"));
     await waitFor(() => expect(composer).toBeEnabled());
@@ -85,7 +85,7 @@ describe("SessionWorkspace", () => {
     const toggle = screen.getByText("Add input to this Session (advanced)");
     await user.click(toggle);
     expect(screen.getByLabelText("Run-local Session message")).toBeDisabled();
-    expect(screen.getByText(/Input here belongs only to this Session's bound Run/u)).toBeVisible();
+    expect(screen.getByText(/Input target: the execution bound to this context/u)).toBeVisible();
     await user.click(toggle);
     expect(within(status).getByText("failed")).toBeVisible();
     expect(screen.getByLabelText("Run-local Session message")).not.toBeVisible();

@@ -1,4 +1,7 @@
+import { creationBudgetMatches, normalizedTaskBudget, parseTaskConfiguration } from "./task-configuration";
 import { consumeSSE } from "./sse";
+import { parseMCPCredentialStatus, validMCPBearerSecret, validMCPCredentialBinding } from "./mcp-credentials";
+import type { MCPCredentialBindingView, MCPCredentialRequestView, MCPCredentialStatusView } from "./types";
 import { applicationServiceIdentity, parseThreadApplicationServices, parseThreadApplicationService,
   parseThreadApplicationServiceStop } from "./application-services";
 import type { ProviderModelDiscoveryRequestView, ProviderModelDiscoveryView } from "./types";
@@ -475,9 +478,7 @@ function parseRunCreationControl(value: unknown,
     value.session.title !== value.mission.goal ||
     !scopeMatchesRequestedNetworkAuthority(value.mission.scope, expectedNetwork) ||
     !scopeMatchesRequestedNetworkAuthority(value.mode.scope, expectedNetwork) ||
-    value.run.budget.max_turns !== 100 || value.run.budget.max_tool_calls !== 100 ||
-    (value.run.budget.max_tokens ?? 0) !== 0 || (value.run.budget.max_cost_usd ?? 0) !== 0 ||
-    (value.run.budget.timeout_seconds ?? 0) !== 0 ||
+    !creationBudgetMatches(value.run.budget, value.run.config, request.budget) ||
     value.mode.capability_grant !== false || value.mode.protocol_version !== "run_mode.v1" ||
     value.mode.policy_version !== "mode_policy.v1" || value.mode.revision !== 1 ||
     value.mode.surface !== expectedSurface || value.mode.phase !== expectedPhase) {
@@ -538,7 +539,7 @@ function parseThreadCreationControl(value: unknown,
     replayed: value.replayed, run: value.run, session: value.session }, {
     version: "run_creation.v1", goal: request.goal, workspace_id: request.workspace_id,
     profile: request.profile, surface: request.surface, phase: request.phase,
-    network_mode: request.network_mode, allowed_targets: request.allowed_targets,
+    network_mode: request.network_mode, allowed_targets: request.allowed_targets, budget: request.budget,
   }, requestedModelRoute);
   const thread = parseThreadView(value.thread);
   if (thread.status !== "active" || thread.workspace_id !== request.workspace_id ||
@@ -6232,7 +6233,7 @@ function parseExtensionInventory(value: unknown, hiddenLocalSource = false): Ext
     throw new APIRequestError("Extension inventory response is invalid", "INVALID_RESPONSE", 502);
   }
   if (value.onboarding !== undefined && (!hasExactKeys(value.onboarding,
-    ["mcp_registration", "plugin_import", "lsp_configuration"]) ||
+    ["mcp_registration", "plugin_import", "lsp_configuration", ...(isRecord(value.onboarding) && value.onboarding.mcp_credentials !== undefined ? ["mcp_credentials"] : [])]) ||
     Object.values(value.onboarding).some((flag) => typeof flag !== "boolean"))) {
     throw new APIRequestError("Extension onboarding capabilities are invalid", "INVALID_RESPONSE", 502);
   }
@@ -6923,6 +6924,33 @@ export class APIClient {
       throw new Error("A bounded MCP descriptor and extension control are required");
     }
     return parseMCPRegistration(await this.sendControlRequest<unknown>("/extensions/mcp", body, signal), body);
+  }
+
+  async mcpCredentialStatus(binding: MCPCredentialBindingView, signal?: AbortSignal): Promise<MCPCredentialStatusView> {
+    if (!validMCPCredentialBinding(binding)) throw new Error("An exact HTTPS MCP credential binding is required");
+    const value = await this.get<unknown>(`/extensions/mcp/${encodeURIComponent(binding.server_id)}/credential`, {
+      workspace_id: binding.workspace_id, run_id: binding.run_id,
+      expected_descriptor_fingerprint: binding.expected_descriptor_fingerprint, target: binding.target, credential_ref: binding.credential_ref,
+    }, signal);
+    try { return parseMCPCredentialStatus(value, binding); }
+    catch { throw new APIRequestError("MCP credential status violated its metadata or binding contract", "INVALID_RESPONSE", 502); }
+  }
+
+  async changeMCPCredential(body: MCPCredentialRequestView, signal?: AbortSignal): Promise<MCPCredentialStatusView> {
+    if (!this.hasExtensionControl || body.version !== "mcp-credential.v1" || !validMCPCredentialBinding(body.binding) ||
+      body.confirm !== true || !isSHA256(body.expected_reference_fingerprint) ||
+      (body.action !== "set" && body.action !== "delete") ||
+      (body.action === "set" && !validMCPBearerSecret(body.secret ?? "")) || (body.action === "delete" && !!body.secret)) {
+      throw new Error("An exact MCP binding, explicit credential action and confirmation are required");
+    }
+    const value = await this.sendControlRequest<unknown>(`/extensions/mcp/${encodeURIComponent(body.binding.server_id)}/credential`, body, signal);
+    try {
+      const status = parseMCPCredentialStatus(value, body.binding);
+      if (!status.store_available || status.endpoint_conflict || status.configured !== (body.action === "set") ||
+        status.reference_fingerprint !== body.expected_reference_fingerprint) throw new Error("Unverified mutation outcome");
+      return status;
+    }
+    catch { throw new APIRequestError("MCP credential change returned invalid presence metadata; refresh before retrying", "INVALID_RESPONSE", 502); }
   }
 
   async importPluginPackage(body: ExtensionPluginImportRequestView,
@@ -8120,11 +8148,25 @@ export class APIClient {
     return this.sendControlRequest<T>(path, body, signal, "", "DELETE");
   }
 
+  async previewTaskConfiguration(body: import("./types").TaskConfigurationRequest,
+    signal?: AbortSignal): Promise<import("./types").TaskConfigurationView> {
+    if (!boundedIdentity(body.workspace_id) || body.workspace_id.trim() !== body.workspace_id ||
+      (body.profile !== undefined && !["code", "learn", "review", "script"].includes(body.profile))) throw new Error("A normalized workspace and profile are required");
+    normalizedTaskBudget(body.budget);
+    return parseTaskConfiguration(await this.sendReadRequest<unknown>("/task-configuration/preview", body, signal), body.workspace_id, body.profile ?? "code");
+  }
+
+  async getRunTaskConfiguration(runID: string, signal?: AbortSignal): Promise<import("./types").TaskConfigurationView> {
+    if (!boundedIdentity(runID) || runID.trim() !== runID) throw new Error("A normalized Run identity is required");
+    return parseTaskConfiguration(await this.get<unknown>(`/runs/${encodeURIComponent(runID)}/task-configuration`, {}, signal), undefined, undefined, "snapshot");
+  }
+
   async createRun(body: RunCreationControlRequestView, idempotencyKey: string,
     signal?: AbortSignal): Promise<RunCreationControlView> {
     if (!this.hasRunCreation) {
       throw new Error("Run creation capability is required for this operation");
     }
+    normalizedTaskBudget(body.budget);
     normalizeRequestedNetworkAuthority(body);
     const result = await this.sendControl<unknown>("/runs", body, idempotencyKey, signal);
     return parseRunCreationControl(result, body);
@@ -8140,6 +8182,7 @@ export class APIClient {
         body.provider!.includes("/") || body.model!.includes("/")))) {
       throw new Error("Thread creation capability and a normalized Provider/model pair are required");
     }
+    normalizedTaskBudget(body.budget);
     normalizeRequestedNetworkAuthority(body);
     return parseThreadCreationControl(await this.sendControl<unknown>("/threads", body,
       idempotencyKey, signal), body);

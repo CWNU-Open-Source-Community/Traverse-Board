@@ -13,6 +13,7 @@ it("restores task/settings identity and rejects malformed links without guessing
     kind: "thread", threadID: "thread-42", section: "advanced-models",
   });
   expect(readV2Route("#/new")).toEqual({ kind: "new" });
+  expect(readV2Route("#/new/settings/task-configuration")).toEqual({ kind: "new", section: "task-configuration" });
   for (const hash of ["#/threads/%ZZ", "#/threads/../../another", "#/threads/%2fother", "#/threads/task/settings/unknown"]) {
     expect(readV2Route(hash)).toEqual({ kind: "invalid" });
   }
@@ -80,6 +81,27 @@ it("retains a task's scheduled Run when its route is serialized and refreshed", 
     tool: "schedule", resourceID: "run-scheduled" }));
   expect(readV2Route(window.location.hash)).toEqual(result.current.route);
   expect(window.location.hash).toBe("#/threads/thread-source/inspector/schedule/run-scheduled");
+});
+
+it.each(["context", "checkpoints", "tools", "ui-evidence"] as const)("opens and restores the exact Run's %s pane with its settings source", (pane) => {
+  const { result } = renderHook(() => useV2Navigation());
+  act(() => result.current.navigate({ kind: "thread", threadID: "thread-source", view: "inspector",
+    tool: "run", resourceID: "run-history", pane }));
+  const source = `#/threads/thread-source/inspector/runs/run-history/${pane}`;
+  expect(window.location.hash).toBe(source);
+  expect(readV2Route(source)).toEqual(result.current.route);
+  act(() => result.current.navigate({ ...result.current.route, section: "connections" }));
+  act(() => result.current.back());
+  expect(window.location.hash).toBe(source);
+  expect(readV2Route(window.location.hash).resourceID).toBe("run-history");
+});
+
+it("rejects unrecognized Run panes and panes attached to non-Run records", () => {
+  for (const hash of ["#/new/inspector/runs/run-1/unknown", "#/new/inspector/runs/run-1/%2fcontext",
+    "#/new/inspector/sessions/session-1/context", "#/new/inspector/schedule/run-1/checkpoints",
+    "#/new/inspector/runs/%2frun/context", "#/new/inspector/runs/run-1/context/context"]) {
+    expect(readV2Route(hash)).toEqual({ kind: "invalid" });
+  }
 });
 
 it("rejects malformed compatible resource IDs and leaves direct resources unbound to a Thread", () => {

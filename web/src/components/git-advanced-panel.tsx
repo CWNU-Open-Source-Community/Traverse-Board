@@ -61,6 +61,11 @@ export function GitAdvancedPanel({ client, runID, onOpenApprovals,
   const [cherryCommits, setCherryCommits] = useState("");
   const [bisectGood, setBisectGood] = useState("");
   const [bisectBad, setBisectBad] = useState("");
+  const [bisectRecipe, setBisectRecipe] = useState<"go_test" | "npm_test">("go_test");
+  const [bisectSteps, setBisectSteps] = useState("32");
+  const [bisectTimeout, setBisectTimeout] = useState("120");
+  const validBisectLimits = /^[1-9][0-9]*$/u.test(bisectSteps) && Number(bisectSteps) <= 128 &&
+    /^[1-9][0-9]*$/u.test(bisectTimeout) && Number(bisectTimeout) <= 900;
   const [worktreeName, setWorktreeName] = useState("");
   const [worktreeBranch, setWorktreeBranch] = useState("");
 
@@ -127,8 +132,8 @@ export function GitAdvancedPanel({ client, runID, onOpenApprovals,
       <header className="panel-header"><div><GitBranch aria-hidden="true" size={17} />
         <h2>{t("高级 Git", "Advanced Git")}</h2></div></header>
       <EmptyState>{t(
-        "当前进程未显式启用高级 Git、权限控制、操作员审批和工作区检查点。",
-        "This process did not explicitly enable Advanced Git, permission control, operator approval, and Workspace Checkpoints.",
+        "启用高级 Git、权限控制、操作员审批和项目检查点后，可在这里预览并审批仓库操作。",
+        "Enable Advanced Git, permission control, operator approval, and workspace checkpoints to preview and approve repository operations here.",
       )}</EmptyState>
     </section>;
   }
@@ -178,7 +183,7 @@ export function GitAdvancedPanel({ client, runID, onOpenApprovals,
     </section>}
 
     <section className="git-advanced-section">
-      <h3>{t("逐 hunk 操作", "Hunk operations")}</h3>
+      <h3>{t("按差异块操作", "Diff hunk operations")}</h3>
       <div className="git-advanced-form-row">
         <select aria-label={t("Hunk 操作", "Hunk operation")} value={hunkOperation}
           onChange={(event) => setHunkOperation(event.target.value as GitAdvancedOperation)}>
@@ -190,7 +195,7 @@ export function GitAdvancedPanel({ client, runID, onOpenApprovals,
           value={hunkPaths} />
         <button disabled={!canMutate} onClick={() => discover.mutate(createSpec(hunkOperation,
           exactPaths(hunkPaths).length ? { paths: exactPaths(hunkPaths) } : {}))} type="button">
-          {t("发现 hunk", "Discover hunks")}
+          {t("查看可选差异块", "Inspect available hunks")}
         </button>
       </div>
       {review?.preview.operation === hunkOperation && review.preview.hunks.length > 0 &&
@@ -257,10 +262,26 @@ export function GitAdvancedPanel({ client, runID, onOpenApprovals,
               key={mark} onClick={() => reviewSpec(createSpec(`bisect_${mark}` as GitAdvancedOperation,
                 { sequence_id: sequence.id, expected_current: sequence.current_head }))}
               type="button">{mark}</button>)}
-            <button disabled={!canMutate} onClick={() => reviewSpec(createSpec("bisect_run", {
+            <label>{t("验证模板", "Verification template")}
+              <select aria-label={t("Bisect 验证模板", "Bisect verification template")} disabled={!canMutate}
+                value={bisectRecipe} onChange={(event) => { setReview(null); setBisectRecipe(event.target.value as "go_test" | "npm_test"); }}>
+                <option value="go_test">Go · go test</option><option value="npm_test">NPM · npm test</option>
+              </select>
+            </label>
+            <label>{t("最多步骤", "Maximum steps")}
+              <input aria-label={t("Bisect 最多步骤", "Bisect maximum steps")} type="number" min={1} max={128} step={1}
+                disabled={!canMutate} value={bisectSteps} onChange={(event) => { setReview(null); setBisectSteps(event.target.value); }} />
+            </label>
+            <label>{t("每步超时（秒）", "Timeout per step (seconds)")}
+              <input aria-label={t("Bisect 每步超时", "Bisect step timeout")} type="number" min={1} max={900} step={1}
+                disabled={!canMutate} value={bisectTimeout} onChange={(event) => { setReview(null); setBisectTimeout(event.target.value); }} />
+            </label>
+            <button disabled={!canMutate || !validBisectLimits} onClick={() => reviewSpec(createSpec("bisect_run", {
               sequence_id: sequence.id, expected_current: sequence.current_head,
-              recipe: { name: "go_test", max_steps: 32, timeout_seconds: 120 },
-            }))} type="button">go test</button>
+              recipe: { name: bisectRecipe, max_steps: Number(bisectSteps), timeout_seconds: Number(bisectTimeout) },
+            }))} type="button">{t("预览自动定位", "Preview automatic bisect")}</button>
+            {!validBisectLimits && <small role="alert">{t("步骤必须为 1–128，单步超时必须为 1–900 秒。",
+              "Use 1–128 steps and a timeout of 1–900 seconds per step.")}</small>}
             <button disabled={!canMutate} onClick={() => reviewSpec(createSpec("bisect_reset",
               { sequence_id: sequence.id }))} type="button">reset</button>
           </>}
@@ -343,7 +364,7 @@ export function GitAdvancedPanel({ client, runID, onOpenApprovals,
     {mutationError && <ErrorState error={mutationError} />}
 
     <section className="git-advanced-section">
-      <h3>{t("持久审计记录", "Durable audit records")}</h3>
+      <h3>{t("已保存的 Git 操作", "Saved Git operations")}</h3>
       {projection.operations.length === 0 ? <small>{t("暂无操作", "No operations")}</small> :
         projection.operations.map((operation) => <details key={operation.id}>
           <summary><StatusBadge status={operation.status} /> {operation.operation} · {shortID(operation.id)} · {formatDate(operation.created_at)}</summary>
@@ -366,7 +387,7 @@ function PreviewEvidence({ preview, compact = false }: {
 }) {
   const { t } = useLocale();
   return <section className="git-advanced-preview">
-    <h3>{t("不可变 Preview", "Immutable preview")} · {preview.operation}</h3>
+    <h3>{t("操作预览", "Operation preview")} · {preview.operation}</h3>
     <p>{preview.summary}</p>
     <code>{preview.id}</code>
     {preview.blocked_reasons.length > 0 && <ul className="inline-warning">

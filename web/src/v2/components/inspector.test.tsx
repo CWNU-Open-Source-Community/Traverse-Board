@@ -44,7 +44,7 @@ describe("V2Inspector", () => {
     expect(view.container.querySelector('[data-transcript-id="old-model-start"]')).toHaveTextContent("记录时执行中");
     expect(view.container.querySelector('[data-transcript-id="later-model-result"]')).toHaveTextContent("completed");
     await userEvent.setup().click(screen.getByRole("button", { name: /模型调用开始/ }));
-    expect(screen.getByText(/此状态只描述记录发生时/)).toHaveTextContent("不代表 Agent 当前仍在工作");
+    expect(screen.getByText(/这是记录保存时的执行状态/)).toHaveTextContent("Agent 的当前活动请查看对话上方的工作状态");
     expect(screen.getByText("model.started:old-attempt")).toBeInTheDocument();
     expect(screen.queryByText("运行中")).not.toBeInTheDocument();
   });

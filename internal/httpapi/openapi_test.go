@@ -221,6 +221,9 @@ func TestOpenAPIDocumentIsDeterministicCapabilitySeparatedAndSecretFree(t *testi
 		"ProviderCredentialStatusView", "secret")
 	assertOpenAPIPropertyFlag(t, document.Components.Schemas,
 		"ProviderCredentialRequestView", "secret", "writeOnly", true)
+	assertOpenAPISchemaOmits(t, document.Components.Schemas, "MCPCredentialStatusView", "secret")
+	assertOpenAPIPropertyFlag(t, document.Components.Schemas, "MCPCredentialRequestView", "secret", "writeOnly", true)
+	assertOpenAPIPropertyFlag(t, document.Components.Schemas, "MCPCredentialRequestView", "secret", "maxLength", float64(credential.MaxSecretBytes))
 	assertOpenAPIPropertyFlag(t, document.Components.Schemas,
 		"ProviderCredentialListView", "items", "minItems", float64(4))
 	assertOpenAPIPropertyFlag(t, document.Components.Schemas,
@@ -756,6 +759,7 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 	fixture.api.extensionController = &extensionControllerStub{}
 	fixture.api.codeIntelController = newCodeIntelOpenAPITestController(t, fixture)
 	onboardingFixture, _, _, _ := newExtensionOnboardingFixture(t)
+	credentialFixture, credentialBinding, credentialStatus, _ := newMCPCredentialFixture(t)
 	fixture.api.dockerSandboxControlEnabled = true
 	fixture.api.dockerSandboxController = &dockerSandboxControllerStub{}
 	fixture.api.runLifecycleController = application.NewRunLifecycleControlService(fixture.store)
@@ -1228,6 +1232,8 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 			requestPath += "?connection_id=github-connection-openapi&base_branch=main"
 		} else if spec.OperationID == "observeThreadPullRequest" {
 			requestPath += "?operation_key=openapi-thread-pr-operation-0001"
+		} else if spec.OperationID == "getMCPCredentialStatus" {
+			requestPath = mcpCredentialStatusPath(credentialBinding)
 		}
 		t.Run(spec.OperationID, func(t *testing.T) {
 			requestAPI := fixture.api
@@ -1238,6 +1244,11 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 				requestAPI = standardCodeAPI
 			} else if spec.Path == ExtensionMCPRegistrationPath || spec.Path == ExtensionPluginImportPath {
 				requestAPI = onboardingFixture.api
+			} else if spec.Path == MCPCredentialPathTemplate {
+				requestAPI = credentialFixture.api
+				if spec.Control {
+					requestPath = "/api/v1/extensions/mcp/" + credentialBinding.ServerID + "/credential"
+				}
 			} else if spec.Path == ThreadApplicationServicesPathTemplate ||
 				spec.Path == ThreadApplicationServicePathTemplate || spec.Path == ThreadApplicationServiceStopPathTemplate {
 				// Bind these routes to an authorized, reaped Command Runtime Job,
@@ -1307,6 +1318,8 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 				request.Header.Set("Idempotency-Key", "openapi-observe-original-missing-key")
 				response = httptest.NewRecorder()
 				fixture.api.ServeHTTP(response, request)
+			} else if spec.Path == TaskConfigurationPreviewPath {
+				response = previewConfigurationRequest(fixture.api, testAccessToken, `{"workspace_id":"`+fixture.workspace.ID+`"}`)
 			} else if spec.Control {
 				body := `{"profile":"docker"}`
 				if spec.OperationID == "controlThreadPlan" {
@@ -1615,6 +1628,10 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 						`"confirm":true}`
 				} else if spec.Path == ExtensionMCPRegistrationPath {
 					body = extensionJSON(t, extensionRegistrationRequest(onboardingFixture))
+				} else if spec.Path == MCPCredentialPathTemplate {
+					body = extensionJSON(t, MCPCredentialRequestView{Version: application.MCPCredentialProtocolVersion,
+						Binding: credentialBinding, Action: "set", Secret: "synthetic-openapi-token", Confirm: true,
+						ExpectedReferenceFingerprint: credentialStatus.ReferenceFingerprint})
 				} else if spec.Path == ExtensionPluginImportPath {
 					body = extensionJSON(t, extensionPluginImportRequest(extensionPluginArchive(t)))
 				} else if spec.Path == CodeIntelConfigurationsPath {

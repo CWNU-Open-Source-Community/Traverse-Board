@@ -1,5 +1,27 @@
 # Prayu Project Memory
 
+> 2026-10-10 product guidance revision: the frontend rebuild includes user-facing
+> language and information hierarchy. The connection hub groups task preparation,
+> tools/collaboration and runtime settings; MCP/Plugin/LSP show actual setup stages.
+> Task, approval, recovery and delivery copy explains the current state and next
+> available action. Technical records expand on demand, while decision effects
+> stay visible. See [product language](PRODUCT_LANGUAGE.md) and the
+> [integrated verification](FRONTEND_REBUILD_STATUS.md): 186 frontend files / 1,834
+> tests, production build and an isolated real-browser pass. Remaining P4/P5 work
+> continues under the same rebuild roadmap.
+
+> 2026-10-10 frontend rebuild checkpoint: V2 exposes task navigation, exact-Run
+> recovery/observation, connection management and PR discussion actions. New task
+> drafts carry bounded budgets; Go resolves narrowing-only project configuration
+> and pins the result through schema v186, creation replay and successor Runs.
+> Supported manual HTTPS MCP registrations can manage bearer credentials through
+> the shared Go API and OS store. Approval, scope and runtime capability gates
+> remain independent. See [implementation status and evidence boundaries](FRONTEND_REBUILD_STATUS.md)
+> and [task configuration ADR](adr/0170-task-budget-and-project-configuration.md).
+> This checkpoint does not complete P4 environment/extension workflows or native
+> cross-platform acceptance. Project exclusion paths and suggested skills/actions
+> remain recorded metadata, without automatic filtering, installation or execution.
+
 > 2026-10-09 recovery and connection workflow checkpoint (#292): Continuity
 > Fork/Resume and checkpoint Fork open the returned Run in V2 without inheriting
 > a source Thread binding. Late completion refreshes record and Thread lists

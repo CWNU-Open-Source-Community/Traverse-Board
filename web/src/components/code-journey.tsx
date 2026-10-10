@@ -76,8 +76,8 @@ export function CodeJourney({ detail, receiptReviewFacts, receiptReviewFactsStat
         </div>)}
     </div>
     <section aria-label={t("收据审阅审计事实", "Receipt review audit facts")} className="journey-audit-facts">
-      <header><div><strong>{t("收据审阅审计", "Receipt review audit")}</strong><StatusBadge status="metadata only" />
-        <StatusBadge status="non-authorizing" /></div>
+      <header><div><strong>{t("检查记录审阅", "Check record reviews")}</strong><StatusBadge status="metadata only" label={t("来源元数据", "Source metadata")} />
+        <StatusBadge status="non-authorizing" label={t("执行需独立审批", "Execution requires separate approval")} /></div>
         {receiptReviewFacts && <span>{t(`${receiptReviewFacts.metadata_confirmed_count} 已确认 / ${receiptReviewFacts.metadata_disputed_count} 有争议`, `${receiptReviewFacts.metadata_confirmed_count} confirmed / ${receiptReviewFacts.metadata_disputed_count} disputed`)}</span>}
       </header>
       {receiptReviewFactsState === "loading" && <p>{t("正在加载有界审计事实", "Loading bounded audit facts")}</p>}
@@ -105,8 +105,8 @@ export function CodeJourney({ detail, receiptReviewFacts, receiptReviewFactsStat
           {receiptReviewFacts.truncated && <StatusBadge status="source truncated" />}</footer>}
     </section>
     <footer>
-      <span>{t("Go 控制平面", "Go control plane")}</span>
-      <span>{t("独立变更操作", "Independent mutations")}</span>
+      <span>{t("按范围核对每项操作", "Review each action within its scope")}</span>
+      <span>{t("确认后应用变更", "Apply changes after confirmation")}</span>
       <button className="compact-command" onClick={() => onNavigate("diffs")} type="button">
         <FileDiff aria-hidden="true" size={14} />{t("打开差异", "Open diffs")}
       </button>

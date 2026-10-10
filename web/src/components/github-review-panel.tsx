@@ -8,6 +8,7 @@ import { formatDate, shortID } from "../lib/format";
 import { useLocale } from "../lib/locale";
 import { EmptyState, ErrorState, KeyValue, LoadingState, StatusBadge } from "./common";
 import { V2ConfirmDialog } from "../v2/components/dialog";
+import { GitHubReviewThreads, GitHubReviewWriteForm, githubWriteSupported } from "./github-review-write-form";
 
 function operationKey(): string {
   if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
@@ -88,9 +89,8 @@ function GitHubReviewWorkspace({ client, runID, onOpenApprovals,
   const [pullRequest, setPullRequest] = useState(retainedReview?.preview.identity.number ?? 0);
   const [device, setDevice] = useState<{ session_id: string; user_code: string;
     verification_uri: string } | null>(null);
-  const [reviewBody, setReviewBody] = useState("");
-  const [reviewEvent, setReviewEvent] = useState("COMMENT");
   const [localReview, setLocalReview] = useState<RetainedGitHubReview | null>(retainedReview ?? null);
+  const [writeDraftRevision, setWriteDraftRevision] = useState(0);
   const [error, setError] = useState<unknown>(null);
   const [notice, setNotice] = useState("");
   const [conflict, setConflict] = useState(false);
@@ -313,7 +313,7 @@ function GitHubReviewWorkspace({ client, runID, onOpenApprovals,
     },
     onSuccess: (_, request) => {
       invalidate(request);
-      if (isCurrentReview(request)) { clearReview(); setReviewBody(""); }
+      if (isCurrentReview(request)) { clearReview(); setWriteDraftRevision((value) => value + 1); }
     },
     onError: (value, request) => { if (isCurrentReview(request)) setError(value); },
   });
@@ -328,7 +328,7 @@ function GitHubReviewWorkspace({ client, runID, onOpenApprovals,
   const canDisconnect = credentialCurrent && credential.data?.credential.store_available && credential.data.credential.configured;
   const canWrite = credentialCurrent && !snapshotRefreshRequired && !credential.isFetching && !projection.isError && !projection.isFetching &&
     credential.data?.credential.configured && form.connection?.enabled &&
-    projection.data?.connection.generation === form.connection.generation && latest?.capability.review &&
+    projection.data?.connection.generation === form.connection.generation && latest?.capability &&
     latest.capability.credential.name === form.connection.credential.name &&
     latest.capability.credential.kind === form.connection.credential.kind && connectionWriteEnabled;
   const disconnectConnectionChanged = (target: GitHubReviewConnectionView) => {
@@ -353,8 +353,6 @@ function GitHubReviewWorkspace({ client, runID, onOpenApprovals,
     setForm(connectionForm(connections.data?.find((item) => item.connection.id === id)?.connection ?? null));
     setDevice(null);
     setPullRequest(0);
-    setReviewBody("");
-    setReviewEvent("COMMENT");
     clearReview();
     setError(null);
     setConflict(false);
@@ -372,10 +370,15 @@ function GitHubReviewWorkspace({ client, runID, onOpenApprovals,
     job.conclusion && !["success", "skipped", "neutral"].includes(job.conclusion)) ?? [], [latest]);
   const staleMappings = useMemo(() => projection.data?.evidence.flatMap((item) =>
     item.graph.mappings.filter((mapping) => mapping.state !== "verified")) ?? [], [projection.data]);
+  const operationLabels: Record<string, string> = {
+    submit_review: t("提交整体审阅", "Submit review"), reply: t("回复讨论", "Reply to discussion"),
+    resolve: t("解决讨论", "Resolve discussion"), unresolve: t("重新打开讨论", "Reopen discussion"),
+    request_reviewer: t("请求审阅人", "Request reviewers"),
+  };
 
   if (!client.hasGitHubReviewControl) return <section className="repository-state-panel">
     <header className="panel-header"><div><GitPullRequest size={17} /><h2>GitHub Review</h2></div></header>
-    <EmptyState>{t("当前进程未启用 GitHub 审阅控制。", "GitHub review control is disabled for this process.")}</EmptyState>
+    <EmptyState>{t("启用 GitHub 审阅控制后，可连接仓库、查看 PR 并审批远端操作。", "Enable GitHub review control to connect a repository, inspect PRs, and approve remote actions.")}</EmptyState>
   </section>;
   if (connections.isLoading || (!selectionReady && !connections.isError)) return <LoadingState label={t("加载 GitHub 连接", "Loading GitHub connections")} />;
   if (connections.isError && !connections.data) return <ErrorState error={connections.error} />;
@@ -427,7 +430,7 @@ function GitHubReviewWorkspace({ client, runID, onOpenApprovals,
       <small>{form.connection ? t(
         `正在编辑 ${form.connection.repository.full_name}；设置版本 ${form.connection.generation}。`,
         `Editing ${form.connection.repository.full_name}; settings version ${form.connection.generation}.`,
-      ) : t("新连接使用 GitHub App 设备登录。", "New connections use GitHub App device sign-in.")}</small>
+      ) : t("填写仓库与 GitHub App 信息创建连接，再使用设备登录授权。", "Enter the repository and GitHub App details to create a connection, then authorize it with device sign-in.")}</small>
       {connectionID && <div className="github-review-actions">
         <button disabled={pending} onClick={() => { startRequest(); reload.mutate(scope()); }} type="button">
           {t("重新载入最新设置", "Reload latest settings")}</button>
@@ -438,8 +441,18 @@ function GitHubReviewWorkspace({ client, runID, onOpenApprovals,
           {t("删除本机凭据…", "Delete local credential…")}</button>
       </div>}
       {credential.isError && <ErrorState error={credential.error} />}
-      {credentialCurrent && <small>{credential.data?.credential.configured ? t("本机凭据已配置。", "Local credential is configured.") :
-        t("未配置本机凭据。", "No local credential is configured.")}</small>}
+      {credentialCurrent && <small>{!credential.data?.credential.store_available ? t(
+        "系统凭据库当前不可用。请连接支持系统凭据存储的服务，再点击“重新载入最新设置”核对。",
+        "The system credential store is unavailable. Connect to a service with system credential storage, then select Reload latest settings to check again.")
+        : credential.data.credential.configured ? t("本机凭据已配置。", "Local credential is configured.")
+        : !form.connection?.enabled ? t(
+          "此连接已停用。请从“GitHub 连接”选择已启用的连接，或选择“新建连接”重新配置。",
+          "This connection is disabled. Select an enabled GitHub connection, or choose New connection to configure another.")
+        : form.connection.credential.kind === "github_app_device" ? t(
+          "请使用设备登录配置本机凭据。", "Use device sign-in to configure the local credential.")
+        : t(
+          `本机尚未配置 ${form.connection.credential.kind === "fine_grained_pat" ? "PAT" : "OAuth"} 凭据。请在“凭据引用”填写已保存且类型匹配的凭据名称，再点击“更新连接”；需要设备登录时，请选择“新建连接”配置 GitHub App。`,
+          `The local ${form.connection.credential.kind === "fine_grained_pat" ? "PAT" : "OAuth"} credential is missing. Enter a stored credential name of the same type in Credential reference and select Update connection. For device sign-in, choose New connection to configure a GitHub App.`)}</small>}
       {device && <div className="github-review-device"><code>{device.user_code}</code>
         <a href={device.verification_uri} rel="noreferrer" target="_blank">github.com/login/device <ExternalLink size={12} /></a>
         <button disabled={pending || !canSignIn} onClick={() => {
@@ -449,12 +462,13 @@ function GitHubReviewWorkspace({ client, runID, onOpenApprovals,
     </section>
 
     {connectionID && <section className="github-review-section">
-      <h3>{t("拉取请求证据", "Pull request evidence")}</h3>
+      <h3>{t("查看 PR", "Inspect a PR")}</h3>
+      <p>{t("填写 PR 编号，先检查访问条件，再获取最新快照。", "Enter a PR number, check access, then fetch the latest snapshot.")}</p>
       <div className="github-review-form"><input aria-label={t("PR 编号", "PR number")} min={1}
         onChange={(event) => { clearReview(); setPullRequest(Number(event.target.value)); }} type="number" value={pullRequest || ""} />
         <button disabled={pending || pullRequest < 1} onClick={() => {
           startRequest(); qualify.mutate({ ...scope(), number: pullRequest });
-        }} type="button">{t("资格诊断", "Qualify")}</button>
+        }} type="button">{t("检查访问条件", "Check access")}</button>
         <button disabled={pending || pullRequest < 1} onClick={() => fetchRemote(pullRequest)} type="button">{t("抓取快照", "Fetch snapshot")}</button></div>
       {qualify.data && qualify.variables && isCurrent(qualify.variables) && qualify.variables.number === pullRequest &&
         <div className="github-review-diagnostics"><StatusBadge status={qualify.data.qualification.eligible ? "qualified" : "blocked"} />
@@ -462,7 +476,7 @@ function GitHubReviewWorkspace({ client, runID, onOpenApprovals,
       {projection.isLoading && <LoadingState />}
       {projection.isError && <ErrorState error={projection.error} />}
       {projection.data?.standard_code_delivery && <div className="github-review-delivery-truth">
-        <span><strong>{t("交付真实性", "Delivery truth")}</strong>
+        <span><strong>{t("交付检查", "Delivery checks")}</strong>
           <code>{projection.data.standard_code_delivery.receipt_sha256}</code>
           <small>{projection.data.standard_code_delivery.diff.changed_count} {t("个文件", "files")} · {projection.data.standard_code_delivery.verifications.length} {t("条命令", "commands")}</small></span>
         <StatusBadge status={projection.data.standard_code_delivery.status} />
@@ -488,11 +502,12 @@ function GitHubReviewWorkspace({ client, runID, onOpenApprovals,
           <small>{mapping.reasons.join(" · ")}</small></article>)}</details>}
     </section>}
 
+    {latest && <GitHubReviewThreads snapshot={latest} />}
     {latest && !connectionWriteEnabled && <section className="github-review-section">
       <h3>{t("审批后回写", "Approval-gated write-back")}</h3>
       <EmptyState>{t(
-        "此连接保持只读；重新配置并显式允许写回后，才会显示远端操作。",
-        "This connection is read-only. Explicitly enable write-back in its configuration to expose remote operations.",
+        "当前可查看 PR。需要评论、回复等远端操作时，在连接设置中明确允许逐次审批的写回。",
+        "PR inspection is available. To comment, reply, or make other remote changes, explicitly allow per-call approved write-back in the connection settings.",
       )}</EmptyState>
     </section>}
     {latest && connectionWriteEnabled && <section className="github-review-section">
@@ -500,29 +515,28 @@ function GitHubReviewWorkspace({ client, runID, onOpenApprovals,
       {snapshotRefreshRequired && !fetchSnapshot.isPending && <small>{t(
         "请成功刷新 PR 快照后再准备写回。", "Refresh the PR snapshot successfully before preparing a write.",
       )}</small>}
-      <div className="github-review-form"><select aria-label={t("审阅类型", "Review event")} value={reviewEvent}
-        onChange={(event) => { clearReview(); setReviewEvent(event.target.value); }}>
-        <option value="COMMENT">COMMENT</option><option value="APPROVE">APPROVE</option>
-        <option value="REQUEST_CHANGES">REQUEST_CHANGES</option></select>
-        <textarea aria-label={t("审阅正文", "Review body")} onChange={(event) => { clearReview(); setReviewBody(event.target.value); }}
-          placeholder={t("远端内容会被视为不可信数据", "Remote content remains untrusted data")}
-          value={reviewBody} /><button disabled={pending || !canWrite || (reviewEvent === "REQUEST_CHANGES" && !reviewBody.trim())}
-          onClick={() => {
+      <GitHubReviewWriteForm key={`${latest.id}:${writeDraftRevision}`} snapshot={latest} disabled={pending || !canWrite}
+        onChange={clearReview} onPreview={(draft) => {
+            if (pending || !canWrite || !githubWriteSupported(latest, draft.operation)) return;
             startRequest(); clearReview();
             reviewWrite.mutate({ ...scope(), snapshotID: latest.id, number: pullRequest, reviewRevision: reviewRevision.current,
               sourceBinding: { runID, connectionID, snapshotID: latest.id,
                 connectionGeneration: form.connection!.generation, credentialName: form.connection!.credential.name,
                 credentialKind: form.connection!.credential.kind, clientID: form.connection!.client_id ?? "", apiClient: client },
-              spec: { protocol_version: "github-review-write.v1", operation: "submit_review",
+              spec: { ...draft, protocol_version: "github-review-write.v1",
                 identity: latest.identity, credential: form.connection!.credential,
-                capability_generation: latest.capability.generation, body: reviewBody,
-                review_event: reviewEvent, reviewers: [],
+                capability_generation: latest.capability.generation,
                 validation_summary: "Operator-reviewed Traverse Board evidence graph" } });
-          }} type="button">{t("生成精确预览", "Create exact preview")}</button></div>
+          }} />
       {review && <div className="github-review-approval"><ShieldCheck size={15} />
+        <div className="github-review-preview-summary"><strong>{operationLabels[review.preview.operation]}</strong>
+        {review.preview.target_id && <span> · {latest.threads.find((thread) => thread.id === review.preview.target_id)?.path ?? review.preview.target_id}</span>}
+        {review.preview.review_event && <span>{review.preview.review_event}</span>}
+        {review.preview.body_summary && <p>{review.preview.body_summary}</p>}
+        {review.preview.reviewers?.length > 0 && <p>{review.preview.reviewers.join(", ")}</p>}</div>
         <code>{review.preview.approval_fingerprint}</code>
         <button onClick={onOpenApprovals} type="button">{t("打开审批", "Open approvals")}</button>
-        <button disabled={pending || !canWrite} onClick={() => {
+        <button disabled={pending || !canWrite || !githubWriteSupported(latest, review.preview.operation)} onClick={() => {
           startRequest(); executeWrite.mutate({ ...scope(), snapshotID: latest.id,
             number: pullRequest, reviewRevision: reviewRevision.current, sourceBinding: review.sourceBinding!, review });
         }} type="button">{t("执行已批准操作", "Execute approved write")}</button></div>}
@@ -534,8 +548,8 @@ function GitHubReviewWorkspace({ client, runID, onOpenApprovals,
     <V2ConfirmDialog open={Boolean(disconnectTarget)} danger returnFocusRef={disconnectButton}
       title={t("删除 GitHub 本机凭据", "Delete local GitHub credential")}
       description={t(
-        `将删除连接 ${disconnectTarget?.id ?? ""}（${disconnectTarget?.repository.full_name ?? ""}）当前使用的本机凭据。使用同一凭据引用的连接也会退出登录。连接设置和历史证据会保留；此操作不会撤销 GitHub 端授权。`,
-        `Delete the local credential currently used by connection ${disconnectTarget?.id ?? ""} (${disconnectTarget?.repository.full_name ?? ""}). Connections sharing its credential reference will also be signed out. Connection settings and historical evidence remain; this does not revoke authorization on GitHub.`,
+        `将删除连接 ${disconnectTarget?.id ?? ""}（${disconnectTarget?.repository.full_name ?? ""}）当前使用的本机凭据。使用同一凭据引用的连接也会退出登录。连接设置和历史证据会保留。GitHub 端授权仍有效，如需撤销请在 GitHub 设置中操作。`,
+        `Delete the local credential used by connection ${disconnectTarget?.id ?? ""} (${disconnectTarget?.repository.full_name ?? ""}). Connections sharing this credential reference will also be signed out. Connection settings and historical evidence remain. GitHub authorization stays active; revoke it in GitHub settings if needed.`,
       )}
       confirmLabel={t("删除本机凭据", "Delete local credential")}
       onCancel={() => setDisconnectTarget(null)}

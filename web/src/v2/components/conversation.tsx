@@ -28,6 +28,8 @@ import { v2ImageReferenceKey } from "./image-input";
 import { APPLICATION_PREVIEW_START_REQUEST, applicationPreviewRequestCopy, applicationPreviewRequestKey, applicationServicesQueryKey,
   trackApplicationPreviewSubmission, type ApplicationPreviewRequest } from "../application-preview-request";
 import type { FileEditReviewTarget } from "../../components/file-edit-panel";
+import type { V2RunPane } from "../navigation";
+import type { TaskReviewToolMemory } from "./task-review-tools";
 import { V2ThreadContext } from "./thread-context";
 import { V2ThreadPlanControl } from "./thread-plan";
 import { useV2ThreadSubmissions, useV2ThreadTurn, V2SubmissionError, V2RecoveredSubmissionError, removeV2Submission, v2TurnFailed, v2TurnOutcomeKnown, v2TurnWasNotQueued, type V2TurnInput } from "../use-thread-turn";
@@ -311,7 +313,8 @@ export function V2TerminalDrawer({
 }
 
 export function V2Conversation({ client, threadID, workspaces, onArchive, onManageModels,
-  onOpenInspector, draft: legacyDraft, onDraftChange: legacyDraftChange, view = "conversation", onOpenTool, onOpenInspectorHome, onOpenWorktree, onExitInspector }: {
+  onOpenInspector, draft: legacyDraft, onDraftChange: legacyDraftChange, view = "conversation", onOpenTool, onOpenInspectorHome, onOpenWorktree, onExitInspector,
+  reviewEntry, onReviewEntryHandled, reviewMemoryRef }: {
   client: APIClient;
   threadID: string;
   workspaces: WorkspaceView[];
@@ -321,10 +324,13 @@ export function V2Conversation({ client, threadID, workspaces, onArchive, onMana
   draft?: string;
   onDraftChange?: (content: string, expected?: string) => void;
   view?: "conversation" | "inspector";
-  onOpenTool?: (tool: "run" | "session" | "schedule", resourceID?: string) => void;
+  onOpenTool?: (tool: "run" | "session" | "schedule", resourceID?: string, pane?: V2RunPane) => void;
   onOpenInspectorHome?: () => void;
   onOpenWorktree?: (workspace: WorkspaceView) => void;
   onExitInspector?: () => void;
+  reviewEntry?: { threadID: string; runID: string; requestID: string };
+  onReviewEntryHandled?: (requestID: string) => void;
+  reviewMemoryRef?: RefObject<TaskReviewToolMemory>;
 }) {
   const queryClient = useQueryClient();
   const previewRequest = useQuery<ApplicationPreviewRequest | null>({
@@ -340,11 +346,21 @@ export function V2Conversation({ client, threadID, workspaces, onArchive, onMana
   const [checking, setChecking] = useState<string[]>([]);
   const [observations, setObservations] = useState<Record<string, string>>({});
   const [menuOpen, setMenuOpen] = useState(false);
-  const [reviewOpen, setReviewOpen] = useState(false);
+  const [activePane, setActivePane] = useState<"review" | "preview" | "context" | "files" | "terminal" | null>(null);
+  const setPaneOpen = (pane: NonNullable<typeof activePane>, open: boolean) =>
+    setActivePane((current) => open ? pane : current === pane ? null : current);
+  const reviewOpen = activePane === "review";
+  const previewOpen = activePane === "preview";
+  const contextOpen = activePane === "context";
+  const filesOpen = activePane === "files";
+  const terminalDrawerOpen = activePane === "terminal";
+  const setReviewOpen = (open: boolean) => setPaneOpen("review", open);
+  const setPreviewOpen = (open: boolean) => setPaneOpen("preview", open);
+  const setContextOpen = (open: boolean) => setPaneOpen("context", open);
+  const setTerminalDrawerOpen = (open: boolean) => setPaneOpen("terminal", open);
   const [reviewFileTarget, setReviewFileTarget] = useState<FileEditReviewTarget | undefined>();
+  const [reviewToolTarget, setReviewToolTarget] = useState<{ runID: string; tool: "github-review" }>();
   const reviewReturnFocus = useRef<HTMLButtonElement | null>(null);
-  const [previewOpen, setPreviewOpen] = useState(false);
-  const [contextOpen, setContextOpen] = useState(false);
   const contextTrigger = useRef<HTMLButtonElement>(null);
   const previewTrigger = useRef<HTMLButtonElement>(null);
   const [inspectorComposerOpen, setInspectorComposerOpen] = useState(false);
@@ -354,15 +370,13 @@ export function V2Conversation({ client, threadID, workspaces, onArchive, onMana
   const [deliveryMode, setDeliveryMode] = useState<"next_turn" | "steer">("next_turn");
   const reviewTrigger = useRef<HTMLButtonElement>(null);
   const [fileDrawerState, setFileDrawerState] = useState<{
-    open: boolean;
     path: string;
     line?: number;
     runID?: string;
-  }>({ open: false, path: "." });
+  }>({ path: "." });
   const fileTrigger = useRef<HTMLButtonElement>(null);
   const fileReturnFocus = useRef<HTMLElement | null>(null);
 
-  const [terminalDrawerOpen, setTerminalDrawerOpen] = useState(false);
   const terminalTrigger = useRef<HTMLButtonElement>(null);
   const terminalReturnFocus = useRef<HTMLElement | null>(null);
   const terminalAvailable = desktopUserTerminalEnabled();
@@ -388,8 +402,8 @@ export function V2Conversation({ client, threadID, workspaces, onArchive, onMana
     triggerElement?: HTMLElement | null;
   }) => {
     fileReturnFocus.current = triggerElement ?? fileTrigger.current;
+    setActivePane("files");
     setFileDrawerState({
-      open: true,
       path,
       line,
       runID,
@@ -434,7 +448,7 @@ export function V2Conversation({ client, threadID, workspaces, onArchive, onMana
         : await inspectV2TurnRequest(client, input);
       if (result.state === "not_received" || (result.state === "received" && !result.message_id)) {
         setObservations((current) => ({ ...current, [input.operationKey]: result.state === "not_received"
-          ? "服务端暂未找到原提交。可以继续核对，或主动发送原消息；不会自动重发。"
+          ? "服务端暂未找到原提交。请继续核对；确认需要重试时，可主动发送原消息。"
           : "原提交已登记，但消息尚未入队。可以继续核对，或主动继续提交原消息。" }));
         return "unresolved";
       }
@@ -640,19 +654,25 @@ export function V2Conversation({ client, threadID, workspaces, onArchive, onMana
 
   useEffect(() => {
     setMenuOpen(false);
-    setReviewOpen(false);
+    setActivePane(null);
     setReviewFileTarget(undefined);
-    setPreviewOpen(false);
-    setContextOpen(false);
-    setFileDrawerState({ open: false, path: ".", line: undefined, runID: undefined });
-    setTerminalDrawerOpen(false);
+    setReviewToolTarget(undefined);
+    setFileDrawerState({ path: ".", line: undefined, runID: undefined });
     setComposerFocusRequest(null);
     olderScrollAnchorRef.current = null;
     setDeliveryMode("next_turn");
   }, [threadID, view]);
   useEffect(() => {
+    if (!reviewEntry || reviewEntry.threadID !== threadID) return;
+    setReviewFileTarget(undefined);
+    setReviewToolTarget({ runID: reviewEntry.runID, tool: "github-review" });
+    reviewReturnFocus.current = reviewTrigger.current;
+    setActivePane("review");
+    onReviewEntryHandled?.(reviewEntry.requestID);
+  }, [reviewEntry?.requestID, threadID]);
+  useEffect(() => {
     if (!composerFocusRequest || composerFocusRequest.threadID !== threadID || reviewOpen || previewOpen || contextOpen ||
-      fileDrawerState.open || terminalDrawerOpen ||
+      filesOpen || terminalDrawerOpen ||
       (view === "inspector" && !inspectorComposerOpen)) return;
     const frame = requestAnimationFrame(() => {
       const container = composerContainerRef.current;
@@ -662,7 +682,7 @@ export function V2Conversation({ client, threadID, workspaces, onArchive, onMana
       setComposerFocusRequest((current) => current === composerFocusRequest ? null : current);
     });
     return () => cancelAnimationFrame(frame);
-  }, [composerFocusRequest, threadID, reviewOpen, previewOpen, contextOpen, view, inspectorComposerOpen]);
+  }, [composerFocusRequest, threadID, activePane, view, inspectorComposerOpen]);
   useEffect(() => {
     if (!menuOpen) return;
     firstMenuItemRef.current?.focus();
@@ -806,22 +826,6 @@ export function V2Conversation({ client, threadID, workspaces, onArchive, onMana
       <div className="v2-header-actions">
         <V2ThreadExecutionControl client={client} execution={executionQuery.data}
           threadID={threadID} />
-        <button aria-label="查看上下文" className="v2-review-trigger" onClick={() => setContextOpen(true)}
-          ref={contextTrigger} type="button"><BookOpen aria-hidden="true" size={16} /><span>上下文</span></button>
-        <button aria-label="工作区文件" className="v2-review-trigger" onClick={() => {
-          fileReturnFocus.current = fileTrigger.current;
-          setFileDrawerState({ open: true, path: ".", line: undefined, runID: currentRun.id });
-        }} ref={fileTrigger} type="button"><FolderTree aria-hidden="true" size={16} /><span>文件</span></button>
-        <button aria-label="终端" className="v2-review-trigger" title={terminalAvailable ? "打开任务终端" : "桌面终端仅在桌面端可用"} onClick={() => {
-          terminalReturnFocus.current = terminalTrigger.current;
-          setTerminalDrawerOpen(true);
-        }} ref={terminalTrigger} type="button"><SquareTerminal aria-hidden="true" size={16} /><span>终端</span></button>
-        <button aria-label="应用预览" className="v2-review-trigger" onClick={() => setPreviewOpen(true)}
-          ref={previewTrigger} type="button"><PanelTop aria-hidden="true" size={16} /><span>应用预览</span></button>
-        <button aria-label="审阅改动" className="v2-review-trigger" onClick={() => {
-          setReviewFileTarget(undefined); reviewReturnFocus.current = reviewTrigger.current; setReviewOpen(true);
-        }}
-          ref={reviewTrigger} type="button"><FileDiff aria-hidden="true" size={16} /><span>审阅改动</span></button>
         <button aria-expanded={menuOpen} aria-haspopup="menu" aria-label="对话操作"
           onClick={() => setMenuOpen((value) => !value)} ref={menuTriggerRef} type="button">
           <CircleEllipsis aria-hidden="true" size={18} />
@@ -843,23 +847,49 @@ export function V2Conversation({ client, threadID, workspaces, onArchive, onMana
         </div>}
       </div>
     </header>
-    {view === "inspector" && (onOpenTool || onOpenInspectorHome) && <nav className="v2-inspector-advanced" aria-label="高级检查">
+    <nav className="v2-task-navigation" aria-label="任务工作区">
+      <div className="v2-task-workbench" role="group" aria-label="对话与工作台">
+        <button aria-pressed={view === "conversation" && activePane === null} disabled={view === "inspector" && !onExitInspector}
+          onClick={() => { setActivePane(null); onExitInspector?.(); }} type="button"><MessagesSquare size={16} aria-hidden="true" />对话</button>
+        <button aria-label="工作区文件" aria-pressed={filesOpen} onClick={() => {
+          fileReturnFocus.current = fileTrigger.current;
+          setFileDrawerState({ path: ".", line: undefined, runID: currentRun.id }); setActivePane("files");
+        }} ref={fileTrigger} type="button"><FolderTree aria-hidden="true" size={16} />文件</button>
+        <button aria-label="终端" aria-pressed={terminalDrawerOpen} title={terminalAvailable ? "打开任务终端" : "桌面终端仅在桌面端可用"} onClick={() => {
+          terminalReturnFocus.current = terminalTrigger.current; setTerminalDrawerOpen(true);
+        }} ref={terminalTrigger} type="button"><SquareTerminal aria-hidden="true" size={16} />终端</button>
+        <button aria-label="应用预览" aria-pressed={previewOpen} onClick={() => setPreviewOpen(true)}
+          ref={previewTrigger} type="button"><PanelTop aria-hidden="true" size={16} />应用预览</button>
+      </div>
+      <div className="v2-task-workflows" role="group" aria-label="任务流程">
+        <button aria-label="审阅改动" aria-pressed={reviewOpen} onClick={() => {
+          setReviewFileTarget(undefined); setReviewToolTarget(undefined); reviewReturnFocus.current = reviewTrigger.current; setReviewOpen(true);
+        }} ref={reviewTrigger} type="button"><FileDiff aria-hidden="true" size={16} />改动与交付</button>
+        <button aria-label="查看上下文" aria-pressed={contextOpen} onClick={() => setContextOpen(true)}
+          ref={contextTrigger} type="button"><BookOpen aria-hidden="true" size={16} />上下文与恢复</button>
+        <button aria-pressed={view === "inspector" && activePane === null}
+          onClick={(event) => { setActivePane(null); onOpenInspector(event.currentTarget); }} type="button">
+          <Microscope aria-hidden="true" size={16} />观察执行</button>
+      </div>
+    </nav>
+    {view === "inspector" && (onOpenTool || onOpenInspectorHome) && <nav className="v2-inspector-advanced" aria-label="执行观察工具">
       {onOpenInspectorHome && <button onClick={onOpenInspectorHome} type="button">全部运行与会话</button>}
-      {onOpenTool && <details><summary>诊断工具</summary><div>
-        <button onClick={() => onOpenTool("run", currentRun.id)} type="button">运行诊断与工具</button>
-        {currentRun.session_id && <button onClick={() => onOpenTool("session", currentRun.session_id)}
-          type="button">会话上下文</button>}
+      {onOpenTool && <>
+        <button onClick={() => onOpenTool("run", currentRun.id)} type="button">运行与工具</button>
+        <button onClick={() => onOpenTool("run", currentRun.id, "ui-evidence")} type="button">界面观察证据</button>
         <button onClick={() => onOpenTool("schedule", currentRun.id)} type="button">定时观察</button>
-      </div></details>}
+      </>}
     </nav>}
     {contextOpen && <V2ThreadContext client={client} threadID={threadID} detail={detail}
+      onOpenRecovery={onOpenTool ? (pane) => { setContextOpen(false); onOpenTool("run", currentRun.id, pane); } : undefined}
+      onOpenSession={onOpenTool && currentRun.session_id ? () => { setContextOpen(false); onOpenTool("session", currentRun.session_id); } : undefined}
       onClose={() => setContextOpen(false)} onRequestChange={appendDraftAndReveal} returnFocusRef={contextTrigger} />}
-    {fileDrawerState.open && <V2FileDrawer client={client} threadID={threadID}
+    {filesOpen && <V2FileDrawer client={client} threadID={threadID}
       workspaceID={detail.thread.workspace_id ?? ""}
       runID={fileDrawerState.runID || currentRun.id} initialPath={fileDrawerState.path}
       initialLine={fileDrawerState.line}
       onClose={() => {
-        setFileDrawerState((s) => ({ ...s, open: false }));
+        setActivePane(null);
         if (fileReturnFocus.current?.isConnected) fileReturnFocus.current.focus();
         else fileTrigger.current?.focus();
       }} returnFocusRef={fileReturnFocus} />}
@@ -890,6 +920,7 @@ export function V2Conversation({ client, threadID, workspaces, onArchive, onMana
       <V2TaskReview client={client} detail={detail} working={working}
       onOpenWorktree={onOpenWorktree}
       initialFileTarget={reviewFileTarget}
+      initialToolTarget={reviewToolTarget} toolMemoryRef={reviewMemoryRef}
       onClose={() => {
         if (!reviewReturnFocus.current?.isConnected) reviewReturnFocus.current = reviewTrigger.current;
         setReviewOpen(false);
@@ -926,14 +957,14 @@ export function V2Conversation({ client, threadID, workspaces, onArchive, onMana
           更早的工作记录加载失败，请重试。
         </div>}
         {transcriptQuery.isError && !transcriptQuery.isFetchNextPageError && <div className="v2-notice tone-warning" role="alert">
-          工作记录加载失败，不能据此判断任务是否已完成。
+          工作记录加载失败，任务结果尚待核对。请重新读取记录。
           <button onClick={() => void transcriptQuery.refetch()} type="button">重试工作记录</button>
         </div>}
         {!client.hasThreadExecutionRead && <div className="v2-notice" role="status">
           当前连接不提供 Agent 活动状态。对话与工作记录仍可查看。
         </div>}
         {executionQuery.isError && <div className="v2-notice tone-warning" role="alert">
-          暂时无法确认 Agent 的当前活动。此读取失败不会关闭对话。
+          Agent 的当前活动尚待确认。请刷新执行状态；已有对话内容仍可查看。
           <button onClick={() => void executionQuery.refetch()} type="button">刷新执行状态</button>
         </div>}
         {view === "conversation" && !transcriptQuery.isLoading && !transcriptQuery.isError && narrative.length === 0 && <div className="v2-transcript-empty">
@@ -965,7 +996,7 @@ export function V2Conversation({ client, threadID, workspaces, onArchive, onMana
           role="status">实时进度暂不可用；持久工作记录仍会继续同步。</div>}
         {detail.active_run && <V2ApprovalCards client={client}
           runID={currentRun.id} threadID={threadID} onReviewFile={(target, trigger) => {
-            reviewReturnFocus.current = trigger; setReviewFileTarget(target); setReviewOpen(true);
+            reviewReturnFocus.current = trigger; setReviewToolTarget(undefined); setReviewFileTarget(target); setReviewOpen(true);
           }} />}
         {detail.active_run && <div className="v2-command-approvals">
           <ControlledCommandProposalPanel client={client} runID={currentRun.id} threadID={threadID} />
@@ -1043,7 +1074,7 @@ export function V2Conversation({ client, threadID, workspaces, onArchive, onMana
       <small className="v2-composer-caption">{workspace?.name ?? "本地工作区"} · {working
         ? deliveryMode === "steer"
           ? "文字纠正会进入当前任务后续模型请求；已经开始的操作会保留。"
-          : "消息将在下一轮处理；受理不代表已经执行。"
+          : "发送后将在下一轮处理，进度会显示在对话中。"
         : "Enter 发送，Shift + Enter 换行"}</small>
       </div>
       </div>

@@ -132,7 +132,7 @@ function ThreadPlanContent({ client, threadID, runID, active, working, hasUnsent
     if (!ready) return;
     mutation.mutate({ threadID, key: `thread-plan-${crypto.randomUUID()}`, body });
   };
-  const confirmContent = latest ? `请按已确认的计划“${latest.title}”继续执行，保留原目标、后续修正和限制。需要调整计划时先说明原因；本次确认不改变现有操作权限。` : "";
+  const confirmContent = latest ? `请按已确认的计划“${latest.title}”继续执行，保留原目标、后续修正和限制。需要调整计划时先说明原因；执行沿用当前操作权限。` : "";
   const shownObservation = attempt ? observed.data : result;
   const needsAttention = Boolean(attempt || damaged || error || detail.isError || result?.state === "failed" || result?.state === "rejected");
   const hasPlanEntry = Boolean(proposal || needsAttention || open);
@@ -152,7 +152,7 @@ function ThreadPlanContent({ client, threadID, runID, active, working, hasUnsent
           <button type="button" ref={closeButton} aria-label="关闭计划" onClick={() => setOpen(false)}><X size={18} /></button></header>
         <p className="v2-plan-help">先规划时先分析和形成方案。确认后在同一对话执行；后续修改要求仍可直接发消息。</p>
         {detail.isPending && <p role="status">正在读取计划…</p>}
-        {detail.isError && <p role="alert">计划暂时无法读取，不能确认当前方案。<button type="button" onClick={() => void detail.refetch()}>重新读取</button></p>}
+        {detail.isError && <p role="alert">计划读取失败，请重新读取后确认方案。<button type="button" onClick={() => void detail.refetch()}>重新读取</button></p>}
         {damaged && <p role="alert">本机计划请求记录无法读取，已保留原记录。请先处理本机存储问题；普通对话仍可继续。</p>}
         {error && <p role="alert">{error}</p>}
         {attempt && <section className="v2-plan-request" aria-label="原计划请求">

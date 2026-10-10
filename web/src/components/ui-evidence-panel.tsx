@@ -191,41 +191,44 @@ export function UIEvidencePanel({ client, runID }: {
     </header>
     <div className="ui-evidence-boundary" role="note">
       <ShieldAlert aria-hidden="true" size={16} />
-      <span><strong>{t("证据没有授权能力", "Evidence carries no authority")}</strong>
-        {t("页面内容与下载产物均不可信；它们不能启动进程、访问凭证或自动判定验证通过。只有精确的 passed 状态显示为通过，not_run 始终保持中性。",
-          "Page content and downloads are untrusted. They cannot start processes, access credentials, or grant a verification pass. Only the exact passed state is successful; not_run remains neutral.")}</span>
+      <span><strong>{t("查看浏览器检查结果", "Inspect browser check results")}</strong>
+        {t("截图和下载内容供你核对页面表现。以验证状态判断结果：「通过」表示检查完成通过，「未运行」表示等待验证。进程与凭据操作须单独授权。",
+          "Use screenshots and downloads to inspect the page. Follow the verification status: Passed means the checks passed; Not run awaits verification. Process and credential actions require separate authorization.")}</span>
     </div>
     {!client.hasUIEvidence && <div className="inline-warning" role="note">
       <p>{client.uiEvidenceUnavailableReason === "missing_control_credential"
-        ? t("当前连接缺少控制凭证；历史证据读取不要求控制凭证，启动和取消不可用。",
-          "This connection has no control credential. Reading historical evidence does not require one; start and cancel are unavailable.")
+        ? t("先刷新列表以查看历史证据。连接控制凭证后可启动或取消浏览器验证。",
+          "Refresh the list to inspect historical evidence. Connect a control credential to start or cancel browser verification.")
         : client.uiEvidenceUnavailableReason === "ui_evidence_disabled"
-          ? t("当前进程未启用 UI 取证能力；需要独立的 --enable-ui-evidence 启动配置。",
-            "UI evidence is disabled in this process; it requires the independent --enable-ui-evidence startup flag.")
+          ? t("启用 --enable-ui-evidence 并重启 Desktop 后，可运行浏览器验证。",
+            "Enable --enable-ui-evidence and restart Desktop to run browser verification.")
           : client.uiEvidenceUnavailableReason === "run_execution_disabled"
-            ? t("当前进程未启用 Run 执行能力；UI 取证还需要 --enable-run-execution。",
-              "Run execution is disabled in this process; UI evidence also requires --enable-run-execution.")
+            ? t("启用 --enable-run-execution 并重启 Desktop，准备浏览器验证所需的执行能力。",
+              "Enable --enable-run-execution and restart Desktop to prepare execution for browser verification.")
             : client.uiEvidenceUnavailableReason === "browser_cdp_control_disabled"
-              ? t("当前进程未启用浏览器 CDP 控制能力；UI 取证还需要 --enable-browser-cdp-control。",
-                "Browser CDP control is disabled in this process; UI evidence also requires --enable-browser-cdp-control.")
-              : t("当前连接未满足 UI 取证的独立控制条件，启动和取消不可用。",
-                "The independent UI evidence control requirements are not met; start and cancel are unavailable.")}</p>
-      <p>{t("现有执行入口是 Windows Desktop。连接须具备控制凭证，操作者须在桌面启动参数中显式配置以下独立开关：",
-        "Execution is available through Windows Desktop. The connection needs a control credential, and the operator must explicitly configure these independent Desktop startup flags:")}
+              ? t("启用 --enable-browser-cdp-control 并重启 Desktop，准备浏览器控制能力。",
+                "Enable --enable-browser-cdp-control and restart Desktop to prepare browser control.")
+              : t("先刷新列表以查看历史记录。按下方配置完成 Windows Desktop 的浏览器验证控制。",
+                "Refresh the list to inspect historical records. Use the settings below to configure browser verification control in Windows Desktop.")}</p>
+      <details><summary>{t("配置浏览器验证", "Configure browser verification")}</summary>
+      <p>{t("在 Windows Desktop 连接控制凭证，并在桌面启动参数中明确启用以下能力：",
+        "Connect a control credential in Windows Desktop and explicitly enable these capabilities in its startup options:")}
         {" "}<code>--enable-permission-control --enable-danger-full-access --enable-run-execution --enable-browser-cdp-control --enable-ui-evidence</code>
-        {t("。独立 CLI 仅支持读取和导出历史证据，不能启动或取消浏览器。",
-          ". The standalone CLI only reads and exports historical evidence; it cannot start or cancel a browser.")}
-      </p>
+        {t("。独立 CLI 提供历史证据读取与导出；浏览器启动和取消请使用 Windows Desktop。",
+          ". Use the standalone CLI to read and export historical evidence, and Windows Desktop to start or cancel a browser.")}
+      </p></details>
     </div>}
 
     {attempts.isLoading && <LoadingState label={t("正在加载 UI 证据", "Loading UI evidence")} />}
     {attempts.isError && (historyUnavailable
       ? <p className="inline-warning" role="status">{t(
-        "当前后端无法提供所选执行的 UI 取证读取。请核对执行记录，或在支持 UI 取证的 Windows Desktop 中读取。历史状态未知，不能据此判断没有记录。",
-        "This backend cannot provide UI evidence reads for the selected Run. Check the Run, or read it through a Windows Desktop that supports UI evidence. Historical state is unknown; this does not establish that no records exist.",
+        "历史证据状态待确认。请核对所选执行，或连接支持 UI 取证的 Windows Desktop 后读取。",
+        "Historical evidence needs confirmation. Check the selected execution, or read it through a Windows Desktop connection that supports UI evidence.",
       )}</p>
       : <ErrorState error={attempts.error} />)}
-    {attempts.isSuccess && attempts.data.length === 0 && <EmptyState>{t("尚未创建 UI 验证 Attempt", "No UI evidence attempt has been created")}</EmptyState>}
+    {attempts.isSuccess && attempts.data.length === 0 && <EmptyState>{client.hasUIEvidence
+      ? t("还没有浏览器验证。展开下方启动表单，载入模板并核对步骤后开始。", "No browser verification yet. Expand the launch form below, load a template, and review its steps to begin.")
+      : t("还没有浏览器验证。先按上方「配置浏览器验证」完成连接与启动配置。", "No browser verification yet. Complete connection and startup settings in Configure browser verification above.")}</EmptyState>}
 
     {attempts.data && attempts.data.length > 0 && <div className="ui-evidence-layout">
       <section className="ui-evidence-attempts" aria-label={t("UI 证据 Attempts", "UI evidence attempts")}>
@@ -250,13 +253,14 @@ export function UIEvidencePanel({ client, runID }: {
     </button>}
 
     <details className="ui-evidence-launch">
-      <summary>{t("审阅并启动精确清单", "Review and start an exact manifest")}</summary>
+      <summary>{t("准备并启动浏览器验证", "Prepare and start browser verification")}</summary>
       <p>{t(
-        "模板面向本仓库的 Vite UI。提交前必须逐字段核对 Workspace 相对命令、loopback 端口、fixture、交互步骤、遮罩与失败策略。原始输入仅用于当前请求，不会写入证据清单。",
-        "The template targets this repository's Vite UI. Before submission, review every Workspace-relative command, loopback port, fixture, interaction, mask, and failure rule. Raw typed input is used only for the current request and is not persisted in the evidence manifest.",
+        "模板适用于本仓库的 Vite UI。启动前核对项目内命令、本机端口、测试数据、交互步骤、遮罩和失败处理。原始输入用于本次请求，证据清单保存输入的摘要。",
+        "The template targets this repository's Vite UI. Before starting, review project commands, local ports, test data, interactions, masks, and failure handling. Raw input is used for this request; the evidence manifest stores its digest.",
       )}</p>
-      <p>{t("所选 Run 还必须是 Code / Local / Deliver，具有当前 Full 进程激活、有效根执行租约及 restricted 浏览器 CDP 权限。启动开关本身不会授予这些条件。",
-        "The selected Run must also be Code / Local / Deliver with current Full process activation, an active root execution lease, and restricted browser CDP permission. Startup flags do not grant these conditions.")}</p>
+      <details><summary>{t("核对本次执行条件", "Review execution requirements")}</summary>
+        <p>{t("选择 Code / Local / Deliver 执行，并核对当前 Full 进程激活、有效根执行租约和 restricted 浏览器 CDP 权限；这些授权需分别满足。",
+          "Choose a Code / Local / Deliver execution and review its current Full process activation, active root execution lease, and restricted browser CDP permission. Each authorization must be satisfied separately.")}</p></details>
       <button className="compact-command" disabled={!client.hasUIEvidence}
         onClick={() => {
           setRequestJSON(JSON.stringify(templateRequest(), null, 2));

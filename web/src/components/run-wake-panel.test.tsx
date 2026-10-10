@@ -64,7 +64,7 @@ describe("RunWakePanel", () => {
       version: "run_wake_consumer.v1", max_steps: 1,
     }));
     expect((await screen.findAllByText("completed")).length).toBeGreaterThan(0);
-    expect(screen.getByText("run wake consume / durable")).toBeInTheDocument();
+    expect(screen.getByText("run wake consume")).toBeInTheDocument();
   });
 
   it("projects process-local worker health without an enable control", async () => {

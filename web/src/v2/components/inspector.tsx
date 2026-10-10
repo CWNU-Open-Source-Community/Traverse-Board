@@ -178,7 +178,7 @@ function InspectorDetail({ client, threadID, item }: { client: APIClient; thread
     <p className="v2-inspector-origin">{sourceLabels[item.source]} · {item.stage === "running" && item.durable && !item.provisional ? "记录时执行中" : stageLabels[item.stage]}
       {item.provisional ? " · 尚未落盘" : " · 已保存"}</p>
     {item.durable && !item.provisional && item.status === "running" && item.sequence !== 0 &&
-      <p className="v2-inspector-origin">此状态只描述记录发生时的执行情况，不代表 Agent 当前仍在工作。</p>}
+      <p className="v2-inspector-origin">这是记录保存时的执行状态。Agent 的当前活动请查看对话上方的工作状态。</p>}
     {item.source === "model" && <p className="v2-inspector-origin">公开模型内容；实际执行结果以对应工具记录为准。</p>}
     {item.detail && (item.activity_type === "message" && item.source === "model" ? <SafeMarkdown>{item.detail}</SafeMarkdown> :
       <pre className="v2-inspector-record-text">{item.detail}</pre>)}

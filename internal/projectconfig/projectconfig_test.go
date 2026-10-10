@@ -174,3 +174,21 @@ func FuzzLoadNeverAcceptsHostileConfig(f *testing.F) {
 		}
 	})
 }
+
+func TestProjectConfigRejectsAnchorAndParentIndirection(t *testing.T) {
+	for _, content := range []string{"protocol: project_config.v1\nread_only: &anchor true\n", "protocol: project_config.v1\nread_only: true\n---\nread_only: false\n"} {
+		dir := t.TempDir()
+		writeConfig(t, dir, content)
+		if _, _, err := LoadWorkspace(t.Context(), dir); err == nil {
+			t.Fatal("hostile YAML admitted")
+		}
+	}
+	root, outside := t.TempDir(), t.TempDir()
+	writeConfig(t, outside, "protocol: project_config.v1\nread_only: true\n")
+	if err := os.Symlink(filepath.Join(outside, ConfigDirName), filepath.Join(root, ConfigDirName)); err != nil {
+		t.Skipf("directory symlink creation unavailable: %v", err)
+	}
+	if _, _, err := LoadWorkspace(t.Context(), root); err == nil {
+		t.Fatal("project config followed an outside parent symlink")
+	}
+}

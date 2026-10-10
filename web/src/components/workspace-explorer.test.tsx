@@ -14,12 +14,12 @@ describe("WorkspaceExplorer", () => {
     renderExplorer(client);
 
     expect(await screen.findByText("README.md")).toBeInTheDocument();
-    expect(screen.getByText("workspace_listing / evidence only")).toBeInTheDocument();
+    expect(screen.getByText("workspace_listing / File source record")).toBeInTheDocument();
     expect(screen.queryByText(/C:\\/)).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: /README.md/ }));
     await waitFor(() => expect(workspaceExplore).toHaveBeenLastCalledWith(
       "workspace-1", "README.md", expect.any(AbortSignal)));
-    expect(await screen.findByText("workspace_file / evidence only")).toBeInTheDocument();
+    expect(await screen.findByText("workspace_file / File source record")).toBeInTheDocument();
     expect(screen.getByText(/Notes for automated assistants/)).toBeInTheDocument();
     expect(screen.getByText("1 redacted")).toBeInTheDocument();
   });

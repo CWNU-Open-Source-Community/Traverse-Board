@@ -19,16 +19,17 @@ import { v2QueryKeys } from "../query-keys";
 import { TaskOverview } from "./task-overview";
 import { TaskGit } from "./task-git";
 import { TaskPullRequest } from "./task-pull-request";
-import { TaskReviewTools, type TaskReviewToolReviews } from "./task-review-tools";
+import { TaskReviewTools, type TaskReviewToolMemory, type TaskReviewToolReviews } from "./task-review-tools";
 import type { WorkspaceView } from "../../api/types";
 import "./task-review.css";
 
 type ReviewTab = "overview" | "git" | "pr" | "tools" | "files" | "checks" | "records" | "restore" | "evidence";
-const historyTabs: [ReviewTab, string][] = [["files", "编辑明细"], ["checks", "检查与交付"],
+const historyTabs: [ReviewTab, string][] = [["files", "编辑明细"],
   ["records", "执行记录"], ["evidence", "参考资料"], ["restore", "撤销与恢复"]];
 const primaryTabs = [{ value: "overview", label: "查看改动", icon: FileDiff },
   { value: "git", label: "提交与推送", icon: GitCommitHorizontal },
   { value: "pr", label: "PR 状态", icon: GitPullRequest },
+  { value: "checks", label: "检查与交付", icon: FileDiff },
   { value: "tools", label: "更多交付工具", icon: Wrench }] as const;
 const executionStatusLabels: Record<string, string> = { created: "尚未开始", preparing: "准备中", running: "未结束",
   paused: "已暂停", waiting_approval: "等待批准", completed: "已完成",
@@ -45,26 +46,33 @@ interface ReportAttempt {
 }
 const reportIntentKey = (runID: string) => ["run", runID, "standard-code-delivery-intent"] as const;
 
-export function V2TaskReview({ client, detail, working, onClose, onRequestChange, returnFocusRef, onOpenWorktree, initialFileTarget }: {
+export function V2TaskReview({ client, detail, working, onClose, onRequestChange, returnFocusRef, onOpenWorktree, initialFileTarget,
+  initialToolTarget, toolMemoryRef }: {
   client: APIClient; detail: ThreadDetailView; working: boolean;
   onClose: () => void; onRequestChange: (context: string) => void;
   returnFocusRef: RefObject<HTMLElement | null>;
   onOpenWorktree?: (workspace: WorkspaceView) => void;
   initialFileTarget?: FileEditReviewTarget;
+  initialToolTarget?: { runID: string; tool: "github-review" };
+  toolMemoryRef?: RefObject<TaskReviewToolMemory>;
 }) {
   const queryClient = useQueryClient();
   const currentRun = detail.active_run ?? detail.last_run;
-  const toolReviews = useRef(new Map<string, TaskReviewToolReviews>());
+  const localToolMemory = useRef<TaskReviewToolMemory>({ generation: 0 });
+  const toolMemory = toolMemoryRef ?? localToolMemory;
+  const retainedRunID = toolMemory.current.client === client && toolMemory.current.threadID === detail.thread.id
+    ? toolMemory.current.runID : undefined;
   const [runSelection, setRunSelection] = useState({ threadID: detail.thread.id,
-    runID: initialFileTarget?.runID ?? currentRun.id });
+    runID: initialFileTarget?.runID ?? initialToolTarget?.runID ?? retainedRunID ?? currentRun.id });
   const selectedRunID = runSelection.threadID === detail.thread.id
-    ? runSelection.runID : initialFileTarget?.runID ?? currentRun.id;
+    ? runSelection.runID : initialFileTarget?.runID ?? initialToolTarget?.runID ?? currentRun.id;
   const setSelectedRunID = (runID: string) => {
-    if (runID !== selectedRunID || runSelection.threadID !== detail.thread.id) toolReviews.current.clear();
+    if (runID !== selectedRunID || runSelection.threadID !== detail.thread.id)
+      toolMemory.current = { generation: toolMemory.current.generation + 1 };
     setRunSelection({ threadID: detail.thread.id, runID });
   };
   const [fileTarget, setFileTarget] = useState<FileEditReviewTarget | undefined>(initialFileTarget);
-  const [tab, setTab] = useState<ReviewTab>(initialFileTarget ? "files" : "overview");
+  const [tab, setTab] = useState<ReviewTab>(initialFileTarget ? "files" : initialToolTarget ? "tools" : "overview");
   const [showHistory, setShowHistory] = useState(Boolean(initialFileTarget));
   useEffect(() => {
     if (!initialFileTarget) return;
@@ -74,7 +82,7 @@ export function V2TaskReview({ client, detail, working, onClose, onRequestChange
   const navigation = useRef<HTMLDivElement>(null);
   const selectTab = (value: ReviewTab, focusNavigation = false) => {
     setTab(value); setFilePath(null);
-    setShowHistory(!primaryTabs.some((item) => item.value === value));
+    setShowHistory((expanded) => value === "checks" ? expanded : !primaryTabs.some((item) => item.value === value));
     if (focusNavigation) requestAnimationFrame(() => navigation.current?.querySelector<HTMLButtonElement>(`[data-review-tab="${value}"]`)?.focus());
   };
   const [filePath, setFilePath] = useState<{ path: string; workspaceID: string } | null>(null);
@@ -85,10 +93,13 @@ export function V2TaskReview({ client, detail, working, onClose, onRequestChange
   const selectedRun = detail.runs.find(({ run }) => run.id === selectedRunID)?.run
     ?? (selectedRunID === currentRun.id ? currentRun : undefined);
   const reviewedRunID = selectedRun?.id ?? selectedRunID;
-  const toolReviewKey = `${detail.thread.id}:${reviewedRunID}`;
+  if (toolMemory.current.client !== client || toolMemory.current.threadID !== detail.thread.id || toolMemory.current.runID !== reviewedRunID)
+    toolMemory.current = { generation: toolMemory.current.generation + 1, client, threadID: detail.thread.id, runID: reviewedRunID };
+  const toolMemoryGeneration = toolMemory.current.generation;
   const retainToolReview = <T extends keyof TaskReviewToolReviews>(kind: T, value: TaskReviewToolReviews[T]) => {
-    toolReviews.current.set(toolReviewKey, { git: null, github: null,
-      ...toolReviews.current.get(toolReviewKey), [kind]: value });
+    if (toolMemory.current.generation !== toolMemoryGeneration) return;
+    toolMemory.current = { generation: toolMemoryGeneration, client, threadID: detail.thread.id, runID: reviewedRunID,
+      reviews: { git: null, github: null, ...toolMemory.current?.reviews, [kind]: value } };
   };
   const reviewFile = (target: FileEditReviewTarget) => {
     setSelectedRunID(target.runID); setFileTarget(target); setFilePath(null);
@@ -200,7 +211,7 @@ export function V2TaskReview({ client, detail, working, onClose, onRequestChange
       <div className="v2-review-body" key={`${reviewedRunID}:${tab}`}>
         {!["overview", "git", "pr"].includes(tab) && <div className="v2-review-history-heading">
           <button onClick={() => selectTab("overview", true)} type="button"><ArrowLeft size={14} aria-hidden="true" />返回任务改动</button>
-          <h2>{tab === "tools" ? "更多交付工具" : historyTabs.find(([value]) => value === tab)?.[1]}</h2></div>}
+          <h2>{primaryTabs.find((item) => item.value === tab)?.label ?? historyTabs.find(([value]) => value === tab)?.[1]}</h2></div>}
         {tab === "overview" && <TaskOverview client={client} threadID={detail.thread.id} onFeedback={onRequestChange}
           onReviewFile={reviewFile} onGit={() => selectTab("git", true)}
           onPullRequest={() => selectTab("pr", true)}
@@ -211,12 +222,13 @@ export function V2TaskReview({ client, detail, working, onClose, onRequestChange
         {!["overview", "git", "pr"].includes(tab) && !selectedRun && <p role="alert">无法找到目标执行记录 {selectedRunID}，尚未打开审阅工具。请刷新任务后重试，或明确选择另一次执行。</p>}
         {tab === "tools" && selectedRun && <TaskReviewTools client={client} runID={reviewedRunID}
           key={`${detail.thread.id}:${reviewedRunID}`} threadID={detail.thread.id}
-          retainedReviews={toolReviews.current.get(toolReviewKey)}
+          retainedReviews={toolMemory.current?.reviews}
+          initialTool={initialToolTarget?.runID === reviewedRunID ? initialToolTarget.tool : undefined}
           onGitReviewChange={(review) => retainToolReview("git", review)}
           onGithubReviewChange={(review) => retainToolReview("github", review)}
           onOpenDelivery={() => selectTab("checks", true)} />}
         {tab === "files" && selectedRun && <>
-          <p>{selectedRun.id === currentRun.id ? "下面是当前执行的文件提案与编辑记录。" : "下面是所选历史执行的文件提案与编辑记录。"}当前执行目录与历史原目录分别标明；尚未应用的提案需批准后应用。历史记录不代表来源项目的当前内容。</p>
+          <p>{selectedRun.id === currentRun.id ? "查看当前执行的文件提案与编辑记录。" : "查看所选历史执行的文件提案与编辑记录。"}先核对提案差异与目录，再批准应用。要核对项目当前内容，可展开下方的“来源项目当前差异”。</p>
           <FileEditPanel client={client} runID={reviewedRunID} runStatus={selectedRun.status} initialTarget={fileTarget} onChanged={() => refresh()}
             requestRevertUnavailableReason={detail.thread.status === "archived"
               ? "此对话已归档，取消归档后才能发送撤销要求。"
@@ -227,7 +239,7 @@ export function V2TaskReview({ client, detail, working, onClose, onRequestChange
               `请撤销 ${edit.path} 的这次已应用编辑。根据下面的来源记录生成精确逆向待审提案，等我批准后再应用；保留此后用户修改。\n来源执行：${reviewedRunID}\n编辑记录：${edit.id}\n来源目录：${edit.workspace_id}\n预期当前版本：${edit.proposed_hash}`)}
             onRequestChange={(edit) => requestChange(`文件：${edit.path}${edit.destination_path ? ` → ${edit.destination_path}` : ""}\n目录身份：${edit.workspace_id}\n编辑：${edit.id}\n版本：${edit.original_hash} → ${edit.proposed_hash}`)} />
           <details className="v2-review-project-diff"><summary>查看来源项目当前差异（含任务外修改）</summary>
-            <p>这是导入的来源项目目录，可能与当前隔离执行目录不同。这里包括用户原有和其他任务的修改，不能全部归因于本任务。</p>
+            <p>以下显示接入项目当前的全部改动，包含手动编辑和其他任务产生的修改。请核对目录与文件，选择属于本次任务的范围。</p>
             <RepositoryDiffPanel client={client} workspaceID={workspaceID}
               onRequestChange={(path, head) => requestChange(`项目当前差异：${path}\n基准提交：${head}\n请先重新读取当前文件，保留与本次要求无关的修改。`)} />
           </details>
@@ -235,7 +247,7 @@ export function V2TaskReview({ client, detail, working, onClose, onRequestChange
         {tab === "checks" && selectedRun && <>
           <section aria-label="编码环境与计划">
             <h2>编码环境与计划</h2>
-            <p>查看所选执行的编码环境与计划。计划需明确选择方向后进入交付；这些操作不会自动运行模型或测试。</p>
+            <p>查看所选执行的编码环境与计划。选择计划方向后进入交付，检查和执行进度可在对话与工作记录中查看。</p>
             {(runDetail.isLoading || readiness.isLoading) && <p role="status">正在读取编码环境与计划…</p>}
             {(runDetail.isError || readiness.isError) && <p role="alert">编码环境或计划读取失败，已有输入保留。
               <button onClick={() => { void runDetail.refetch(); void readiness.refetch(); }} type="button">重试编码环境与计划</button></p>}
@@ -254,10 +266,10 @@ export function V2TaskReview({ client, detail, working, onClose, onRequestChange
           {client.hasWorkspaceCheckpointControl && client.hasStandardCodePreset && presetConfigured === true && reportIntent.data?.state !== "unknown" && <div className="v2-review-report-action">
             <button disabled={working || Boolean(reportIntent.data)} onClick={createReport} type="button">
               {reportIntent.data?.state === "pending" ? "正在生成报告…" : "生成当前交付报告"}</button>
-            <p>此执行已配置 Standard Code。生成报告仍需后端确认执行环境和检查记录；不会替你运行测试或提交代码。</p>
+            <p>此执行已配置标准编码环境。交付报告汇总已有检查记录；需要补跑测试或提交代码时，请返回对话提出要求。</p>
           </div>}
           {presetConfigured === false && !hasHistoricalReport && <>
-            <p>此执行尚未配置 Standard Code，下面展示普通代码交接和已记录的命令结果。</p>
+            <p>此执行使用普通编码流程，下方可查看代码交接与已有命令结果。</p>
             <CodeHandoffPanel client={client} runID={reviewedRunID} />
           </>}
           {presetConfigured === undefined && <p role={runDetail.isError ? "alert" : "status"}>
@@ -282,7 +294,7 @@ export function V2TaskReview({ client, detail, working, onClose, onRequestChange
           {filePath && <WorkspaceExplorer client={client} workspaceID={filePath.workspaceID} initialPath={filePath.path} />}
         </>}
         {tab === "restore" && selectedRun && <>
-          <p>这里通过项目快照恢复受支持的修改，范围涉及整个项目。单文件撤销请到“编辑明细”选择已应用的编辑并预览撤销提案；没有检查点的命令副作用不能自动恢复。</p>
+          <p>项目快照恢复会影响整个项目，请先预览恢复范围。撤销单个文件时，在“编辑明细”中选择已应用的编辑，审阅撤销提案。检查点之外的命令影响需另行处理。</p>
           {client.hasRunLifecycle && ["running", "paused"].includes(selectedRun.status) && <div className="v2-review-pause">
             <button disabled={working || lifecycle.isPending} onClick={() => lifecycle.mutate({
               runID: reviewedRunID, threadID: detail.thread.id, workspaceID,
@@ -310,7 +322,7 @@ function ExecutionRecords({ client, runID }: { client: APIClient; runID: string 
   });
   const rounds = query.data?.pages.flatMap(({ items }) => items) ?? [];
   return <section aria-label="实际执行记录">
-    <p>这里只展示实际工具调用及其结果。历史命令成功不代表当前文件版本已通过检查；请结合交付报告中的版本判断。</p>
+    <p>查看实际工具调用及其结果。检查结论适用于当时的代码版本，请结合交付报告核对版本；代码变化后可重新运行检查。</p>
     {query.isLoading && <p role="status">正在加载执行记录…</p>}
     {query.isError && <p role="alert">执行记录加载失败。<button onClick={() => void query.refetch()} type="button">重试执行记录</button></p>}
     {!query.isLoading && !query.isError && rounds.length === 0 && <p>此执行没有可展示的结构化工具记录，可回到对话查看其他活动。</p>}

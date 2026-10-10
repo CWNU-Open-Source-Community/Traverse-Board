@@ -113,7 +113,7 @@ function QueuePanel({ client, running, canPromote = false, ...binding }: QueueBi
       // will still commit the captured request. Only durable source changes do.
       if (result.message.status !== "pending" || result.message.revision !== operation.expectedRevision) {
         settleQueueOperation(store, operation, "obsolete"); refresh();
-        setNotice("原消息已变化或已处理，这次引导不会再执行。历史记录和本地编辑稿已保留。");
+        setNotice("原消息已变化或已处理，原引导请求已失效。历史记录和本地编辑稿已保留，请核对最新消息。");
         await invalidate(); return true;
       }
       return false;
@@ -123,7 +123,7 @@ function QueuePanel({ client, running, canPromote = false, ...binding }: QueueBi
     const obsolete = result.message.status !== "pending" || operation.kind === "revise" && result.message.revision > operation.expectedRevision;
     if (obsolete) {
       settleQueueOperation(store, operation, "obsolete"); refresh();
-      setNotice(operation.kind === "revise" ? "原消息版本已变化或已处理，这次原版本修改不会再执行。编辑稿已保留。" : "消息已被其他操作撤回或已交给模型，这次撤回不会再执行。");
+      setNotice(operation.kind === "revise" ? "原消息版本已变化或已处理，原修改请求已失效。编辑稿已保留，请核对最新消息。" : "消息已被撤回或已交给模型，原撤回请求已失效。请查看最新队列状态。");
       await invalidate(); return true;
     }
     return false;

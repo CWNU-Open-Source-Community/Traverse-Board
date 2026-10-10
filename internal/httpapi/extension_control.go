@@ -42,6 +42,7 @@ type ExtensionInventoryView struct {
 // They never grant extension execution authority or imply a successful call.
 type ExtensionOnboardingCapabilitiesView struct {
 	MCPRegistration  bool `json:"mcp_registration"`
+	MCPCredentials   bool `json:"mcp_credentials,omitempty"`
 	PluginImport     bool `json:"plugin_import"`
 	LSPConfiguration bool `json:"lsp_configuration"`
 }
@@ -262,8 +263,10 @@ func (a *API) extensionInventory(request *http.Request) (any, *Page, error) {
 
 func (a *API) extensionOnboardingCapabilities() *ExtensionOnboardingCapabilitiesView {
 	_, onboarding := a.extensionController.(ExtensionOnboardingController)
+	credentials, credentialsPresent := a.extensionController.(MCPCredentialController)
 	return &ExtensionOnboardingCapabilitiesView{
 		MCPRegistration:  a.extensionControlEnabled && onboarding,
+		MCPCredentials:   credentialsPresent && credentials.HasMCPCredentialControl(),
 		PluginImport:     a.extensionControlEnabled && onboarding,
 		LSPConfiguration: a.extensionControlEnabled && a.codeIntelController != nil,
 	}

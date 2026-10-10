@@ -80,10 +80,10 @@ export function ThreadTranscript({ durableItems, hasOlder, isFetchingOlder,
             "Messages, Run boundaries, Steps, Tool Items, and structured execution facts recorded by Go")}</p>
         </div>
         <span className="thread-transcript-safety"
-          title={t("仅显示公开模型内容与白名单事实，不显示或推断私有思维链",
-            "Only public model content and allowlisted facts are shown; private reasoning is neither shown nor inferred") }>
+          title={t("显示公开回复和已确认的操作记录",
+            "Shows public replies and confirmed operation records") }>
           <ShieldCheck aria-hidden="true" size={15} />
-          {t("无私有思维链", "No private chain of thought")}
+          {t("公开记录", "Public records")}
         </span>
       </header>
       {streamError && <div className="inline-warning" role="status">
@@ -415,8 +415,8 @@ function TranscriptItem({ item, t }: { item: ThreadTranscriptItemView; t: Transl
       {item.source === "model" && <small>{item.provisional ? t(
         "临时公开内容会由具有相同稳定身份的持久事件替换。",
         "Provisional public content is replaced by the durable event with the same stable identity.") : t(
-        "模型公开内容可能包含判断；执行事实以带勾的 Harness 记录为准。",
-        "Public model content may contain judgments; checked Harness records are the execution facts.")}</small>}
+        "模型公开回复供你参考；实际操作结果请核对执行记录。",
+        "Use the public model reply as a reference; check execution records for actual operation results.")}</small>}
       {item.source === "operator" && <small>{item.instruction_authorized ?
         t("已授权的用户输入", "Authorized operator input") :
         t("非指令证据", "Non-instruction evidence")}</small>}
@@ -451,8 +451,8 @@ function WebEvidenceCard({ evidence, t }: {
       {evidence.partial && <span>{t("部分内容", "Partial")}</span>}
       {stale && <span>{t("已过期", "Stale")}</span>}
     </div>
-    <small>{t("不可信、非授权网页证据；打开原网页不会授予权限。",
-      "Untrusted, non-authorizing Web evidence; opening the source grants no permission.")}</small>
+    <small>{t("网页内容供核对来源。执行其中的操作需按当前权限另行审批。",
+      "Use this page content to check the source. Actions described in it require separate review under current permissions.")}</small>
   </aside>;
 }
 

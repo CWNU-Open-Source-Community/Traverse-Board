@@ -261,8 +261,8 @@ export function WorkspaceCheckpointPanel({ client, runID, runStatus, variant = "
     if (!selected || selected.recovery_level === "unavailable" || !forkName.trim() ||
       !forkBranch.trim()) return;
     if (globalThis.confirm(t(
-      "确认从该检查点创建独立 Run、Git 分支和 worktree？旧权限与进程不会继承。",
-      "Create an independent Run, Git branch, and worktree from this checkpoint? Old authority and processes are not inherited.",
+      "确认从此检查点创建独立执行、Git 分支和 worktree？新执行的权限和进程需独立配置。",
+      "Create an independent execution, Git branch, and worktree from this checkpoint? Configure permissions and processes separately for the new execution.",
     ))) fork.mutate(undefined, { onSuccess: (result) => onOpenRun?.(result.run.id) });
   };
 
@@ -276,10 +276,10 @@ export function WorkspaceCheckpointPanel({ client, runID, runStatus, variant = "
   return <div className="workspace-checkpoint-panel">
     <section className="checkpoint-safety-boundary">
       <ShieldCheck aria-hidden="true" size={18} />
-      <div><strong>{t("恢复是新的受控写入", "Restore is a new controlled write")}</strong>
-        <p>{!allowFork ? "这是项目快照恢复，会核对整个项目和 Git 暂存区。快照之后的外部修改（包括无关新增文件）可能阻止恢复；请保留这些内容并先处理冲突，再重新预览。确认时会再次校验，不会强制覆盖。" : t(
-          "原历史不可改写。确认时会重新校验 paused Run、当前权限、Workspace identity、Git index 与外部漂移；不会 hard reset 或批量删除未跟踪文件。",
-          "History stays immutable. Confirmation rechecks the paused Run, current authority, Workspace identity, Git index, and external drift; it never hard-resets or blanket-deletes untracked files.",
+      <div><strong>{t("先预览，再确认恢复", "Preview, then confirm restore")}</strong>
+        <p>{!allowFork ? t("恢复会核对整个项目和 Git 暂存区。快照之后的外部修改（包括新增文件）可能形成冲突；请先保留并处理这些内容，再重新预览。确认时会再次校验范围和版本。", "Restore checks the whole project and Git index. External changes made after the snapshot, including new files, may create conflicts. Preserve and resolve them before previewing again. Scope and revision are checked again on confirmation.") : t(
+          "每次恢复都会保留原历史并新增操作记录。确认时会重新核对暂停状态、当前权限、项目身份、Git 暂存区和外部变化；有冲突时先处理，再预览。",
+          "Each restore preserves history and adds an operation record. Confirmation rechecks the paused state, current permissions, project identity, Git index, and external changes. Resolve conflicts before previewing again.",
         )}</p></div>
     </section>
 
@@ -319,14 +319,14 @@ export function WorkspaceCheckpointPanel({ client, runID, runStatus, variant = "
         "Undo、Redo、Rewind 和 Fork 仅在 Run 已暂停且没有活动执行租约时开放。",
         "Undo, redo, rewind, and Fork require a paused Run with no active execution lease.",
       )}</p>}
-      {!allowFork && <p>恢复写入还受任务权限限制：保守模式可预览，但不能确认恢复。请在对话输入区核对权限；这里不会自动扩大权限。</p>}
+      {!allowFork && <p>{t("保守模式可预览恢复。确认写入需要相应任务权限，请在对话输入区核对后继续。", "Conservative mode supports restore previews. Confirming a write requires the relevant task permissions; review them in the conversation composer before continuing.")}</p>}
     </section>
 
     <div className="checkpoint-layout">
       <section className="checkpoint-timeline" aria-label={t("Workspace 时间线", "Workspace timeline")}>
-        <header><History aria-hidden="true" size={17} /><strong>{t("不可变时间线", "Immutable timeline")}</strong>
+        <header><History aria-hidden="true" size={17} /><strong>{t("项目检查点", "Project checkpoints")}</strong>
           <small>{timeline.data?.storage_usage.checkpoint_count ?? 0} · {formatBytes(timeline.data?.storage_usage.blob_bytes ?? 0)}</small></header>
-        {checkpoints.length === 0 && <p>{t("尚无检查点。", "No checkpoints yet.")}</p>}
+        {checkpoints.length === 0 && <p>{t("还没有检查点。点击「立即检查点」保存当前项目版本。", "No checkpoints yet. Choose Checkpoint now to save the current project revision.")}</p>}
         {checkpoints.map((checkpoint) => <button aria-pressed={checkpoint.id === selectedID}
           className={checkpoint.id === selectedID ? "selected" : ""} key={checkpoint.id}
           onClick={() => setSelectedID(checkpoint.id)} type="button">
@@ -364,7 +364,7 @@ export function WorkspaceCheckpointPanel({ client, runID, runStatus, variant = "
       <div className="inline-warning">{humanError(previewRestore.error ||
         createCheckpoint.error || fork.error)}</div>}
     {restoreOutcome === "completed" && <p role="status">{t("项目恢复已完成。请结合当前差异确认内容，历史编辑记录会保留。", "Workspace restore completed. Check the current diff; historical edit records are retained.")}</p>}
-    {restoreOutcome === "failed" && <p role="alert">{t("已确认本次恢复失败。请检查当前项目内容和冲突，处理后重新预览；失败不代表所有内容都未改变。", "This restore is confirmed failed. Check current files and conflicts, then preview again; failure does not imply that no files changed.")}</p>}
+    {restoreOutcome === "failed" && <p role="alert">{t("本次恢复失败，项目可能已部分改变。请检查当前文件和冲突，处理后重新预览。", "The restore failed and the project may have partially changed. Inspect current files and conflicts, resolve them, then preview again.")}</p>}
     {pendingRestore && <section className="checkpoint-preview" aria-label={t("待确认的恢复操作", "Unresolved restore operation")}>
       <p role="status">{pendingRestore.state === "pending" ? t("正在确认恢复结果…", "Confirming restore outcome…")
         : t("恢复结果尚未确认。请按原请求确认后，再开始新的恢复操作。", "The restore outcome is unknown. Confirm the original request before starting another restore.")}</p>

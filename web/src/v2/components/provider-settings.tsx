@@ -768,7 +768,7 @@ export function V2ProviderSettings({ client, initialPreset, onExit, onSaved,
       const selected = catalog.routes.find((route) => route.provider_id === definition.id &&
         route.model === definition.default_model);
       if (!selected?.selectable || selected.definition_revision !== definition.revision) {
-        setHarnessError("模型检查已经返回成功，但当前可用模型目录尚未确认该模型可选择。配置和草稿已保留，请重试检查；系统不会改用 mock。");
+        setHarnessError("模型检查已通过，正在等待可用模型目录确认。配置和草稿已保留；请点击“重新检查”后继续使用这个模型。");
         return;
       }
       setNotice(`${definition.display_name} / ${definition.default_model} 已可用，正在返回原草稿。`);
@@ -817,7 +817,7 @@ export function V2ProviderSettings({ client, initialPreset, onExit, onSaved,
           } catch {
             const saved = result.definition ?? { ...definition, revision: 1 };
             setDraft(draftFromDefinition(saved));
-            setError("供应商定义已保存，但 API Key 未写入系统凭据。请确认系统凭据管理器可用，然后在此页重新输入密钥并再次保存；定义与高级 JSON 已保留，不会自动回滚。");
+            setError("供应商定义已保存，但 API Key 未写入系统凭据。请检查系统凭据管理器，在此重新输入密钥并再次保存。已保存的定义与高级 JSON 可继续编辑。");
             await queryClient.invalidateQueries({ queryKey: credentialQueryKey });
             return;
           }
@@ -933,7 +933,7 @@ export function V2ProviderSettings({ client, initialPreset, onExit, onSaved,
         return;
       }
       update("advancedJSON", JSON.stringify(synced.value, null, 2));
-      setNotice("已把当前供应商凭据引用插入 request_headers；运行时只解析引用，不会把密钥写入 JSON。");
+      setNotice("已把当前供应商的 $credential 引用插入 request_headers。运行时通过该引用读取系统凭据。");
     } catch {
       setError("请先修复高级 JSON，再插入凭据引用。");
     }
@@ -1000,7 +1000,7 @@ export function V2ProviderSettings({ client, initialPreset, onExit, onSaved,
   if (!client.hasProviderDefinitions) {
     return <><h1>自定义配置</h1><p className="v2-settings-lead">当前桌面后端未启用供应商定义控制。</p>
       <section className="v2-settings-card v2-provider-empty"><Server aria-hidden="true" size={24} />
-        <strong>自定义供应商不可用</strong><p>需要控制令牌与模型控制能力，页面不会把密钥降级写入本地 JSON。</p>
+        <strong>自定义供应商不可用</strong><p>连接具备控制权限与模型控制能力的服务后，可添加供应商并使用系统凭据库保存密钥。</p>
       </section></>;
   }
 
@@ -1034,7 +1034,7 @@ export function V2ProviderSettings({ client, initialPreset, onExit, onSaved,
         <button onClick={() => void definitions.refetch()} type="button">重试</button></div>}
       {!definitions.isLoading && !definitions.isError && <section aria-label="自定义供应商" className="v2-provider-list">
         {providers.length === 0 && <div className="v2-settings-card v2-provider-empty"><Server aria-hidden="true" size={24} />
-          <strong>还没有自定义供应商</strong><p>添加兼容端点、模型与搜索策略。API Key 只保存到系统凭据库。</p></div>}
+          <strong>还没有自定义供应商</strong><p>点击“添加供应商”，填写服务地址和模型，保存密钥后进行连接验证。API Key 保存在系统凭据库。</p></div>}
         {providers.map((provider) => {
           const credential = credentialByProvider.get(provider.id);
           return <button className="v2-provider-row" key={provider.id}
@@ -1102,7 +1102,7 @@ export function V2ProviderSettings({ client, initialPreset, onExit, onSaved,
 	  disabled={busy || harnessBusy} onClick={closeEditor} type="button">
       <ArrowLeft aria-hidden="true" size={17} /></button>
     <div><h1>{draft.existing ? "编辑供应商" : "添加供应商"}</h1>
-      <p>{quickSetup ? "填入 API Key 并确认模型，即可保存。自建服务可展开高级设置。"
+      <p>{quickSetup ? "填入 API Key，确认模型并保存，然后完成下方模型检查。自建服务可展开高级设置。"
         : "填写服务地址和模型；密钥将单独保存到系统凭据管理器。"}</p></div></div>
     <form className="v2-provider-form" onSubmit={(event) => { event.preventDefault(); save(); }}>
       <fieldset className="v2-provider-operation-lock" disabled={harnessBusy}>
@@ -1113,8 +1113,8 @@ export function V2ProviderSettings({ client, initialPreset, onExit, onSaved,
             {configuredCredential ? "密钥已存储" : "等待配置密钥"}</span></header>
         {credentialField}
         <p className="v2-provider-help" id="provider-key-help">{client.hasProviderCredentials
-          ? "密钥只保存到系统凭据管理器，保存后不会再次显示。已有密钥可留空保留。"
-          : "当前环境不支持保存密钥，请使用支持系统凭据存储的桌面版本。"}</p>
+          ? "密钥保存在系统凭据管理器，保存后输入框会清空。已有密钥可留空保留；远端认证请通过下方连接验证检查。"
+          : "使用支持系统凭据存储的桌面版本后，可在此保存密钥。"}</p>
         <div className="v2-provider-grid">{modelField}</div>
       </section>}
       {quickSetup && <button aria-expanded={advancedOpen} aria-controls="provider-advanced-connection"
@@ -1209,10 +1209,10 @@ export function V2ProviderSettings({ client, initialPreset, onExit, onSaved,
             }}
             placeholder={"model-a\nmodel-b"} rows={3} spellCheck={false} value={draft.models} />
             <small id="provider-models-help">每行或逗号分隔，最多 128 个（当前 {modelOptions.length} 个）。名称按 model_mapping 映射后发送；移除模型会清除对应图片声明，新名称需重新确认。</small></label>
-          {typeof client.discoverProviderModels !== "function" && <p className="v2-provider-field-help is-wide">当前后端不支持获取模型，可继续手动添加。</p>}
+          {typeof client.discoverProviderModels !== "function" && <p className="v2-provider-field-help is-wide">当前服务提供手动添加：填写完整模型名称，保存后进行连接验证。</p>}
           {discoveryError && <p className="v2-inline-error is-wide" role="alert">{discoveryError}</p>}
           {discoveredModels && <div aria-label="获取到的模型" className="v2-provider-discovery is-wide">
-            <p aria-live="polite">服务返回 {discoveredModels.length} 个模型。勾选后加入当前列表；获取结果不代表已通过连接或 Harness 验证。</p>
+            <p aria-live="polite">服务返回 {discoveredModels.length} 个模型。勾选后加入当前列表，保存后继续完成连接与 Harness 验证。</p>
             {discoveryTruncated && <p>服务模型列表较长，本次结果未完整返回。可从已返回结果中选择，也可手动添加完整模型名。</p>}
             {discoveredModels.length === 0 && <p>服务没有返回模型。当前列表已保留，可手动添加模型名。</p>}
             <div className="v2-provider-discovery-options">{discoveredModels.map((model) => {
@@ -1236,7 +1236,7 @@ export function V2ProviderSettings({ client, initialPreset, onExit, onSaved,
 
       {showAdvanced && <section className="v2-settings-card v2-provider-fields" aria-labelledby="provider-output-title">
         <header><div><h2 id="provider-output-title">模型输出限制</h2>
-          <p>每个模型可继承默认策略，或自定义默认输出与单次上限。Token 包括服务计入输出的推理内容，不保证全部用于可见文字。</p></div></header>
+          <p>每个模型可继承默认策略，或自定义默认输出与单次上限。输出 Token 预算包含推理内容和可见文字，分配方式由模型服务决定。</p></div></header>
         <div className="v2-provider-grid">
           {!modelOptions.length && <p className="v2-provider-field-help is-wide">先填写模型列表。</p>}
           {!parsedCapabilities && <p className="v2-provider-field-help is-wide">先修正下方高级 JSON，再设置输出限制。</p>}
@@ -1253,7 +1253,7 @@ export function V2ProviderSettings({ client, initialPreset, onExit, onSaved,
             return <article aria-label={`${wireModel} 输出策略`} className="v2-provider-policy is-wide" key={wireModel}>
               <div className="v2-provider-policy-heading"><strong>{aliases.join(" / ")}</strong><span>{source}</span></div>
               {(aliases.length > 1 || aliases[0] !== wireModel) && <p>实际发送模型：{wireModel}。映射到此模型的名称共享以下设置。</p>}
-              {!custom && inherited.source === "fallback" && <p>这里的上限是本地预算，并非服务端能力声明；带工具的请求会按上限预留输出空间。</p>}
+              {!custom && inherited.source === "fallback" && <p>这里设置本地预算；服务端实际限制请向供应商确认。带工具的请求会按此上限预留输出空间。</p>}
               {!custom && inherited.source === "known" && <p>{inherited.explicitDefault
                 ? "默认输出 16,384 token 是应用发送给服务的单次请求限制；128,000 token 上限来自官方模型资料，可在此自定义。"
                 : "容量依据已知模型资料；默认输出是应用的本地预算，可按任务需要调整。"}</p>}
@@ -1276,7 +1276,7 @@ export function V2ProviderSettings({ client, initialPreset, onExit, onSaved,
       </section>}
 
       {showAdvanced && <section className="v2-settings-card v2-provider-fields" aria-labelledby="provider-images-title">
-        <header><div><h2 id="provider-images-title">图片输入</h2><p>按供应商说明确认每个模型是否接收图片。保存的是能力声明，不代表已经验证图像理解；原始图片会发送到上方的请求地址。</p></div></header>
+        <header><div><h2 id="provider-images-title">图片输入</h2><p>按供应商说明选择图片能力声明，再在任务中用图片检查实际效果。原始图片会发送到上方的请求地址，请确认该端点适合接收这些内容。</p></div></header>
         <div className="v2-provider-grid">{modelOptions.map((model) => {
           const capability = modelCapabilities[model];
           const state = isRecord(capability) && ["supported", "unsupported", "unknown"].includes(String(capability.vision)) ? String(capability.vision) : "unknown";
@@ -1295,7 +1295,7 @@ export function V2ProviderSettings({ client, initialPreset, onExit, onSaved,
 
       {showAdvanced && <section className="v2-settings-card v2-provider-fields" aria-labelledby="provider-search-title">
         <header><div><h2 id="provider-search-title">网页搜索</h2>
-          <p>兼容 Responses API 不代表支持原生搜索。请按供应商实际能力选择；原生搜索的首次真实调用仍须通过有界资格验证。</p></div></header>
+          <p>先确认供应商提供哪种搜索能力，再选择搜索方式。原生搜索会在首次真实调用前完成有界资格验证。</p></div></header>
         <div className="v2-provider-grid">
           <label className="is-wide">搜索策略<select aria-label="搜索策略" onChange={(event) => {
             const mode = event.target.value as ProviderDraft["searchMode"];
@@ -1312,31 +1312,31 @@ export function V2ProviderSettings({ client, initialPreset, onExit, onSaved,
             <option value="searxng">SearXNG</option>
             <option disabled={knownNativeSearchUnsupported(draft.endpointURL)} value="provider_native">供应商原生</option>
           </select><small>{draft.searchMode === "web"
-            ? "搜索查询会发送到 DuckDuckGo，不依赖当前模型的原生搜索能力，也不需要额外搜索密钥。搜索和网页读取仍受当前任务的网页访问范围限制。"
+            ? "搜索查询会发送到 DuckDuckGo，可直接用于当前模型。搜索与网页读取遵循当前任务的网页访问范围。"
             : draft.searchMode === "auto"
-              ? "自动优先使用已声明并验证的供应商原生搜索；原生不可用时只回退到已配置的 SearXNG。DuckDuckGo 必须单独选择，不会被静默启用。"
+              ? "自动优先使用已声明并验证的供应商原生搜索，随后可回退到已配置的 SearXNG。要使用 DuckDuckGo，请选择“普通网页搜索”。"
               : draft.searchMode === "searxng"
-                ? "SearXNG 地址仍由 Desktop 启动配置提供；未配置时不可用。不会自动切换后端或扩大任务的网页访问范围。"
+                ? "先在 Desktop 启动配置中填写 SearXNG 地址。查询使用该地址，并遵循当前任务的网页访问范围。"
                 : draft.searchMode === "disabled"
-                  ? "关闭此供应商的网页搜索；不会更改当前任务的网页访问范围。"
+                  ? "此供应商的网页搜索已关闭。任务的网页访问范围可在任务设置中管理。"
                   : "选择供应商原生时会绑定当前模型、端点、定义 revision 与系统凭据代际。"}</small></label>
           {knownNativeSearchUnsupported(draft.endpointURL) && <p className="is-wide">
             {draft.existing && draft.searchMode === "provider_native"
-              ? "此官方 DeepSeek 旧配置声明了原生搜索，但该端点当前不支持对应工具；系统不会静默改用 DuckDuckGo。请选择普通网页搜索，或配置 SearXNG 后选择自动。"
-              : "此官方 DeepSeek 地址不支持原生搜索；请选择普通网页搜索，或配置 SearXNG 后选择自动。"}
+              ? "此官方 DeepSeek 旧配置仍选择了原生搜索，需要更换搜索方式。请选择“普通网页搜索”，或配置 SearXNG 后选择“自动选择”。"
+              : "此官方 DeepSeek 地址可使用“普通网页搜索”。也可配置 SearXNG 后选择“自动选择”。"}
           </p>}
           <label className="v2-provider-check is-wide"><input aria-label="声明供应商具备原生 Web Search"
             checked={draft.nativeSearchDeclared}
             disabled={knownNativeSearchUnsupported(draft.endpointURL)}
             onChange={(event) => update("nativeSearchDeclared", event.target.checked)} type="checkbox" />
             <span><strong>声明供应商具备原生 Web Search</strong>
-              <small>声明不代表搜索已经可用，也不扩大网页抓取权限。原生搜索只使用当前供应商端点的授权范围，首次真实搜索须完成有界验证，可能产生供应商 API 调用费用。</small></span></label>
+              <small>勾选后会登记原生搜索能力声明。首次真实搜索需完成有界验证，可能产生 API 调用费用；搜索使用当前供应商端点的授权范围，网页抓取遵循任务权限。</small></span></label>
         </div>
       </section>}
 
       {!quickSetup && <section className="v2-settings-card v2-provider-fields" aria-labelledby="provider-credential-title">
         <header><div><h2 id="provider-credential-title">系统凭据</h2>
-          <p>密钥只写入操作系统凭据管理器，读取接口永不返回明文。</p></div>
+          <p>密钥保存在操作系统凭据管理器。此页读取存储状态，通过连接验证检查远端认证。</p></div>
           <span className={configuredCredential ? "v2-provider-status is-ready" : "v2-provider-status"}>
             {configuredCredential ? "已存储" : "未存储"}</span></header>
         {credentialField}
@@ -1387,7 +1387,7 @@ export function V2ProviderSettings({ client, initialPreset, onExit, onSaved,
 
       {showAdvanced && <section className="v2-settings-card v2-provider-fields" aria-labelledby="provider-json-title">
         <header><div><h2 id="provider-json-title">高级 JSON</h2>
-          <p>完整可编辑；HTTP 运行时解释 request_headers、request_body 与 model_mapping，其余扩展原样保留，但不能覆盖 Harness 核心字段。</p></div>
+          <p>在这里编辑 request_headers、request_body 与 model_mapping；其他扩展会原样保留。Harness 核心字段由运行时管理。</p></div>
           <button className="secondary" onClick={insertCredentialReference} type="button">
             <KeyRound aria-hidden="true" size={14} />插入凭据引用</button></header>
         <label className="v2-provider-json">
@@ -1414,12 +1414,12 @@ export function V2ProviderSettings({ client, initialPreset, onExit, onSaved,
 
     <V2ConfirmDialog busy={busy} confirmLabel="删除" danger
       description={configuredCredential
-        ? "系统凭据会先从操作系统凭据管理器删除，确认清除后才会删除供应商定义。若凭据删除失败或当前路由仍在使用该定义，操作会停止且不会导出明文。"
-        : "供应商定义将从可用模型路由中移除。若当前路由仍在使用它，后端会拒绝删除；系统凭据不会被明文导出。"}
+        ? "系统凭据会先从操作系统凭据管理器删除，再移除供应商定义。凭据删除失败或路由仍引用此供应商时，删除会暂停；请先处理提示后重试。"
+        : "供应商定义将从可用模型列表中移除。仍有路由引用它时，请先更换这些路由的模型，再重试删除。"}
       onCancel={() => setDeleteOpen(false)} onConfirm={() => void removeDefinition()}
       open={deleteOpen} returnFocusRef={deleteButtonRef} title={`删除 ${draft.displayName || draft.id}`} />
     <V2ConfirmDialog busy={busy} confirmLabel="迁移并保存" danger
-      description="高级 JSON 中检测到一个明文密钥。确认后，它会写入操作系统凭据管理器，JSON 中的所有对应位置会替换为当前供应商的 $credential 引用；页面不会显示或持久化原值。"
+      description="高级 JSON 中检测到一个明文密钥。确认后，密钥会移入操作系统凭据管理器，JSON 中对应位置会替换为当前供应商的 $credential 引用。"
       onCancel={() => { migrationSecretRef.current = ""; setMigration(null); }}
       onConfirm={confirmMigration} open={Boolean(migration)} returnFocusRef={saveButtonRef}
       title="迁移明文密钥？" />

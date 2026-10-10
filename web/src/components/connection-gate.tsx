@@ -120,7 +120,7 @@ export function ConnectionGate() {
       setToken("");
       setControlToken("");
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : "无法连接 Go 控制面");
+      setError(caught instanceof Error ? caught.message : t("连接失败，请检查服务地址与访问令牌。", "Connection failed. Check the service address and access token."));
     } finally {
       setConnecting(false);
     }
@@ -131,18 +131,19 @@ export function ConnectionGate() {
       <form className="connection-panel" onSubmit={submit}>
         <PrayuBrand className="connection-brand" variant="hero" />
         <div className="connection-heading">
-          <h1>{t("连接本地控制面", "Connect to local control plane")}</h1>
-          <p>Universal Code · Go API / api.v1</p>
+          <h1>{t("连接 Universal Code", "Connect to Universal Code")}</h1>
+          <p>{t("填写服务提供的访问令牌，打开项目和任务。", "Enter the access token supplied by your service to open projects and tasks.")}</p>
         </div>
         {connecting && desktopBridgeAvailable() &&
           <div className="desktop-connecting"><LoaderCircle aria-hidden="true" className="spin" size={16} />{t("启动桌面工作台", "Starting desktop workbench")}</div>}
-        <label className="field-label" htmlFor="read-token">{t("只读访问令牌", "Read bearer token")}</label>
+        <label className="field-label" htmlFor="read-token">{t("查看令牌", "Read access token")}</label>
         <div className="token-row">
           <input
             autoCapitalize="none"
             autoComplete="off"
             autoCorrect="off"
             id="read-token"
+            aria-describedby="read-token-help"
             name="read-token"
             onChange={(event) => setToken(event.target.value)}
             placeholder="CYBERAGENT_API_TOKEN"
@@ -154,8 +155,9 @@ export function ConnectionGate() {
             {connecting ? <LoaderCircle aria-hidden="true" className="spin" size={18} /> : <ArrowRight aria-hidden="true" size={18} />}
           </button>
         </div>
+        <p className="connection-token-help" id="read-token-help">{t("用于查看项目、对话和执行记录。", "View projects, conversations and execution history.")}</p>
         <label className="field-label optional-token-label" htmlFor="control-token">
-          {t("控制访问令牌", "Control bearer token")} <span>{t("可选", "optional")}</span>
+          {t("操作令牌", "Control access token")} <span>{t("可选", "optional")}</span>
         </label>
         <input
           autoCapitalize="none"
@@ -163,6 +165,7 @@ export function ConnectionGate() {
           autoCorrect="off"
           className="control-token-input"
           id="control-token"
+          aria-describedby="control-token-help"
           name="control-token"
           onChange={(event) => setControlToken(event.target.value)}
           placeholder="CYBERAGENT_API_CONTROL_TOKEN"
@@ -170,6 +173,7 @@ export function ConnectionGate() {
           type="password"
           value={controlToken}
         />
+        <p className="connection-token-help" id="control-token-help">{t("创建任务和执行操作时填写，具体操作范围取决于服务设置。", "Add this token to create tasks and use the actions enabled by your service.")}</p>
         {error && <div className="connection-error" role="alert">{error}</div>}
       </form>
     </main>

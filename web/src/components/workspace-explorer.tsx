@@ -73,10 +73,10 @@ export function WorkspaceExplorer({ client, workspaceID, runID = "", initialPath
     attachment.mutate({ sourceRef, contentSHA256 });
   };
 
-  if (!workspaceID) return <EmptyState>{t("此 Run 未绑定工作区", "No Workspace is bound to this Run")}</EmptyState>;
+  if (!workspaceID) return <EmptyState>{t("绑定项目后可查看文件，请返回对话核对项目选择。", "Bind a project to inspect files. Return to the conversation to review the project selection.")}</EmptyState>;
   if (query.isLoading) return <LoadingState label={t("正在加载工作区文件", "Loading Workspace files")} />;
   if (query.isError || !query.data) return <div className="explorer-error"><ErrorState error={query.error} />
-    <p className="explorer-error-hint" role="alert">{t("无法读取目标路径，文件可能不存在或已移动", "Cannot read target path, file may not exist or has been moved")}</p>
+    <p className="explorer-error-hint" role="alert">{t("目标路径读取失败，请重试或返回上级目录确认文件位置。", "Reading this path failed. Retry or return to the parent directory to locate the file.")}</p>
     <button onClick={() => void query.refetch()} type="button">{t("重试文件读取", "Retry file read")}</button>
     <button onClick={() => setPath(parent)} type="button">{t("返回上级目录", "Return to parent")}</button></div>;
   const snapshot = query.data;
@@ -117,7 +117,7 @@ export function WorkspaceExplorer({ client, workspaceID, runID = "", initialPath
     </form>
     <div className="explorer-provenance">
       <ShieldCheck aria-hidden="true" size={14} />
-      <span>{snapshot.provenance.source_kind} / {t("仅作为证据", "evidence only")}</span>
+      <span>{snapshot.provenance.source_kind} / {t("文件来源记录", "File source record")}</span>
       {snapshot.redaction_count > 0 && <span>{t(`${snapshot.redaction_count} 项已脱敏`, `${snapshot.redaction_count} redacted`)}</span>}
       <code>{snapshot.provenance.content_sha256.slice(0, 12)}</code>
     </div>

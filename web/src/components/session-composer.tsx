@@ -392,7 +392,7 @@ export function SessionComposer({ client, sessionID, run, workspaceID = "", cont
       <footer>
         <span>{publicStream.snapshot?.message_complete || publicStream.status === "finalizing"
           ? t("正在验证并提交回复", "Validating and committing reply")
-          : t("临时内容，完成验证前不会写入历史", "Provisional; not stored before validation")}</span>
+          : t("回复生成中，验证后保存到历史", "Reply in progress; saved to history after validation")}</span>
         {publicStream.error && <span className="connection-error">{publicStream.error}</span>}
         {cancelMutation.isError && <span className="connection-error">{errorMessage(cancelMutation.error)}</span>}
       </footer>

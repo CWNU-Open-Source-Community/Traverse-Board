@@ -45,8 +45,8 @@ function statusCopy({ runID, mode, permission, loading, failed, controlEnabled,
   if (permission.mode === "full_debug") {
     return permission.runtime_gate_available
       ? sessionControlEnabled
-        ? "授权资格已开启；Desktop 可通过受控生产接口启动、查询并关闭任务专属的完整 CDP 会话。"
-        : "授权资格已开启；当前运行时没有安装托管完整 CDP 会话服务，本开关不会启动或接管浏览器。"
+        ? "浏览器控制已开启，可为当前任务打开、查看和关闭独立浏览器。"
+        : "浏览器控制权限已开启，当前服务尚未提供独立浏览器。请连接支持托管浏览器的服务后使用预览。"
       : "已选择，但当前运行时尚未授权。";
   }
   if (!executionRuntimeAvailable) {
@@ -179,7 +179,9 @@ export function V2BrowserCDPControl({ client, runID, permissionMode,
       {mutation.error instanceof Error ? mutation.error.message : "完整 CDP 更新失败"}
     </p>}
     <V2ConfirmDialog busy={mutation.isPending} confirmLabel="开启完整 CDP" danger
-      description="完整 CDP 可以读取 Cookie、捕获和修改网络请求、重放请求并调用任意 CDP 方法。它只作用于 Universal Code 管理的隔离浏览器，不接管系统浏览器或承载界面的 WebView；默认随完全访问或调试模式开启，关闭后再次开启需要你明确确认。此开关只设置授权资格，不会启动浏览器。"
+      description={`完整 CDP 可以读取 Cookie、捕获和修改网络请求、重放请求并调用任意 CDP 方法。控制范围为 Universal Code 管理的隔离浏览器，系统浏览器和应用界面保持独立。此权限默认随完全访问或调试模式开启，关闭后重新开启需要确认。${client.hasFullCDPSessionControl
+        ? "启用后可在“应用预览”中打开独立浏览器。"
+        : "当前连接尚未开放托管浏览器。使用支持此能力的连接后，可在“应用预览”中打开独立浏览器。"}`}
       onCancel={() => {
         mutation.reset();
         setConfirmOpen(false);

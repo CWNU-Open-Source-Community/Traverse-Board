@@ -52,9 +52,9 @@ describe("Command approval through the strict HTTP client", () => {
       <V2ApprovalCards client={new APIClient("read", "/api/v1", "control")} runID={data.preview.run_id} threadID="thread-command" />
     </QueryClientProvider>);
     expect(await screen.findByText(/exact review intent/)).toBeInTheDocument();
-    expect(screen.getByText(/宿主工作目录与网络声明不能保证隔离/)).toBeInTheDocument();
+    expect(screen.getByText(/请按宿主文件与网络可能可达的范围评估影响/)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "允许本对话" })).not.toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "仅批准一次" }));
+    await userEvent.click(screen.getByRole("button", { name: "批准一次" }));
     expect(await screen.findByText(/Agent 已继续处理/)).toBeInTheDocument();
     await waitFor(() => expect(fetch.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(1));
     const post = fetch.mock.calls.find(([, init]) => init?.method === "POST")!;

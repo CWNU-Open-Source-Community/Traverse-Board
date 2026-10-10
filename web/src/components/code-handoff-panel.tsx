@@ -52,7 +52,7 @@ export function CodeHandoffPanel({ client, runID, onOpenDelivery, onOpenReceiptR
         <KeyValue label={t("事件高水位", "Event high-water")} value={query.data.source_event_sequence} />
         <KeyValue label={t("生成时间", "Generated")} value={formatDate(query.data.generated_at)} />
         {query.data.standard_code_delivery && <>
-          <KeyValue label={t("交付真实性", "Delivery truth")}
+          <KeyValue label={t("交付检查", "Delivery checks")}
             value={<StatusBadge status={query.data.standard_code_delivery.status} />} />
           <KeyValue label={t("交付收据", "Delivery receipt")}
             value={shortID(query.data.standard_code_delivery.receipt_sha256)} />
@@ -63,7 +63,7 @@ export function CodeHandoffPanel({ client, runID, onOpenDelivery, onOpenReceiptR
         </>}
       </dl>
       {query.data.standard_code_delivery && <div className="delivery-handoff-truth">
-        <span><strong>{t("同一交付投影", "Shared delivery projection")}</strong>
+        <span><strong>{t("对应的交付报告", "Referenced delivery report")}</strong>
           <code>{query.data.standard_code_delivery.receipt_sha256}</code></span>
         {onOpenDelivery && <button className="compact-command" onClick={onOpenDelivery} type="button">
           {t("打开交付页", "Open delivery")}</button>}
@@ -95,7 +95,7 @@ export function CodeHandoffPanel({ client, runID, onOpenDelivery, onOpenReceiptR
         </section>
         <section className="handoff-coverage"><h3>{t("验证覆盖", "Verification coverage")}</h3>
           {query.data.verification_coverage.items.length === 0 ?
-            <EmptyState>{t("没有检查项", "No checklist items")}</EmptyState> :
+            <EmptyState>{t("还没有检查项。可在验证页核对计划与覆盖范围。", "No checklist items yet. Review verification plans and coverage in Verify.")}</EmptyState> :
             <div className="handoff-reference-list">{query.data.verification_coverage.items.map((item) => {
               const contradictory = item.pass_count > 0 && item.fail_count > 0;
               return <div key={`${item.plan_id}:${item.ordinal}`}><span>

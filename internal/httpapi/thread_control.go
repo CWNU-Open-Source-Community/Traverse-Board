@@ -35,16 +35,17 @@ type ThreadTurnController interface {
 }
 
 type ThreadCreationControlRequestView struct {
-	Version        string   `json:"version"`
-	Goal           string   `json:"goal"`
-	WorkspaceID    string   `json:"workspace_id"`
-	Profile        string   `json:"profile,omitempty"`
-	Surface        string   `json:"surface,omitempty"`
-	Phase          string   `json:"phase,omitempty"`
-	NetworkMode    string   `json:"network_mode,omitempty"`
-	AllowedTargets []string `json:"allowed_targets,omitempty"`
-	Provider       string   `json:"provider,omitempty"`
-	Model          string   `json:"model,omitempty"`
+	Version        string                     `json:"version"`
+	Goal           string                     `json:"goal"`
+	WorkspaceID    string                     `json:"workspace_id"`
+	Profile        string                     `json:"profile,omitempty"`
+	Surface        string                     `json:"surface,omitempty"`
+	Phase          string                     `json:"phase,omitempty"`
+	NetworkMode    string                     `json:"network_mode,omitempty"`
+	AllowedTargets []string                   `json:"allowed_targets,omitempty"`
+	Budget         *domain.TaskBudgetSettings `json:"budget,omitempty"`
+	Provider       string                     `json:"provider,omitempty"`
+	Model          string                     `json:"model,omitempty"`
 }
 
 type ThreadCreationControlView struct {
@@ -675,7 +676,7 @@ func (a *API) serveThreadCreationControl(writer http.ResponseWriter, request *ht
 		WithLifecycleHooks(a.lifecycleHooks).Create(request.Context(),
 		application.ControlledRunCreationRequest{Version: domain.RunCreationProtocolVersion,
 			Goal: view.Goal, WorkspaceID: view.WorkspaceID, Profile: view.Profile,
-			Surface: view.Surface, Phase: view.Phase, NetworkMode: view.NetworkMode,
+			Surface: view.Surface, Phase: view.Phase, NetworkMode: view.NetworkMode, Budget: view.Budget,
 			ModelRoute:                         modelRoute,
 			CustomModelProvider:                customModelProvider,
 			ExpectedProviderDefinitionRevision: expectedProviderDefinitionRevision,

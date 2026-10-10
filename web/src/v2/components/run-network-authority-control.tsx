@@ -28,7 +28,7 @@ function readinessLabel(value: ProviderSearchReadinessView | undefined): string 
 }
 
 function readinessDetail(value: ProviderSearchReadinessView | undefined): string {
-  if (!value) return "正在核对当前 Run、Provider 与精确网络范围。";
+  if (!value) return "正在核对当前任务的模型连接与网页访问范围。";
   switch (value.reason) {
   case "run_network_disabled":
     return "当前任务没有为网页搜索后端开放出站；供应商原生搜索与直接 URL 抓取分别授权。";
@@ -37,7 +37,7 @@ function readinessDetail(value: ProviderSearchReadinessView | undefined): string
       ? `搜索后端需要明确允许 ${value.required_target}；未列出的主机仍会被拒绝。`
       : "当前白名单没有覆盖搜索后端；请追加后端要求的精确 HTTPS 主机。";
   case "provider_native_qualification_required":
-    return "Provider 声明支持原生搜索，但当前配置版本尚未观察到成功的搜索工具调用。";
+    return "供应商声明支持原生搜索，当前配置还需通过一次实际搜索验证。";
   case "provider_native_qualification_failed":
     switch (value.detail_code) {
     case "transport_unavailable":
@@ -52,9 +52,9 @@ function readinessDetail(value: ProviderSearchReadinessView | undefined): string
       return "原生搜索的有界验证未通过；普通模型对话仍可与搜索能力分开使用。";
     }
   case "no_active_run":
-    return "当前没有可绑定搜索权限的 Run；下一次明确提交会创建 successor。";
+    return "当前尚无可配置搜索权限的执行。发送下一条消息后，可为新执行确认搜索权限。";
   case "model_provider_unavailable":
-    return "当前 Run 固定的模型供应商不可用，请先验证模型配置。";
+    return "当前执行使用的模型连接不可用，请到模型设置验证连接。";
   case "provider_search_policy_disabled":
     return "当前供应商明确关闭了搜索策略。";
   case "search_backend_not_configured":
@@ -63,7 +63,7 @@ function readinessDetail(value: ProviderSearchReadinessView | undefined): string
     return "当前供应商的搜索声明与传输配置不一致。";
   default:
     return value.search_policy === "provider_native"
-      ? `${value.provider || "当前 Provider"} 的托管搜索配置与网络授权已就绪；它只访问供应商 API，不扩大直接 URL 抓取权限。实际搜索结果以本次工具返回为准。`
+      ? `${value.provider || "当前供应商"} 的托管搜索配置与网络授权已就绪，可发起搜索。搜索使用供应商接口；直接读取网页按下方访问范围审批。`
       : `${value.search_policy === "web" ? "普通网页搜索（DuckDuckGo）" : value.search_policy === "searxng" ? "外部搜索服务（SearXNG）" : "网页搜索后端"}的配置与网络授权已就绪；实际搜索结果以本次工具返回为准。`;
   }
 }
@@ -71,12 +71,12 @@ function readinessDetail(value: ProviderSearchReadinessView | undefined): string
 function remediationLabel(value: ProviderSearchReadinessView | undefined): string {
   switch (value?.remediation) {
   case "enable_network_allowlist": return "追加搜索后端主机后即可启用";
-  case "add_required_target": return "把所需主机加入当前 Run 的白名单";
-  case "qualify_provider_search": return "下一次搜索会由 Go 执行有界能力验证";
-  case "submit_to_create_successor": return "发送下一条消息创建新的执行边界";
+  case "add_required_target": return "把所需主机加入当前执行的允许范围";
+  case "qualify_provider_search": return "发起一次搜索，验证供应商搜索能力";
+  case "submit_to_create_successor": return "发送下一条消息后配置新执行";
   case "configure_search_provider": return "到模型设置检查供应商与搜索后端";
   case "enable_provider_search": return "到模型设置启用搜索策略";
-  case "repair_provider_configuration": return "修正 Provider 传输与搜索声明";
+  case "repair_provider_configuration": return "到模型设置核对连接与搜索能力";
   default: return "配置与网络授权允许发起搜索";
   }
 }
@@ -176,8 +176,8 @@ export function V2RunNetworkAuthorityControl({ client, threadID = "", runID,
       : query.isError ? "无法读取网页访问范围。"
         : publicHTTPS
           ? "当前执行保存的网络范围允许匿名访问公网 HTTPS；私网、loopback、元数据地址、DNS 重绑定和非 HTTPS 请求仍会被拒绝。"
-        : mutable ? "只追加明确的公网 HTTPS 主机；现有授权不可在这里静默扩大或删除。"
-          : `当前执行为 ${query.data?.run.status ?? "unknown"}；需在 created/paused 静止边界追加。`;
+        : mutable ? "填写要访问的公网 HTTPS 主机，核对后追加到当前允许范围。"
+          : "请在执行开始前，或暂停执行并等待资源释放后追加范围。已结束的执行可返回对话发送新消息。";
   const readiness = readinessQuery.data;
   const canPrefillRequiredTarget = Boolean(readiness?.required_target && mutable &&
     !current.includes(readiness.required_target));
@@ -192,12 +192,12 @@ export function V2RunNetworkAuthorityControl({ client, threadID = "", runID,
       role="status"><span><strong>{readiness?.search_policy === "provider_native" ? "供应商搜索" : "网页搜索"} · {readinessQuery.isError
         ? "无法检查" : readinessLabel(readiness)}</strong>
         <small>{readinessQuery.isError
-          ? "搜索 readiness 接口暂不可用；网络白名单仍按下方事实显示。"
+          ? "搜索配置状态暂时无法读取。可先核对下方已保存的网页访问范围。"
           : readinessDetail(readiness)}</small></span>
       {!readinessQuery.isError && <em>{remediationLabel(readiness)}</em>}</div>}
     {readiness && <V2SearchDiagnosticsControl client={client} readiness={readiness}
       onOpenModelSettings={onOpenModelSettings} />}
-    {query.isSuccess && <p className="v2-network-note">这里显示当前执行预先授权的 URL 抓取范围。范围外的请求仍需通过后端的单独授权检查；审批偏好与供应商搜索不会自动扩大此范围。</p>}
+    {query.isSuccess && <p className="v2-network-note">下方为当前执行已允许直接读取的网页范围。范围外的读取需单独审批，供应商搜索使用自己的连接设置。</p>}
     {!publicHTTPS && current.length > 0 && <div aria-label="当前允许的 HTTPS 主机" className="v2-network-targets">
       {current.map((target) => <code key={target}>{target}</code>)}
     </div>}

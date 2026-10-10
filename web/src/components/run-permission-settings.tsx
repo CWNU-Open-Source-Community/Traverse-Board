@@ -405,7 +405,7 @@ export function StandardCodeReadinessPanel({ client, detail, readiness, threadID
       loading={pending} onCancel={() => queryClient.setQueryData(presetIntentKey(detail.run.id), null)}
       onConfirm={() => invoke(pendingTrust.backend_intent as PresetBackend, pendingTrust.action as PresetAction, true,
         pendingTrust.trust_digest)} />}
-    {threadID ? <><p>{t("此编码预设不启用网络，也不注入凭证。", "This coding preset enables no network access and injects no credentials.")}</p>
+    {threadID ? <><p>{t("此编码预设使用关闭的网络与空凭据环境。", "This coding preset uses disabled networking and an empty credential environment.")}</p>
       <details><summary>{t("查看运行环境详情", "View runtime environment details")}</summary>{runtimeFacts}</details></> : runtimeFacts}
     {result && result.status !== "configured" && result.next_steps.length > 0 &&
       <p className="permission-closed-note">
@@ -415,8 +415,8 @@ export function StandardCodeReadinessPanel({ client, detail, readiness, threadID
     {result?.status === "waiting_for_pause" && <div className="permission-readiness-explanation"
       role="status">
       <strong>{t("暂停尚未完成", "Pause is not complete")}</strong>
-      <span>{t("控制面已请求暂停，但在 Run 完全静止且执行租约释放前不会提交 Standard Code 配置；这不是配置成功。",
-        "The control plane requested a pause, but Standard Code is not committed until the Run is fully quiescent and its execution lease is released. This is not a successful configuration.")}</span>
+      <span>{t("已请求暂停，正在等待执行静止和租约释放。完成后点击“重新检查静止状态”，继续提交编码配置。",
+        "Pause requested. Waiting for execution to become quiescent and release its lease. Then select Check quiescence again to continue configuring the coding environment.")}</span>
       {result.blocked_by.length > 0 && <small>{result.blocked_by.map((blocker) =>
         localizedReadinessValue(readinessBlockerLabels, blocker, t)).join(" · ")}</small>}
     </div>}
@@ -435,8 +435,8 @@ export function StandardCodeReadinessPanel({ client, detail, readiness, threadID
     {unknown && <div role="alert"><p>{t("编码配置结果尚未确认，请使用原请求确认。", "The coding configuration result is unknown. Confirm the original request.")} {intent.data?.error}</p>
       <button className="command-button" disabled={!client.hasStandardCodePreset} onClick={() => submit(intent.data!.attempt)} type="button">
         {t("确认上次编码配置", "Confirm previous coding configuration")}</button></div>}
-    {invalidated && <div role="alert"><p>{t("任务配置已变化，之前的编码配置请求已失效，不会再应用。请重新核对环境与来源，确认后再配置。",
-      "The task configuration changed and the previous coding request can no longer be applied. Recheck the environment and source before configuring again.")}</p>
+    {invalidated && <div role="alert"><p>{t("任务配置已变化，之前的编码配置请求已失效。请重新核对环境与来源，确认后提交新配置。",
+      "The task configuration changed and the previous coding request expired. Recheck the environment and source, then confirm a new configuration.")}</p>
       <button className="command-button" disabled={configuredDelivery || !client.hasStandardCodePreset || Boolean(configureDisabledReason)} onClick={recheck} type="button">
         {t("重新核对编码配置", "Recheck coding configuration")}</button></div>}
     {!client.hasStandardCodePreset && <p className="permission-closed-note">

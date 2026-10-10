@@ -65,6 +65,8 @@ type ContextProps = {
   client: APIClient; threadID: string; detail: ThreadDetailView;
   onClose: () => void; onRequestChange: (content: string) => void;
   returnFocusRef?: RefObject<HTMLElement | null>;
+  onOpenRecovery?: (pane: "context" | "checkpoints") => void;
+  onOpenSession?: () => void;
 };
 
 export function V2ThreadContext(props: ContextProps) {
@@ -72,7 +74,7 @@ export function V2ThreadContext(props: ContextProps) {
   return <ThreadContextContent key={props.threadID} {...props} />;
 }
 
-function ThreadContextContent({ client, threadID, detail, onClose, onRequestChange, returnFocusRef }: ContextProps) {
+function ThreadContextContent({ client, threadID, detail, onClose, onRequestChange, returnFocusRef, onOpenRecovery, onOpenSession }: ContextProps) {
   const closeButton = useRef<HTMLButtonElement>(null);
   const dialog = useModalFocusTrap<HTMLElement>(true, onClose, false, closeButton, { isolateBackground: true, returnFocusRef });
   const [correction, setCorrection] = useState("");
@@ -115,22 +117,28 @@ function ThreadContextContent({ client, threadID, detail, onClose, onRequestChan
   return createPortal(<div className="v2-context-overlay">
     <section className="v2-thread-context" role="dialog" aria-modal="true" aria-label="任务上下文" ref={dialog}>
       <header><h2>任务上下文</h2><button type="button" ref={closeButton} aria-label="关闭任务上下文" onClick={onClose}><X size={18} /></button></header>
-      <p className="v2-context-help">这里查看此执行已固定的项目指令、已附加的引用和已保存摘要，不是当前模型窗口的完整清单。</p>
+      {(onOpenRecovery || onOpenSession) && <nav className="v2-context-workflows" aria-label="上下文与恢复工具">
+        {onOpenRecovery && <><button disabled={!bound} onClick={() => onOpenRecovery("context")} type="button">续接与记忆</button>
+          <button disabled={!bound} onClick={() => onOpenRecovery("checkpoints")} type="button">工作区恢复</button></>}
+        {onOpenSession && <button disabled={!bound} onClick={onOpenSession} type="button">会话原始记录</button>}
+      </nav>}
+      {onOpenRecovery && <p className="v2-context-help">续接与记忆保留对话来源；工作区恢复使用所选执行的文件检查点。恢复操作仍需预览和当前权限。</p>}
+      <p className="v2-context-help">查看此执行保存的项目指令、引用和摘要。需要补充目标或纠正理解时，可在下方写好要求并带回对话。</p>
       {!bound ? <p role="alert">任务与执行记录尚未对应，暂不显示上下文。</p> : <>
         <div className="v2-context-toolbar"><span>{detail.thread.title}</span><button type="button" disabled={busy} onClick={refresh}><RefreshCw size={15} />{busy ? "正在读取" : "重新读取"}</button></div>
         <details className="v2-context-identities"><summary>查看来源标识</summary><dl><dt>任务</dt><dd>{threadID}</dd><dt>执行</dt><dd>{run.id}</dd><dt>会话</dt><dd>{sessionID}</dd><dt>项目</dt><dd>{workspaceID || "未绑定项目"}</dd></dl></details>
         <section aria-labelledby="context-instructions"><h3 id="context-instructions">项目指令</h3>
           {!workspaceID ? <p>此执行没有绑定项目。</p> : instructions.isError ? <ContextError label="项目指令" error={instructions.error} /> : !instructions.data ? <p role="status">正在读取项目指令…</p> : <>
-            {instructions.data.stale && <p className="v2-context-notice" role="status">项目文件与此执行固定的指令版本不同。这里显示已固定的来源，读取面板不会替换它。</p>}
+            {instructions.data.stale && <p className="v2-context-notice" role="status">项目指令文件已有变化，此执行沿用创建时固定的版本。需要采用新要求时，请在对话中说明。</p>}
             {!instructions.data.pinned_present ? <p>此执行没有已固定的项目指令快照。</p> : !instructions.data.pinned.snapshot.sources.length ? <p>已固定的快照中没有项目指令文件。</p> : <ul className="v2-context-sources">
               {instructions.data.pinned.snapshot.sources.map((source) => <li key={`${source.ordinal}:${source.path}`}><strong>{source.path}</strong><span>{source.kind === "agents" || source.kind === "agents_md" ? "项目指令" : source.kind} · 作用范围：{source.scope === "" || source.scope === "." ? "项目根目录" : source.scope}</span><details><summary>来源与版本</summary><dl><dt>SHA256</dt><dd>{source.content_sha256}</dd><dt>载入时间</dt><dd>{source.loaded_at}</dd><dt>采用原因</dt><dd>{source.why_effective}</dd><dt>相对顺序</dt><dd>{source.ordinal}</dd></dl>{source.redacted && <p>来源内容已脱敏。</p>}</details></li>)}
             </ul>}
-            <p className="v2-context-help">这里只显示已记录的来源信息，不扫描其他目录或修改原指令。</p>
+            <p className="v2-context-help">展开“来源与版本”可核对指令文件、作用范围和载入时间。</p>
           </>}
         </section>
         <section aria-labelledby="context-references"><h3 id="context-references">已附加的引用</h3>
           {!workspaceID ? <p>此执行没有项目引用目录。</p> : evidence.isError ? <ContextError label="引用" error={evidence.error} /> : !evidence.data ? <p role="status">正在读取引用…</p> : <ContextReferences value={evidence.data} />}
-          <p className="v2-context-help">引用保留来源与版本；是否进入某次请求、全文还是摘要，取决于当次上下文装配。没有记录不表示从未读取过文件。</p>
+          <p className="v2-context-help">以下记录已附加的参考资料及其版本。每次请求采用的内容与摘要可能不同；工具读取的其他文件可在工作记录中核对。</p>
         </section>
         {!summary.isError && summary.data && <ContextDiagnosticsPanel value={summary.data.diagnostics} unavailable={summary.data.diagnostics_unavailable}
           recovery={detail.recovery} runID={run.id} runStatus={run.status} />}
@@ -139,18 +147,18 @@ function ThreadContextContent({ client, threadID, detail, onClose, onRequestChan
             {current ? <><p>此会话已保存压缩摘要，累计归纳 {current.compacted_message_count} 条消息；保存时保留最近 {current.preserved_message_count} 条原消息。</p>
               <SummaryText content={current.content} redacted={current.content_redacted} truncated={current.content_truncated} />
               <details><summary>摘要版本与来源</summary><dl><dt>摘要 ID</dt><dd>{current.id}</dd><dt>前一摘要 ID</dt><dd>{current.previous_summary_id || "无"}</dd><dt>来源消息计数</dt><dd>{current.source_message_count}</dd><dt>保存时间</dt><dd>{current.created_at}</dd><dt>存储原文 SHA256</dt><dd>{current.content_sha256}</dd></dl></details>
-            </> : <p>此会话尚无已保存的压缩摘要；这不表示没有历史上下文。</p>}
+            </> : <p>此会话尚无已保存的压缩摘要，较早消息可在对话记录中查看。</p>}
             {inherited && <div className="v2-context-inherited"><h4>从前序执行继承</h4><p>继承了 {inherited.recent_message_count} 条近期消息和 {inherited.memories.length} 条长期信息引用。</p>
               {inherited.summary_content ? <SummaryText content={inherited.summary_content} redacted={inherited.content_redacted} truncated={inherited.content_truncated} /> : <p>继承快照没有摘要正文。</p>}
               <details><summary>继承来源与长期信息引用</summary><dl><dt>来源执行</dt><dd>{inherited.source_run_id}</dd><dt>来源会话</dt><dd>{inherited.source_session_id}</dd><dt>快照指纹</dt><dd>{inherited.fingerprint}</dd><dt>摘要原文 SHA256</dt><dd>{inherited.summary_content_sha256 || "无"}</dd></dl>
                 {inherited.memories.map((memory) => <p key={`${memory.scope}:${memory.scope_id}:${memory.id}`}>{memory.scope === "user" ? "用户" : "项目"}信息：{memory.id} · 版本 {memory.version}<br />SHA256 {memory.content_sha256}</p>)}
               </details></div>}
-            <p className="v2-context-help">摘要是有界归纳，可能省略细节。上述计数记录压缩时的状态，不是当前窗口用量。历史材料与摘要不会恢复审批或授予权限。</p>
+            <p className="v2-context-help">摘要可能省略细节，消息计数记录压缩当时的范围。需要保留的目标与限制可在下方补充；执行操作仍按当前任务权限审批。</p>
           </>}
         </section>
         <section className="v2-context-correction" aria-labelledby="context-correction"><h3 id="context-correction">补充与纠正</h3>
           <label htmlFor="thread-context-correction">需要继续保留的目标、限制或纠正</label><textarea id="thread-context-correction" value={correction} onChange={(event) => setCorrection(event.target.value)} rows={4} placeholder="例如：继续原目标，但不要改动已有接口；刚才关于输出格式的判断应改为…" />
-          <p className="v2-context-help">内容会带回原对话输入，供你编辑后发送。不会直接改写摘要或项目指令。</p><button type="button" disabled={!correction.trim()} onClick={requestChange}>补充到对话输入</button>
+          <p className="v2-context-help">点击后将这些要求加入原对话草稿，确认内容后发送给 Agent 处理。</p><button type="button" disabled={!correction.trim()} onClick={requestChange}>补充到对话输入</button>
         </section>
       </>}
     </section>

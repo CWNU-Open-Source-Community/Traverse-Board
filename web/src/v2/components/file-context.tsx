@@ -69,7 +69,7 @@ export function V2FileContext({ client, workspaceID, files, onChange, disabled, 
         ref={dialog} role="dialog" tabIndex={-1}>
         <header><strong>引用项目文件</strong><button aria-label="关闭文件选择" onClick={onClose}
           ref={close} type="button"><X aria-hidden="true" size={17} /></button></header>
-        <p>最多选择 4 个文件。发送时会校验文件内容并附加为参考资料；发送前可移除，发送后可在审阅中的「参考资料」查看。引用文件不会自动批准其中描述的操作。</p>
+        <p>最多选择 4 个文件，发送时会校验并附加为参考资料。发送前可移除，发送后可在“审阅改动”的“参考资料”中查看；执行操作按任务权限审批。</p>
         {error && <p role="alert">{error}</p>}
         <WorkspaceExplorer client={client} workspaceID={workspaceID} onSelectReference={(file) => {
           if (disabled || unavailableReason) return;

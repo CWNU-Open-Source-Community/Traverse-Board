@@ -2,7 +2,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { APIRequestError, type APIClient } from "../api/client";
-import type { GitHubReviewConnectionView, GitHubReviewWriteReviewResultView } from "../api/types";
+import type { GitHubReviewConnectionView, GitHubReviewWriteReviewResultView, GitHubReviewWriteSpecView } from "../api/types";
 import { standardCodeDeliveryFixture } from "../test/standard-code-delivery";
 import { GitHubReviewPanel } from "./github-review-panel";
 
@@ -54,6 +54,23 @@ function credentialView(selected = connection(), configured = true) {
     credential: { ...projection(selected).credential, configured } };
 }
 
+function threadProjection(resolved = false) {
+  const value = projection();
+  return { ...value, snapshots: [{ ...value.snapshots[0], threads: [{
+    id: "thread-current", resolved, outdated: false, path: "src/pagination.ts", line: 7,
+    comments: [{ node_id: "comment-1", author: "reviewer", created_at: now, updated_at: now,
+      body: { text: "Please retain the final page.", truncated: false, original_bytes: 29 },
+      position: { path: "src/pagination.ts", line: 7, side: "RIGHT" } }],
+  }] }] };
+}
+
+function reviewedOperation(spec: GitHubReviewWriteSpecView) {
+  const value = reviewedWrite();
+  const nextPreview = { ...value.preview, operation: spec.operation, target_id: spec.target_id,
+    review_event: spec.review_event, body_summary: spec.body, reviewers: spec.reviewers };
+  return { ...value, preview: nextPreview, operation: { ...value.operation, preview: nextPreview } };
+}
+
 function reviewedWrite(selected = connection(), runID = "run-1"): GitHubReviewWriteReviewResultView {
   const preview = { protocol_version: "github-review-write.v1", operation: "submit_review",
     approval_fingerprint: digest, identity: projection(selected).snapshots[0].identity,
@@ -92,6 +109,94 @@ function deferred<T>() {
 }
 
 describe("GitHubReviewPanel", () => {
+  it.each([
+    { operation: "reply", resolved: false },
+    { operation: "resolve", resolved: false },
+    { operation: "unresolve", resolved: true },
+  ])("previews $operation for a discussion from the exact current PR", async ({ operation, resolved }) => {
+    const user = userEvent.setup();
+    const source = threadProjection(resolved);
+    const reviewGitHubWrite = vi.fn().mockImplementation(async (_runID: string, body: { spec: GitHubReviewWriteSpecView }) =>
+      reviewedOperation(body.spec));
+    const executeGitHubWrite = vi.fn();
+    renderPanel(mockClient([connection()], { githubReviewProjection: vi.fn().mockResolvedValue(source),
+      reviewGitHubWrite, executeGitHubWrite }));
+    await user.selectOptions(await screen.findByLabelText("Review action"), operation);
+    expect(screen.getByRole("button", { name: "Create exact preview" })).toBeDisabled();
+    await user.selectOptions(screen.getByLabelText("Target discussion"), "thread-current");
+    if (operation === "reply") await user.type(screen.getByLabelText("Reply body"), "Fixed with a boundary test.");
+    await user.click(screen.getByRole("button", { name: "Create exact preview" }));
+    await waitFor(() => expect(reviewGitHubWrite).toHaveBeenCalledTimes(1));
+    const request = reviewGitHubWrite.mock.calls[0][1];
+    expect(request).toMatchObject({ connection_id: "connection-1", snapshot_id: "snapshot-1",
+      spec: { operation, target_id: "thread-current", reviewers: [],
+        identity: source.snapshots[0].identity, capability_generation: digest } });
+    expect(request.spec.review_event).toBeUndefined();
+    expect(request.spec.body).toBe(operation === "reply" ? "Fixed with a boundary test." : undefined);
+    expect(await screen.findByRole("button", { name: "Open approvals" })).toBeEnabled();
+    expect(executeGitHubWrite).not.toHaveBeenCalled();
+  });
+
+  it("retains a reply across approval navigation when overall review permission is absent", async () => {
+    const user = userEvent.setup();
+    const source = threadProjection();
+    source.snapshots[0].capability.review = false;
+    const reviewGitHubWrite = vi.fn().mockImplementation(async (_runID: string, body: { spec: GitHubReviewWriteSpecView }) =>
+      reviewedOperation(body.spec));
+    const executeGitHubWrite = vi.fn().mockResolvedValue({ receipt: { status: "succeeded" } });
+    const client = mockClient([connection()], { githubReviewProjection: vi.fn().mockResolvedValue(source),
+      reviewGitHubWrite, executeGitHubWrite });
+    const retainedChanges = vi.fn();
+    const first = renderPanel(client, undefined, vi.fn(), retainedChanges);
+    await user.selectOptions(await screen.findByLabelText("Review action"), "reply");
+    await user.selectOptions(screen.getByLabelText("Target discussion"), "thread-current");
+    await user.type(screen.getByLabelText("Reply body"), "Boundary fixed.");
+    await createPreview(user);
+    const retained = retainedChanges.mock.calls.at(-1)![0];
+    first.unmount();
+    renderPanel(client, retained);
+    await waitFor(() => expect(screen.getByRole("button", { name: "Execute approved write" })).toBeEnabled());
+    expect(screen.getByText("Boundary fixed.")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Execute approved write" }));
+    await waitFor(() => expect(executeGitHubWrite).toHaveBeenCalledWith("run-1", "write-1", "approval-1"));
+  });
+
+  it("normalizes reviewer names and requires a separate approval before requesting them", async () => {
+    const user = userEvent.setup();
+    const reviewGitHubWrite = vi.fn().mockImplementation(async (_runID: string, body: { spec: GitHubReviewWriteSpecView }) =>
+      reviewedOperation(body.spec));
+    const executeGitHubWrite = vi.fn();
+    renderPanel(mockClient([connection()], { reviewGitHubWrite, executeGitHubWrite }));
+    await user.selectOptions(await screen.findByLabelText("Review action"), "request_reviewer");
+    expect(screen.getByRole("button", { name: "Create exact preview" })).toBeDisabled();
+    await user.type(screen.getByLabelText("Reviewer usernames"), "zoe, ada zoe");
+    await createPreview(user);
+    expect(reviewGitHubWrite.mock.calls[0][1].spec).toMatchObject({ operation: "request_reviewer", reviewers: ["ada", "zoe"] });
+    expect(reviewGitHubWrite.mock.calls[0][1].spec.body).toBeUndefined();
+    expect(executeGitHubWrite).not.toHaveBeenCalled();
+    await user.type(screen.getByLabelText("Reviewer usernames"), ", @invalid");
+    expect(screen.getByRole("button", { name: "Create exact preview" })).toBeDisabled();
+    expect(screen.queryByRole("button", { name: "Execute approved write" })).not.toBeInTheDocument();
+  });
+
+  it("shows discussion evidence for a read-only connection without exposing write controls", async () => {
+    const selected = { ...connection(), network: { ...connection().network, write_enabled: false } };
+    renderPanel(mockClient([selected], { githubReviewProjection: vi.fn().mockResolvedValue({ ...threadProjection(), connection: selected }) }));
+    expect(await screen.findByText("Please retain the final page.")).toBeInTheDocument();
+    expect(screen.queryByLabelText("Review action")).not.toBeInTheDocument();
+  });
+
+  it("does not offer resolve for an already resolved discussion or unsupported reviewer requests", async () => {
+    const user = userEvent.setup();
+    const source = threadProjection(true);
+    source.snapshots[0].capability.request_reviewer = false;
+    renderPanel(mockClient([connection()], { githubReviewProjection: vi.fn().mockResolvedValue(source) }));
+    await user.selectOptions(await screen.findByLabelText("Review action"), "resolve");
+    expect(screen.getByRole("option", { name: "Request reviewers" })).toBeDisabled();
+    expect(screen.getByRole("option", { name: /src\/pagination.ts:7/ })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Create exact preview" })).toBeDisabled();
+  });
+
   it("retains the original exact preview across approval-panel unmount and remount", async () => {
     const user = userEvent.setup();
     const onOpenDelivery = vi.fn();
@@ -108,7 +213,7 @@ describe("GitHubReviewPanel", () => {
 
     expect(await screen.findByText(digest)).toBeInTheDocument();
     expect(screen.getByLabelText("PR number")).toHaveValue(118);
-    expect(screen.getByText("Delivery truth")).toBeInTheDocument();
+    expect(screen.getByText("Delivery checks")).toBeInTheDocument();
     expect(screen.getByText("f".repeat(64))).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Open delivery" }));
     expect(onOpenDelivery).toHaveBeenCalledTimes(1);
@@ -151,14 +256,40 @@ describe("GitHubReviewPanel", () => {
     const selected = { ...connection(), enabled: false, client_id: undefined,
       credential: { name: "existing-pat", kind: "fine_grained_pat" } };
     const configureGitHubReview = vi.fn().mockResolvedValue({ connection: { ...selected, generation: 2 } });
-    renderPanel(mockClient([selected], { configureGitHubReview }));
+    renderPanel(mockClient([selected], { configureGitHubReview,
+      githubReviewCredential: vi.fn().mockResolvedValue(credentialView(selected, false)) }));
     await screen.findByDisplayValue("existing-pat");
+    expect(await screen.findByText(/This connection is disabled. Select an enabled GitHub connection/u)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Device sign-in" })).not.toBeInTheDocument();
     expect(screen.getByLabelText("GitHub App Client ID")).toBeDisabled();
     await user.click(screen.getByRole("button", { name: "Update connection" }));
     await waitFor(() => expect(configureGitHubReview).toHaveBeenCalledWith(expect.objectContaining({
       credential: selected.credential, client_id: undefined, enabled: false, expected_generation: 1,
     })));
+  });
+
+  it.each(["fine_grained_pat", "oauth_user"] as const)("guides missing %s credentials to an existing reference update", async (kind) => {
+    const user = userEvent.setup();
+    let selected = { ...connection(), client_id: undefined, credential: { name: "missing-credential", kind } };
+    const configureGitHubReview = vi.fn().mockImplementation(async (body) => {
+      selected = { ...selected, credential: body.credential, generation: selected.generation + 1 };
+      return { connection: selected };
+    });
+    renderPanel(mockClient([selected], { configureGitHubReview,
+      githubReviewCredential: vi.fn().mockImplementation(async () => credentialView(selected, selected.credential.name === "saved-credential")),
+      githubReviewConnections: vi.fn().mockImplementation(async () => [credentialView(selected, selected.credential.name === "saved-credential")]),
+    }));
+    expect(await screen.findByText(`The local ${kind === "fine_grained_pat" ? "PAT" : "OAuth"} credential is missing. Enter a stored credential name of the same type in Credential reference and select Update connection. For device sign-in, choose New connection to configure a GitHub App.`)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Device sign-in" })).not.toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "New connection" })).toBeEnabled();
+    await user.clear(screen.getByLabelText("Credential reference"));
+    await user.type(screen.getByLabelText("Credential reference"), "saved-credential");
+    await user.click(screen.getByRole("button", { name: "Update connection" }));
+    await waitFor(() => expect(configureGitHubReview).toHaveBeenCalledWith(expect.objectContaining({
+      credential: { name: "saved-credential", kind }, expected_generation: 1, enabled: true,
+    })));
+    expect(await screen.findByText("Local credential is configured.")).toBeInTheDocument();
+    expect(screen.queryByText(/credential is missing/u)).not.toBeInTheDocument();
   });
 
   it("keeps explicit new-connection mode and creates with generation zero", async () => {
@@ -239,7 +370,7 @@ describe("GitHubReviewPanel", () => {
     expect(await screen.findByText("DEVICE-CODE")).toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: "Delete local credential…" }));
     expect(screen.getByRole("dialog", { name: "Delete local GitHub credential" })).toBeInTheDocument();
-    expect(screen.getByText(/this does not revoke authorization on GitHub/)).toBeInTheDocument();
+    expect(screen.getByText(/GitHub authorization stays active/)).toBeInTheDocument();
     expect(disconnectGitHubReview).not.toHaveBeenCalled();
     await user.click(screen.getByRole("button", { name: "Cancel" }));
     expect(screen.getByText("DEVICE-CODE")).toBeInTheDocument();
@@ -247,7 +378,7 @@ describe("GitHubReviewPanel", () => {
     await user.click(within(screen.getByRole("dialog")).getByRole("button", { name: "Delete local credential" }));
     await waitFor(() => expect(disconnectGitHubReview).toHaveBeenCalledWith("connection-1"));
     expect(await screen.findByText("Local credential deleted for this connection.")).toBeInTheDocument();
-    expect(await screen.findByText("No local credential is configured.")).toBeInTheDocument();
+    expect(await screen.findByText("Use device sign-in to configure the local credential.")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Delete local credential…" })).toBeDisabled();
     expect(screen.queryByText("DEVICE-CODE")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Execute approved write" })).not.toBeInTheDocument();
@@ -267,17 +398,19 @@ describe("GitHubReviewPanel", () => {
     expect(screen.queryByText("Local credential deleted for this connection.")).not.toBeInTheDocument();
   });
 
-  it("gates credential deletion on process control and credential store capability", async () => {
+  it.each([true, false])("gates credential actions when storage is unavailable with configured=%s", async (configured) => {
     const disconnectGitHubReview = vi.fn();
     const { unmount } = renderPanel(mockClient([connection()], { hasGitHubReviewControl: false, disconnectGitHubReview }));
     expect(screen.queryByRole("button", { name: "Delete local credential…" })).not.toBeInTheDocument();
     unmount();
-    const unavailable = credentialView();
+    const unavailable = credentialView(connection(), configured);
     unavailable.credential.store_available = false;
     renderPanel(mockClient([connection()], { githubReviewCredential: vi.fn().mockResolvedValue(unavailable), disconnectGitHubReview }));
-    await screen.findByText("Local credential is configured.");
+    await screen.findByText(/The system credential store is unavailable/u);
     expect(screen.getByRole("button", { name: "Delete local credential…" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Device sign-in" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Reload latest settings" })).toBeEnabled();
+    expect(screen.queryByText("Use device sign-in to configure the local credential.")).not.toBeInTheDocument();
     expect(disconnectGitHubReview).not.toHaveBeenCalled();
   });
 
@@ -384,7 +517,7 @@ describe("GitHubReviewPanel", () => {
     await screen.findByText("Local credential is configured.");
     signedIn = false;
     await act(async () => request.resolve(credentialView(connection(), false)));
-    expect(await screen.findByText("No local credential is configured.")).toBeInTheDocument();
+    expect(await screen.findByText("Use device sign-in to configure the local credential.")).toBeInTheDocument();
     expect(screen.getByLabelText("GitHub connection")).toHaveValue(second.id);
     expect(screen.queryByText("Local credential deleted for this connection.")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Create exact preview" })).toBeDisabled();
@@ -517,7 +650,7 @@ describe("GitHubReviewPanel", () => {
     const { queryClient } = renderPanel(mockClient([connection()], { disconnectGitHubReview }));
     await screen.findByText("Local credential is configured.");
     await user.click(screen.getByRole("button", { name: "Delete local credential…" }));
-    expect(screen.getByText(/local credential currently used by connection connection-1 \(acme\/widget\)/)).toBeInTheDocument();
+    expect(screen.getByText(/local credential used by connection connection-1 \(acme\/widget\)/)).toBeInTheDocument();
     const next = credentialView({ ...connection(), generation: 2, credential: { name: "updated-reference", kind: "github_app_device" } });
     await act(async () => queryClient.setQueryData(["github-review", "credential", "connection-1"], next));
     expect(await screen.findByText("Connection settings changed. Reload the latest settings before deleting its local credential.")).toBeInTheDocument();

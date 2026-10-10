@@ -10,15 +10,13 @@ export function V2InspectorHome({ client, onOpenTool, onOpenSettings }: {
   onOpenSettings: (section: V2SettingsSection) => void;
 }) {
   return <main className="v2-inspector-home">
-    <Microscope aria-hidden="true" size={28} /><h1>Inspector</h1>
-    <p>从侧栏选择一个对话，查看它的执行记录、工具结果与诊断详情。</p>
-    <p>顶部可随时切回对话，未发送的输入会保留。</p>
+    <Microscope aria-hidden="true" size={28} /><h1>观察与记录</h1>
+    <p>从侧栏选择一个对话查看执行记录，或打开下方的精确运行与会话。</p>
+    <p>返回对话后可以继续编辑已保留的草稿。</p>
     <InspectorRecordBrowser client={client} onOpen={onOpenTool} />
-    <details className="v2-inspector-home-utilities"><summary>其他检查工具</summary>
-      <div><button onClick={() => onOpenTool("schedule")} type="button">
+    <nav className="v2-inspector-home-utilities" aria-label="观察与连接"><button onClick={() => onOpenTool("schedule")} type="button">
       <CalendarClock aria-hidden="true" size={16} />定时观察</button>
-      <button onClick={() => onOpenSettings("about")} type="button">
-        <Settings aria-hidden="true" size={16} />连接与诊断</button></div>
-    </details>
+      <button onClick={() => onOpenSettings("connections")} type="button">
+        <Settings aria-hidden="true" size={16} />连接与环境</button></nav>
   </main>;
 }

@@ -57,11 +57,11 @@ export function V2ApplicationPreview({ client, runID, threadID, onClose, returnF
       <header><h2>应用预览</h2><button aria-label="收起应用预览" type="button" ref={closeButton} onClick={onClose}><X size={20} /></button></header>
       <section className="v2-preview-services" aria-label="应用后台服务">
         <h3>项目命令与后台服务</h3>
-        <p className="v2-preview-help">启动要求先放回对话草稿，由你确认发送。服务进程状态与浏览器状态分别读取。</p>
+        <p className="v2-preview-help">先把启动要求放回草稿，确认发送后在这里查看服务状态、启动输出和页面预览。</p>
         <button type="button" disabled={!canRequestStart || startRequest?.phase === "submitting" || startRequest?.phase === "unconfirmed"}
           onClick={onRequestStart}>把启动要求放回草稿</button>
         {startRequest && <p role="status">{applicationPreviewRequestCopy(startRequest, !services.isError && related.length > 0)}</p>}
-        <p className="v2-preview-identity">所属 Thread <code>{threadID}</code></p>
+        <details className="v2-preview-identity"><summary>预览来源</summary><p>所属任务 <code>{threadID}</code></p></details>
         {!servicesReadable ? <p role="status">当前连接未提供后台服务状态。</p>
           : services.isLoading ? <p role="status">正在读取后台服务记录…</p>
             : services.isError ? <div role="alert"><p>无法读取后台服务状态，请重试核对。</p>
@@ -76,18 +76,20 @@ export function V2ApplicationPreview({ client, runID, threadID, onClose, returnF
             <span>{serviceStateCopy(service.state, service.can_stop)}{related.some((item) => item.job_id === service.job_id) ? " · 本次启动要求" : ""}</span>
           </button></li>)}</ul>}
         {services.data?.has_more && <p role="status">当前只展示最近一批后台任务，列表尚未完整。</p>}
-        {records.length > 1 && !selected && <p role="status">请选择要查看的后台任务；停止只作用于选中的 Run 和 Job。</p>}
+        {records.length > 1 && !selected && <p role="status">请选择要查看的后台任务，预览与停止操作都以所选服务为范围。</p>}
         {selectedJobID && !selected && <p role="status">所选任务不在当前列表，请重新选择或使用当前执行的手动地址。</p>}
-        {records.length > 0 && <button type="button" onClick={() => setSelectedJobID("")}>手动输入当前 Run 的地址</button>}
+        {records.length > 0 && <button type="button" onClick={() => setSelectedJobID("")}>手动输入当前执行的地址</button>}
         {source && <div className="v2-preview-service-detail">
-          <p className="v2-preview-identity">服务 Run <code>{source.run_id}</code> · Job <code>{source.job_id}</code></p>
+          <details className="v2-preview-identity"><summary>服务来源与标识</summary>
+            <p>来源执行 <code>{source.run_id}</code> · 服务 <code>{source.job_id}</code></p>
+            {source.source_message_id && <p>来源消息 <code>{source.source_message_id}</code></p>}
+          </details>
           <p role="status">{serviceDetail.isError || services.isError ? "当前服务状态未确认" : serviceStateCopy(source.state, source.can_stop)}
             {source.exit_code !== undefined && ` · 退出码 ${source.exit_code}`}</p>
-          {source.source_message_id ? <p className="v2-preview-help">来源消息 <code>{source.source_message_id}</code></p>
-            : <p className="v2-preview-help">该后台任务没有可核对的来源消息，不能确定属于本次启动要求。</p>}
+          {!source.source_message_id && <p className="v2-preview-help">该服务的来源消息待确认，请结合启动输出核对它是否属于本次要求。</p>}
           {source.can_stop && <button disabled={!serviceReadable || stop.isPending || client.hasControl === false}
             onClick={stopSelected} type="button">{stop.isPending && stop.variables?.jobID === source.job_id ? "正在请求停止命令…" : "停止此命令"}</button>}
-          <p className="v2-preview-help">收起面板或关闭浏览器不会停止服务。停止此服务只请求清理以上 Run / Job。</p>
+          <p className="v2-preview-help">服务会在收起面板或关闭浏览器后继续运行。需要结束时，点击“停止此命令”，清理范围为所选服务。</p>
           {stop.isError && stop.variables?.jobID === source.job_id && <p role="alert">停止服务未确认完成，请核对状态后重试。
             {stop.error.message}</p>}
           {serviceDetail.isLoading && <p role="status">正在读取启动输出…</p>}
@@ -229,7 +231,7 @@ function V2PreviewBrowser({ client, runID, threadID, currentRunID, sourceService
     } finally { actionInFlight.current = false; }
   }, onSuccess: (result) => { setPreview(result); setValues({}); },
   onError: (failure) => setError(`${failure instanceof APIRequestError
-    ? "页面操作未确认完成，当前页面或授权状态可能已变化。" : failure.message} 请刷新观察结果后再决定下一步，操作不会自动重发。`) });
+    ? "页面操作结果尚待确认，当前页面或授权状态可能已变化。" : failure.message} 请刷新页面预览，核对结果后再发起操作。`) });
   useEffect(() => {
     if (!active) return;
     if (current?.browser?.product) setProduct(current.browser.product);
@@ -260,7 +262,7 @@ function V2PreviewBrowser({ client, runID, threadID, currentRunID, sourceService
   const visibleElements = preview?.page.elements.filter((element) => element.type !== "hidden") ?? [];
   return <section className="v2-preview-browser" aria-label="预览浏览器控制">
       <h3>浏览器</h3>
-      <p className="v2-preview-identity">浏览器所属 Run <code>{runID}</code></p>
+      <details className="v2-preview-identity"><summary>浏览器来源</summary><p>来源执行 <code>{runID}</code></p></details>
       {!client.hasFullCDPSessionControl ? <p role="status">当前连接未开放托管浏览器。后台服务状态与日志仍可在上方查看；网页预览需支持托管浏览器的服务及当前任务权限。</p> : <>
         {sourceService && (!runUsable || !serviceAllowsOpen) && <p role="status">
           {detail.isLoading ? "正在核对服务所属执行…" : !sourceReadable ? "服务状态尚未确认，请先重试核对。"
@@ -282,8 +284,8 @@ function V2PreviewBrowser({ client, runID, threadID, currentRunID, sourceService
         </div>
         {!active && <p className="v2-preview-help">填写开发服务显示的本机地址。打开后，当前任务可以操作这个独立浏览器；使用临时浏览器资料，关闭或到期后清理。
           </p>}
-        {!eligible && <div className="v2-preview-help">当前预览需要已激活的 Full 权限。
-          {runID === currentRunID ? <V2PermissionControl client={client} threadID={threadID} /> : <span>这是历史执行的权限；请回到对应执行核对，不能使用当前任务的权限替代。</span>}</div>}
+        {!eligible && <div className="v2-preview-help">打开预览需要先确认完全访问权限。
+          {runID === currentRunID ? <V2PermissionControl client={client} threadID={threadID} /> : <span>此服务来自历史执行，请回到对应执行核对权限。</span>}</div>}
         {eligible && !cdpEnabled && <div className="v2-preview-help">浏览器控制目前关闭。启用后，当前任务能读取、操作此独立浏览器及其网络请求。
           {runID === currentRunID ? <button disabled={enable.isPending || !runUsable || !client.hasBrowserCDPPermissionControl || !client.hasFullCDPDebug} type="button" onClick={() => enable.mutate()}>允许任务控制预览浏览器</button>
             : <span>请回到服务所属执行核对浏览器权限。</span>}</div>}

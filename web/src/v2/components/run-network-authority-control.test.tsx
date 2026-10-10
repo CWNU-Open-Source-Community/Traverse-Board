@@ -67,8 +67,8 @@ describe("V2RunNetworkAuthorityControl", () => {
     expect(within(popover).getByText("直接 URL 抓取")).toBeInTheDocument();
     expect(within(popover).getByText(/供应商搜索 · 搜索配置就绪/u)).toBeInTheDocument();
     expect(within(popover).getByText("search.example.org")).toBeInTheDocument();
-    expect(within(popover).getByText(/只访问供应商 API/u)).toBeInTheDocument();
-    expect(within(popover).getByText(/只追加明确的公网 HTTPS 主机/u)).toBeInTheDocument();
+    expect(within(popover).getByText(/搜索使用供应商接口/u)).toBeInTheDocument();
+    expect(within(popover).getByText(/填写要访问的公网 HTTPS 主机/u)).toBeInTheDocument();
   });
 
   it.each(["ask", "auto", "full", "full_access", "debug"] as const)(
@@ -204,7 +204,7 @@ describe("V2RunNetworkAuthorityControl", () => {
     renderControl("running");
     const input = await screen.findByRole("textbox", { name: "追加允许的 HTTPS 主机" });
     await waitFor(() => expect(input).toBeDisabled());
-    expect(await screen.findByText(/需在 created\/paused 静止边界追加/u)).toBeInTheDocument();
+    expect(await screen.findByText(/暂停执行并等待资源释放后追加范围/u)).toBeInTheDocument();
   });
 
   it("rejects broad and path-bearing targets before confirmation", async () => {
