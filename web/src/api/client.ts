@@ -27,6 +27,8 @@ import {
   parseGitHubWriteReview,
 } from "./github-review";
 import { parseStandardCodeDelivery } from "./standard-code-delivery";
+import { parseSandboxEnvironment, sandboxSettingsMatch, validSandboxEnvironmentRequest } from "./sandbox-environment";
+import type { SandboxEnvironmentControlRequestView, SandboxEnvironmentView } from "./types";
 import type {
   ThreadTurnFailureReferenceView,
   ApprovalDecisionControlRequestView,
@@ -3178,6 +3180,7 @@ const capabilityReadinessBlockers = [
   "capability_not_implemented", "surface_mismatch", "profile_mismatch",
   "permission_mismatch", "workspace_untrusted", "sandbox_unproven",
   "docker_unavailable", "backend_not_ready",
+  "sbx_unavailable",
 ] as const;
 
 const capabilityReadinessRemediations = [
@@ -3185,6 +3188,7 @@ const capabilityReadinessRemediations = [
   "restart_with_startup_gate", "upgrade_application", "select_required_surface",
   "select_required_profile", "select_required_permission", "trust_workspace",
   "verify_sandbox", "install_or_start_docker", "retry_backend_readiness",
+  "install_or_start_sbx",
 ] as const;
 
 type ReadinessBlocker = typeof capabilityReadinessBlockers[number];
@@ -3202,6 +3206,7 @@ const readinessRemediationForBlocker: Record<ReadinessBlocker,
   workspace_untrusted: "trust_workspace",
   sandbox_unproven: "verify_sandbox",
   docker_unavailable: "install_or_start_docker",
+  sbx_unavailable: "install_or_start_sbx",
   backend_not_ready: "retry_backend_readiness",
 };
 
@@ -3257,7 +3262,7 @@ function parseCapabilityReadinessOption(value: unknown,
   const runtimeFailureBlockers: ReadinessBlocker[] = [
     "capability_not_implemented", "surface_mismatch", "profile_mismatch",
     "permission_mismatch", "workspace_untrusted", "sandbox_unproven",
-    "docker_unavailable", "backend_not_ready",
+    "docker_unavailable", "backend_not_ready", "sbx_unavailable",
   ];
   if (value.runtime_available &&
     blockers.some((entry) => runtimeFailureBlockers.includes(entry as ReadinessBlocker))) {
@@ -3304,7 +3309,8 @@ function parseRunCapabilityReadiness(value: unknown,
   }
   const groups: Array<[unknown, readonly string[], boolean]> = [
     [value.permissions, ["ask", "auto", "full"], true],
-    [value.profiles, ["preview", "docker", "local"], true],
+    [value.profiles, Array.isArray(value.profiles) && value.profiles.some((option) => isRecord(option) && option.value === "sbx")
+      ? ["preview", "docker", "local", "sbx"] : ["preview", "docker", "local"], true],
     [value.interactions, ["preview", "controlled", "debug", "cyber"], true],
     [value.browser_cdp_permissions, ["restricted", "full_debug"], true],
     [value.presets, ["standard_code"], false],
@@ -3328,10 +3334,11 @@ function parseRunCapabilityReadiness(value: unknown,
 const standardCodeNextSteps = [
   "confirm_workspace_trust", "pause_and_configure", "wait_for_quiescence",
   "select_docker", "select_ask", "retry_readiness", "create_new_run",
+  "select_sbx",
 ] as const;
 
 function parseStandardCodeBackendReadiness(value: unknown,
-  backend: "local" | "docker"): void {
+  backend: "local" | "docker" | "sbx"): void {
   if (!hasExactKeys(value, ["available", "backend", "blocked_by", "remediation"]) ||
     value.backend !== backend || typeof value.available !== "boolean" ||
     !Array.isArray(value.blocked_by) || !Array.isArray(value.remediation) ||
@@ -3357,12 +3364,12 @@ function parseStandardCodePreset(value: unknown,
     "workspace_id"];
   const optional = ["browser_cdp_permission", "execution_interaction",
     "execution_permission", "execution_profile", "mode", "run", "run_id",
-    "selected_backend", "selection_reason", "trust_digest"];
+    "selected_backend", "selection_reason", "trust_digest", "sbx_readiness"];
   if (!isRecord(value) || !hasOnlyKeys(value, [...required, ...optional]) ||
     required.some((key) => !Object.prototype.hasOwnProperty.call(value, key)) ||
     value.protocol_version !== "standard_code_preset.v1" ||
     value.action !== expectedAction ||
-    !["auto", "local", "docker"].includes(String(value.backend_intent)) ||
+    !["auto", "local", "docker", "sbx"].includes(String(value.backend_intent)) ||
     !["blocked", "waiting_for_pause", "configured"].includes(String(value.status)) ||
     !boundedIdentity(value.workspace_id) || value.network !== "disabled" ||
     value.credentials !== "none" || value.capability_grant !== false ||
@@ -3382,6 +3389,10 @@ function parseStandardCodePreset(value: unknown,
   }
   parseStandardCodeBackendReadiness(value.local_readiness, "local");
   parseStandardCodeBackendReadiness(value.docker_readiness, "docker");
+  if (value.sbx_readiness !== undefined) parseStandardCodeBackendReadiness(value.sbx_readiness, "sbx");
+  if (value.backend_intent === "sbx" && value.sbx_readiness === undefined) {
+    throw new APIRequestError("Standard Code sbx readiness is missing", "INVALID_RESPONSE", 502);
+  }
 
   const selected = value.selected_backend;
   const reason = value.selection_reason;
@@ -3390,7 +3401,8 @@ function parseStandardCodePreset(value: unknown,
       ((value.backend_intent === "auto" && reason === "auto_local_ready") ||
         (value.backend_intent === "local" && reason === "explicit_local"))) ||
     (selected === "docker" && value.backend_intent === "docker" &&
-      reason === "explicit_docker");
+      reason === "explicit_docker") ||
+    (selected === "sbx" && value.backend_intent === "sbx" && reason === "explicit_sbx");
   const trustDigestPresent = Object.prototype.hasOwnProperty.call(value, "trust_digest");
   if (!selectionValid ||
     (Object.prototype.hasOwnProperty.call(value, "run_id") && !boundedIdentity(value.run_id)) ||
@@ -6724,7 +6736,7 @@ export class APIClient {
     }
     if (!boundedIdentity(runID) || runID.trim() !== runID ||
       body.version !== "standard_code_preset.v1" ||
-      !["auto", "local", "docker"].includes(body.backend_intent) ||
+      !["auto", "local", "docker", "sbx"].includes(body.backend_intent) ||
       body.workspace_id !== undefined || body.goal !== undefined ||
       body.confirm_workspace_trust !== (body.expected_trust_digest !== undefined) ||
       (body.expected_trust_digest !== undefined && !isSHA256(body.expected_trust_digest))) {
@@ -6734,7 +6746,11 @@ export class APIClient {
       ? "/standard-code/pause-and-configure" : "/standard-code/preset";
     const result = await this.sendControl<unknown>(
       `/runs/${encodeURIComponent(runID)}${suffix}`, body, idempotencyKey, signal);
-    return parseStandardCodePreset(result, action);
+    const parsed = parseStandardCodePreset(result, action);
+    if (parsed.backend_intent !== body.backend_intent) {
+      throw new APIRequestError("Standard Code response changed the requested backend", "INVALID_RESPONSE", 502);
+    }
+    return parsed;
   }
 
   async createStandardCode(body: StandardCodePresetControlRequestView,
@@ -6745,7 +6761,7 @@ export class APIClient {
     const workspaceID = boundedIdentity(body.workspace_id);
     const goal = body.goal;
     if (body.version !== "standard_code_preset.v1" ||
-      !["auto", "local", "docker"].includes(body.backend_intent) ||
+      !["auto", "local", "docker", "sbx"].includes(body.backend_intent) ||
       workspaceID !== body.workspace_id || typeof goal !== "string" ||
       goal.trim() !== goal || goal.length === 0 || goal.includes("\0") ||
       new TextEncoder().encode(goal).byteLength > 4096 ||
@@ -8887,6 +8903,24 @@ export class APIClient {
     }
     const result = await this.sendControl<unknown>("/models/prices", body, idempotencyKey, signal);
     return parsePriceSnapshotImport(result);
+  }
+
+  async getSandboxEnvironment(signal?: AbortSignal): Promise<SandboxEnvironmentView> {
+    const value = await this.get<unknown>("/sandbox/environment", {}, signal);
+    try { return parseSandboxEnvironment(value); }
+    catch { throw new APIRequestError("Sandbox environment response is invalid", "INVALID_RESPONSE", 502); }
+  }
+
+  async saveSandboxEnvironment(body: SandboxEnvironmentControlRequestView, signal?: AbortSignal): Promise<SandboxEnvironmentView> {
+    if (!this.hasControl || !validSandboxEnvironmentRequest(body)) throw new Error("Complete sandbox settings and their current revision are required");
+    const value = await this.sendControlRequest<unknown>("/sandbox/environment", body, signal, "", "PUT");
+    let result: SandboxEnvironmentView;
+    try { result = parseSandboxEnvironment(value); }
+    catch { throw new APIRequestError("Sandbox environment response is invalid", "INVALID_RESPONSE", 502); }
+    if (!sandboxSettingsMatch(result.settings, body.settings) || result.revision !== body.expected_revision + 1) {
+      throw new APIRequestError("Sandbox settings receipt changed the saved request", "INVALID_RESPONSE", 502);
+    }
+    return result;
   }
 
   async getDockerEnvironment(signal?: AbortSignal): Promise<DockerEnvironmentView> {

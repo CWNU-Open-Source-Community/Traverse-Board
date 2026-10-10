@@ -190,6 +190,23 @@
         "selectable": true,
         "selected": true,
         "value": "local"
+      },
+      {
+        "blocked_by": [
+          "startup_gate_closed",
+          "workspace_untrusted",
+          "sbx_unavailable"
+        ],
+        "remediation": [
+          "restart_with_startup_gate",
+          "trust_workspace",
+          "install_or_start_sbx"
+        ],
+        "restart_required": true,
+        "runtime_available": false,
+        "selectable": true,
+        "selected": false,
+        "value": "sbx"
       }
     ],
     "protocol_version": "run_capability_readiness.v1",

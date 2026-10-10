@@ -256,5 +256,6 @@ The complete slice ledger remains in [PROGRESS_BOOK](PROGRESS_BOOK.md), current 
 | v185 | 现有命令 Job 账本记录显式操作者调用来源 | Explicit operator invocation provenance in the existing command Job ledger |
 | v186 | 受控任务创建支持有界预算与只能收紧的项目配置，固定 Run 配置快照并保留旧创建约束 | admit bounded budgets and narrowing-only project configuration in controlled task creation, pin Run configuration snapshots and preserve legacy creation guards |
 | v187 | 在现有 Hook 审计中追加版本绑定的 Plugin 指纹、声明动作、可空观测拒绝结果及工作区查询索引，保留旧 outcome 与未知决策，并约束新记录一致性 | append version-bound Plugin fingerprints, declared actions, nullable observed rejection decisions and a workspace query index to existing Hook audits; preserve historical outcomes and unknown decisions and enforce consistency for new records |
+| v188 | 在现有 Run 执行配置、受控交互与 Standard Code 预设快照中接入显式 sbx 后端，保留旧记录、审批约束和 Thread 延续触发器 | admit an explicit sbx backend in existing Run execution profiles, controlled interaction and Standard Code preset snapshots while preserving historical records, approval constraints and Thread continuation triggers |
 
 </details>

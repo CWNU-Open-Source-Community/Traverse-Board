@@ -55,16 +55,32 @@ func (s *DockerSandboxService) Start(ctx context.Context,
 	request DockerSandboxStartRequest,
 ) (DockerSandboxStartResult, error) {
 	if err := s.requireExecutionConfigured(); err != nil {
+		noteDockerCommandRuntimeDispatchPossible(ctx)
 		return DockerSandboxStartResult{}, err
 	}
 	normalized, err := normalizeDockerSandboxStartRequest(request)
 	if err != nil {
+		noteDockerCommandRuntimeDispatchPossible(ctx)
 		return DockerSandboxStartResult{}, apperror.Wrap(apperror.CodeInvalidArgument,
 			"Docker Sandbox start request is invalid", err)
 	}
-	record, err := s.store.GetDockerSandboxRecord(ctx, normalized.AdmissionID)
+	// The process-local admission gate covers the read and Start WAL as well as
+	// execution. Another Start or admission-only Cancel cannot dispatch between
+	// observing no previous Start/Launch and a definite pre-lifecycle refusal.
+	activeCtx, cancel, err := s.registerActive(normalized.AdmissionID, ctx)
 	if err != nil {
+		noteDockerCommandRuntimeDispatchPossible(ctx)
+		return DockerSandboxStartResult{}, err
+	}
+	defer s.unregisterActive(normalized.AdmissionID)
+	defer cancel()
+	record, err := s.store.GetDockerSandboxRecord(activeCtx, normalized.AdmissionID)
+	if err != nil {
+		noteDockerCommandRuntimeDispatchPossible(ctx)
 		return DockerSandboxStartResult{}, apperror.Normalize(err)
+	}
+	if record.Start != nil || record.Launch != nil {
+		noteDockerCommandRuntimeDispatchPossible(ctx)
 	}
 	if normalized.RequestedBy != record.Admission.RequestedBy {
 		return DockerSandboxStartResult{}, apperror.New(apperror.CodePolicyDenied,
@@ -94,6 +110,12 @@ func (s *DockerSandboxService) Start(ctx context.Context,
 				apperror.CodeFailedPrecondition,
 				"Docker Sandbox admission belongs to a previous runtime epoch")
 		}
+		now := s.now().UTC()
+		if !now.Before(record.Admission.ReadinessExpiresAt) {
+			return DockerSandboxStartResult{}, apperror.New(
+				apperror.CodeFailedPrecondition,
+				"Docker Sandbox readiness expired before its first start")
+		}
 		start := domain.DockerSandboxStartIntent{
 			AdmissionID:             record.Admission.ID,
 			ProtocolVersion:         domain.DockerSandboxStartProtocolVersion,
@@ -101,12 +123,18 @@ func (s *DockerSandboxService) Start(ctx context.Context,
 			RequestFingerprint:      requestFingerprint,
 			RuntimeEpochFingerprint: s.runtimeEpochFingerprint,
 			RunID:                   record.Admission.RunID, RequestedBy: normalized.RequestedBy,
-			CreatedAt: s.now().UTC(),
+			CreatedAt: now,
 		}
 		start.StartFingerprint = domain.DockerSandboxStartFingerprint(start)
-		stored, _, beginErr := s.store.BeginDockerSandboxStart(ctx, start)
+		stored, replayed, beginErr := s.store.BeginDockerSandboxStart(activeCtx, start)
 		if beginErr != nil {
+			// A read or commit failure cannot prove that a Start WAL was absent
+			// or rolled back; preserve recovery until durable cleanup is known.
+			noteDockerCommandRuntimeDispatchPossible(ctx)
 			return DockerSandboxStartResult{}, apperror.Normalize(beginErr)
+		}
+		if replayed {
+			noteDockerCommandRuntimeDispatchPossible(ctx)
 		}
 		record.Start = &stored
 	}
@@ -114,7 +142,7 @@ func (s *DockerSandboxService) Start(ctx context.Context,
 		record.Replayed = true
 		return DockerSandboxStartResult{Record: record, Replayed: true}, nil
 	}
-	result, err := s.executeAdmission(ctx, record)
+	result, err := s.executeActiveAdmission(activeCtx, record)
 	return DockerSandboxStartResult{Record: result, Replayed: result.Replayed}, err
 }
 
@@ -144,12 +172,18 @@ func (s *DockerSandboxService) Cancel(ctx context.Context,
 		return DockerSandboxCancelResult{}, apperror.New(apperror.CodePolicyDenied,
 			"Docker Sandbox cancel requester does not own the admission")
 	}
+	digest := runmutation.Fingerprint(dockerSandboxCancelOperationProtocol,
+		record.Admission.ID, record.Admission.RunID, request.OperationKey)
 	if record.Receipt != nil {
 		if existing, found, lookupErr := s.store.GetDockerSandboxCancellation(ctx,
 			record.Admission.ID); lookupErr != nil {
 			return DockerSandboxCancelResult{}, apperror.Normalize(lookupErr)
 		} else if found && record.Receipt.Outcome ==
 			domain.DockerSandboxOutcomeCancelled {
+			if existing.OperationKeyDigest != digest || existing.RequestedBy != request.RequestedBy {
+				return DockerSandboxCancelResult{}, apperror.New(apperror.CodeConflict,
+					"Docker Sandbox admission already has a different cancellation request")
+			}
 			record.Replayed = true
 			return DockerSandboxCancelResult{Cancellation: existing, Record: record,
 				Replayed: true}, nil
@@ -158,9 +192,17 @@ func (s *DockerSandboxService) Cancel(ctx context.Context,
 			apperror.CodeFailedPrecondition,
 			"Docker Sandbox attempt is already terminal")
 	}
-	digest := runmutation.Fingerprint(dockerSandboxCancelOperationProtocol,
-		record.Admission.ID, record.Admission.RunID, request.OperationKey)
 	now := s.now().UTC()
+	// An active cancellation can be durable before cleanup has a receipt. Reuse
+	// its server-owned timestamp so an identical retry keeps the original exact
+	// fingerprint; the existing store transaction still checks every binding.
+	if existing, found, lookupErr := s.store.GetDockerSandboxCancellation(ctx,
+		record.Admission.ID); lookupErr != nil {
+		return DockerSandboxCancelResult{}, apperror.Normalize(lookupErr)
+	} else if found && existing.OperationKeyDigest == digest &&
+		existing.RequestedBy == request.RequestedBy {
+		now = existing.RequestedAt
+	}
 	cancellation := domain.DockerSandboxCancellation{
 		ID:              "docker-sandbox-cancel-" + digest[:24],
 		AdmissionID:     record.Admission.ID,
@@ -172,6 +214,25 @@ func (s *DockerSandboxService) Cancel(ctx context.Context,
 	cancellation.CancellationFingerprint =
 		domain.DockerSandboxCancellationFingerprint(cancellation)
 	stored, replayed, err := s.store.RequestDockerSandboxCancellation(ctx, cancellation)
+	if apperror.CodeOf(err) == apperror.CodeConflict {
+		// Two first requests can both observe absence and choose different
+		// timestamps. One bounded reread/retry converges only the same exact
+		// request, while the store remains the atomic identity boundary.
+		existing, found, lookupErr := s.store.GetDockerSandboxCancellation(ctx,
+			record.Admission.ID)
+		if lookupErr != nil {
+			return DockerSandboxCancelResult{}, apperror.Normalize(lookupErr)
+		}
+		if found && existing.Validate() == nil && existing.ID == cancellation.ID &&
+			existing.AdmissionID == cancellation.AdmissionID && existing.RunID == cancellation.RunID &&
+			existing.RequestedBy == cancellation.RequestedBy &&
+			existing.OperationKeyDigest == cancellation.OperationKeyDigest &&
+			existing.ReasonCode == cancellation.ReasonCode {
+			cancellation.RequestedAt = existing.RequestedAt
+			cancellation.CancellationFingerprint = domain.DockerSandboxCancellationFingerprint(cancellation)
+			stored, replayed, err = s.store.RequestDockerSandboxCancellation(ctx, cancellation)
+		}
+	}
 	if err != nil {
 		return DockerSandboxCancelResult{}, apperror.Normalize(err)
 	}
@@ -216,6 +277,22 @@ func (s *DockerSandboxService) RecoverStartup(ctx context.Context) (
 func (s *DockerSandboxService) executeAdmission(ctx context.Context,
 	record domain.DockerSandboxRecord,
 ) (domain.DockerSandboxRecord, error) {
+	activeCtx, cancel, err := s.registerActive(record.Admission.ID, ctx)
+	if err != nil {
+		noteDockerCommandRuntimeDispatchPossible(ctx)
+		return domain.DockerSandboxRecord{}, err
+	}
+	defer s.unregisterActive(record.Admission.ID)
+	defer cancel()
+	return s.executeActiveAdmission(activeCtx, record)
+}
+
+// executeActiveAdmission requires the caller to hold this admission's active
+// gate. A freshly committed, non-replayed Start has no daemon effects until
+// the lifecycle boundary below; earlier validation failures need no reaping.
+func (s *DockerSandboxService) executeActiveAdmission(ctx context.Context,
+	record domain.DockerSandboxRecord,
+) (domain.DockerSandboxRecord, error) {
 	if record.Start == nil {
 		if _, cancelled, err := s.store.GetDockerSandboxCancellation(ctx,
 			record.Admission.ID); err != nil || !cancelled {
@@ -227,13 +304,7 @@ func (s *DockerSandboxService) executeAdmission(ctx context.Context,
 				"Docker Sandbox has no durable start or cancellation request")
 		}
 	}
-	activeCtx, cancel, err := s.registerActive(record.Admission.ID, ctx)
-	if err != nil {
-		return domain.DockerSandboxRecord{}, err
-	}
-	defer s.unregisterActive(record.Admission.ID)
-	defer cancel()
-	executionCtx, timeoutCancel := context.WithTimeout(activeCtx,
+	executionCtx, timeoutCancel := context.WithTimeout(ctx,
 		time.Duration(record.Admission.WallClockSeconds)*time.Second)
 	defer timeoutCancel()
 	plan, writeRequest, err := s.reconstructDockerSandboxWriteRequest(executionCtx,
@@ -245,6 +316,10 @@ func (s *DockerSandboxService) executeAdmission(ctx context.Context,
 	if err != nil {
 		return domain.DockerSandboxRecord{}, err
 	}
+	// Lifecycle lookup/WAL failures, replay and every subsequent daemon write
+	// can have an unknown outcome. Only its durable cleanup receipt can clear
+	// this provenance; no error text or missing return value establishes it.
+	noteDockerCommandRuntimeDispatchPossible(ctx)
 	lifecycle, lifecycleErr := supervisor.BeginAndRun(executionCtx, plan, writeRequest,
 		record.Admission.RequestedBy,
 		dockerSandboxLifecycleKey(record.Admission.OperationKeyDigest))

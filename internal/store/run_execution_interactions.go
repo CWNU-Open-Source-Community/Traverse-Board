@@ -101,6 +101,15 @@ func (s *SQLiteStore) TransitionRunExecutionInteraction(ctx context.Context,
 	if err != nil {
 		return domain.RunExecutionInteractionSnapshot{}, false, err
 	}
+	var transition struct {
+		From domain.RunExecutionInteractionMode `json:"from"`
+	}
+	if err := json.Unmarshal([]byte(event.PayloadJSON), &transition); err != nil || transition.From != current.Mode ||
+		(snapshot.Mode == current.Mode && snapshot.WorkspaceTrust == current.WorkspaceTrust &&
+			snapshot.ExecutionProfileRevision == current.ExecutionProfileRevision && snapshot.Surface == current.Surface) {
+		return domain.RunExecutionInteractionSnapshot{}, false, apperror.New(apperror.CodeConflict,
+			"Run execution interaction event must bind the current mode and a changed effective intent")
+	}
 	run, mission, err := getCoordinatorRunTx(ctx, tx, snapshot.RunID)
 	if err != nil {
 		return domain.RunExecutionInteractionSnapshot{}, false, err
@@ -304,7 +313,7 @@ func validateRunExecutionInteractionChangedEvent(event events.Event,
 	}
 	if payload.Protocol != snapshot.ProtocolVersion ||
 		payload.Revision != snapshot.Revision || !payload.From.Valid() ||
-		payload.From == snapshot.Mode || payload.To != snapshot.Mode ||
+		payload.To != snapshot.Mode ||
 		payload.Surface != snapshot.Surface ||
 		payload.ExecutionProfile != snapshot.ExecutionProfile ||
 		payload.ExecutionProfileRevision != snapshot.ExecutionProfileRevision ||

@@ -305,6 +305,8 @@ func standardCodeDeliveryBackendMatches(selected domain.StandardCodeBackend, rec
 		return recorded == CommandRuntimeLocalSandboxBackend
 	case domain.StandardCodeSelectedDocker:
 		return recorded == CommandRuntimeDockerSandboxBackend
+	case domain.StandardCodeSelectedSBX:
+		return recorded == "docker_sandboxes"
 	default:
 		return false
 	}
@@ -454,8 +456,9 @@ func (s *StandardCodeDeliveryService) projectVerifications(ctx context.Context,
 			JobID: job.ID, Conclusion: conclusion, ReasonCode: reason,
 			State: string(job.State), ExitCode: cloneDeliveryExitCode(job.ExitCode),
 			SpecSHA256: job.SpecFingerprint, ExecutableSHA256: job.ExecutableSHA256,
-			EnvironmentSHA256:  job.EnvironmentSHA256,
-			PermissionRevision: job.PermissionRevision, Backend: job.Adapter.Backend,
+			ExecutableIdentityKind: runner.CommandRuntimeExecutableIdentityKind(job.Adapter),
+			EnvironmentSHA256:      job.EnvironmentSHA256,
+			PermissionRevision:     job.PermissionRevision, Backend: job.Adapter.Backend,
 			BackendGenerationSHA256: commandRuntimeBackendGeneration(job),
 			CheckpointID:            checkpointID, RevisionSHA256: revision,
 			CurrentRevision: current, RetryCount: commandRetryCount(allJobs, job),

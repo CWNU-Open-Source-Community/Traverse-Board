@@ -87,6 +87,7 @@ type desktopOptions struct {
 	securityRecoveryBackend     string
 	securityRecoveryPhase       string
 	riskProfileRestart          bool
+	sandboxSettings             bool
 	version                     bool
 }
 
@@ -489,6 +490,7 @@ func parseDesktopOptions(args []string) (desktopOptions, error) {
 	}
 	if len(visited) == 0 {
 		config.riskProfileRestart = true
+		config.sandboxSettings = true
 	}
 	if config.operatorPreview {
 		// Preserve the preview launcher's explicitly requested whole-job worker.
@@ -593,6 +595,20 @@ func runDesktop(config desktopOptions) error {
 	if err := checkDesktopPrerequisites(); err != nil {
 		return err
 	}
+	homePath := app.DefaultHome()
+	config, environmentSettings, err := loadDesktopSandboxSettings(context.Background(), config, homePath)
+	if err != nil {
+		return err
+	}
+	var sbxBackend *sandbox.SBXBackend
+	var sbxReadiness *sandbox.SBXReadiness
+	if environmentSettings != nil {
+		sbxBackend, err = desktop.NewDesktopSBXBackend(homePath, *environmentSettings)
+		if err != nil {
+			return err
+		}
+		defer sbxBackend.Close()
+	}
 	var localReadiness *sandbox.LocalReadiness
 	var localBackend sandbox.LocalBackend
 	if config.workspaceSandbox {
@@ -610,6 +626,9 @@ func runDesktop(config desktopOptions) error {
 		localReadiness = &readiness
 	}
 	imageDigest := strings.TrimSpace(os.Getenv(standardCodeDockerImageEnvironment))
+	if environmentSettings != nil {
+		imageDigest = environmentSettings.DockerImageDigest
+	}
 	var dockerReadiness *sandbox.DockerReadiness
 	if config.workspaceSandbox && config.dockerExecution && sandbox.ValidOCIImageDigest(imageDigest) {
 		readiness, err := desktop.ProbeStandardCodeDockerReadiness(context.Background(), true, imageDigest)
@@ -620,6 +639,14 @@ func runDesktop(config desktopOptions) error {
 	}
 	workspaceSandboxAvailable := desktopWorkspaceSandboxRuntimeAvailable(config,
 		localReadiness, dockerReadiness)
+	if sbxBackend != nil {
+		readiness, err := sbxBackend.Readiness(context.Background())
+		if err != nil {
+			return err
+		}
+		sbxReadiness = &readiness
+		workspaceSandboxAvailable = workspaceSandboxAvailable || (config.workspaceSandbox && readiness.Ready)
+	}
 	var executionRuntimeAuthority *domain.ExecutionPermissionRuntimeAuthority
 	if config.dangerFullAccess {
 		executionRuntimeAuthority = domain.NewExecutionPermissionRuntimeAuthority()
@@ -655,14 +682,13 @@ func runDesktop(config desktopOptions) error {
 		config.skillInstallation || config.evidenceAttachment ||
 		config.verificationEvidence || config.embeddedAnalyzer || config.userTerminal ||
 		config.dockerExecution || config.batchDeliveryControl || config.batchValidation ||
-		config.uiEvidence || config.gitAdvanced || config.githubReview {
+		config.uiEvidence || config.gitAdvanced || config.githubReview || config.sandboxSettings {
 		controlToken, err = httpapi.GenerateAccessToken()
 		if err != nil {
 			return err
 		}
 	}
 
-	homePath := app.DefaultHome()
 	databasePath := filepath.Join(homePath, "cyberagent.db")
 	controlPlane, err := desktop.OpenControlPlane(desktop.ControlPlaneConfig{
 		DatabasePath: databasePath, HomePath: homePath, ReadToken: readToken,
@@ -674,6 +700,10 @@ func runDesktop(config desktopOptions) error {
 		LocalSandboxBackend:                localBackend,
 		StandardCodeDockerReadiness:        dockerReadiness,
 		StandardCodeDockerImageDigest:      imageDigest,
+		SBXBackend:                         sbxBackend,
+		SBXReadiness:                       sbxReadiness,
+		SandboxEnvironmentControlEnabled:   config.sandboxSettings,
+		SandboxEnvironmentSettings:         environmentSettings,
 		WebSearchEndpoint:                  strings.TrimSpace(os.Getenv(webSearchEndpointEnvironment)),
 		BrowserCDPPermissionControlEnabled: config.browserCDPControl,
 		BrowserCDPPermissionCapabilities: domain.BrowserCDPPermissionRuntimeCapabilities{

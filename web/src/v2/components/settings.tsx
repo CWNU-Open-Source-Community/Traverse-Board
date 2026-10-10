@@ -25,6 +25,7 @@ import { V2AboutSettings, V2ExtensionSettings, V2InspectorPreferences, V2SkillSe
 import "./settings.css";
 
 const TaskConfigurationSettings = lazy(() => import("./task-configuration-settings").then((module) => ({ default: module.TaskConfigurationSettings })));
+const SandboxEnvironmentPanel = lazy(() => import("../../components/sandbox-environment-panel").then((module) => ({ default: module.SandboxEnvironmentPanel })));
 
 function SettingRow({ title, detail, children }: { title: string; detail: string; children: React.ReactNode }) {
   return <div className="v2-setting-row"><div><strong>{title}</strong><span>{detail}</span></div>
@@ -62,6 +63,7 @@ function ConnectionsSettings({ client, threadID, sourceRunID, onSelect, onOpenGi
                 : "请返回任务，选择一条执行记录后进入 GitHub 审阅。"}</small></span><ArrowRight aria-hidden="true" size={16} /></button>
       </section>
       <section aria-labelledby="connection-task-environment"><h2 id="connection-task-environment">运行设置</h2>
+        <button onClick={() => onSelect("environment")} type="button"><span><strong>执行环境设置</strong><small>检测 Local、Docker Engine 与官方 sbx，保存启用选项和固定镜像。</small></span><ArrowRight aria-hidden="true" size={16} /></button>
         <button onClick={() => onSelect("permissions")} type="button"><span><strong>任务权限与执行环境</strong><small>{threadID ? "选择操作确认方式，查看项目访问范围与执行环境。" : "查看当前环境；打开任务后可调整它的操作权限。"}</small></span><ArrowRight aria-hidden="true" size={16} /></button>
         <button onClick={() => onSelect("about")} type="button"><span><strong>应用连接与诊断</strong><small>查看版本和连接状态，处理连接问题。</small></span><ArrowRight aria-hidden="true" size={16} /></button>
       </section>
@@ -366,6 +368,8 @@ export function V2Settings({ client, section, threadID, workspaces, onSelectSect
         <V2ExecutionSettings client={client} threadID={threadID} workspaces={workspaces} />
         <section className="v2-settings-section"><V2RuntimeCapabilityControl /></section></>}
       {section === "appearance" && <AppearanceSettings />}
+      {section === "environment" && <><h1>执行环境设置</h1><p className="v2-settings-lead">检测用户安装，保存下次启动配置，再回到任务选择编码环境。</p>
+        <Suspense fallback={<p role="status">正在加载执行环境设置…</p>}><SandboxEnvironmentPanel client={client} /></Suspense></>}
       {section === "connections" && <ConnectionsSettings client={client} threadID={threadID} sourceRunID={sourceRunID}
         onOpenGithubReview={onOpenGithubReview} onOpenTask={onOpenTask} onSelect={onSelectSection} />}
       {section === "task-configuration" && <Suspense fallback={<p role="status">正在加载任务配置…</p>}>
@@ -386,7 +390,7 @@ export function V2Settings({ client, section, threadID, workspaces, onSelectSect
       </div>}
       {section === "inspector" && <V2InspectorPreferences onOpenInspector={onOpenInspector} />}
       {!(["general", "permissions", "appearance", "archived", "models", "inspector", "extensions", "plugins",
-        "skills", "advanced-models", "about", "shortcuts", "keyboard", "connections", "task-configuration"] as V2SettingsSection[])
+        "skills", "advanced-models", "about", "shortcuts", "keyboard", "connections", "task-configuration", "environment"] as V2SettingsSection[])
         .includes(section) && <PlaceholderSettings onOpenLegacy={onOpenInspector} section={section} />}
     </div></div>
   </main>;

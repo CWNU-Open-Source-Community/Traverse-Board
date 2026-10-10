@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/url"
 	"os"
+	"path"
 	"path/filepath"
 	"sort"
 	"strconv"
@@ -24,6 +25,8 @@ const (
 	CommandRuntimeProtocolVersion = "command-runtime.v2"
 	CommandRuntimePolicyVersion   = "command-runtime-policy.v2"
 	CommandRuntimeResultVersion   = "command-runtime-result.v2"
+	// Empty identity kind retains the historical native executable SHA-256.
+	CommandRuntimeExecutableTemplatePathSHA256 = "template_path_sha256"
 
 	MaxCommandRuntimeArguments        = 128
 	MaxCommandRuntimeArgumentBytes    = 16 * 1024
@@ -117,19 +120,20 @@ type CommandRuntimeSpec struct {
 // cwd and environment values remain process-local; the executable digest and
 // canonical argv make the exact launch reviewable and auditable.
 type CommandRuntimeResolvedSpec struct {
-	Spec                 CommandRuntimeSpec
-	ExecutablePath       string
-	ExecutableSHA256     string
-	CanonicalArgv        []string
-	AbsoluteDirectory    string
-	WorkspaceRoot        string
-	Environment          []string
-	EnvironmentSHA256    string
-	WorkspaceRootSHA256  string
-	ExecutablePinned     bool
-	ProfileStartupFiles  bool
-	EnvironmentInherited bool
-	AttachmentInput      *CommandRuntimeAttachmentInput
+	Spec                   CommandRuntimeSpec
+	ExecutablePath         string
+	ExecutableSHA256       string
+	ExecutableIdentityKind string
+	CanonicalArgv          []string
+	AbsoluteDirectory      string
+	WorkspaceRoot          string
+	Environment            []string
+	EnvironmentSHA256      string
+	WorkspaceRootSHA256    string
+	ExecutablePinned       bool
+	ProfileStartupFiles    bool
+	EnvironmentInherited   bool
+	AttachmentInput        *CommandRuntimeAttachmentInput
 }
 
 const commandRuntimeProcessProfileRestriction = "process profile does not accept shells, system script hosts, script files, or blocked launchers; native development runtimes such as Node/Python require an absolute executable and literal arguments; for shell syntax use script with a powershell or bash profile only when supported by the current adapter and omit executable and arguments"
@@ -200,12 +204,21 @@ func NormalizeCommandRuntimeIntent(spec CommandRuntimeSpec) (CommandRuntimeSpec,
 			return CommandRuntimeSpec{}, fmt.Errorf("%w: shell profile requires one bounded secret-free script", ErrCommandRuntimeBoundary)
 		}
 	case CommandRuntimeProcess:
-		if spec.Executable == "" || !filepath.IsAbs(spec.Executable) ||
+		guestPath := path.IsAbs(spec.Executable) && path.Clean(spec.Executable) == spec.Executable &&
+			!strings.HasPrefix(spec.Executable, "//") && !strings.Contains(spec.Executable, "\\")
+		if spec.Executable == "" || (!filepath.IsAbs(spec.Executable) && !guestPath) ||
 			spec.Arguments == nil || spec.Script != "" ||
 			!validCommandRuntimeText(spec.Executable, false) {
 			return CommandRuntimeSpec{}, fmt.Errorf("%w: process profile requires an absolute native executable and literal argv", ErrCommandRuntimeBoundary)
 		}
-		if !commandRuntimeNativeExecutableAllowed(spec.Executable) {
+		allowed := commandRuntimeNativeExecutableAllowed(spec.Executable)
+		if guestPath {
+			// The wire intent can address a POSIX microVM from Windows. Host
+			// launches still resolve and validate an absolute native image in
+			// normalizeCommandRuntimeSpec before acquiring process authority.
+			allowed = commandRuntimePOSIXProcessAllowed(spec.Executable)
+		}
+		if !allowed {
 			return CommandRuntimeSpec{}, fmt.Errorf("%w: %s", ErrCommandRuntimeBoundary, commandRuntimeProcessProfileRestriction)
 		}
 	}
@@ -216,6 +229,14 @@ func NormalizeCommandRuntimeIntent(spec CommandRuntimeSpec) (CommandRuntimeSpec,
 	}
 	spec.Environment = environment
 	return spec, nil
+}
+
+func commandRuntimePOSIXProcessAllowed(executable string) bool {
+	switch strings.ToLower(path.Base(executable)) {
+	case "sh", "bash", "dash", "zsh", "fish", "ksh", "csh", "tcsh", "pwsh", "powershell", "env", "busybox", "xargs", "sudo", "su", "doas", "pkexec":
+		return false
+	}
+	return true
 }
 
 func NormalizeCommandRuntimeSpec(spec CommandRuntimeSpec,
@@ -335,6 +356,7 @@ func CommandRuntimeSpecFingerprint(spec CommandRuntimeResolvedSpec) string {
 		Profile                  CommandRuntimeProfile          `json:"profile"`
 		ExecutablePath           string                         `json:"executable_path"`
 		ExecutableSHA256         string                         `json:"executable_sha256"`
+		ExecutableIdentityKind   string                         `json:"executable_identity_kind,omitempty"`
 		Argv                     []string                       `json:"argv"`
 		WorkingDirectory         string                         `json:"working_directory"`
 		Environment              []CommandRuntimeEnvironment    `json:"environment"`
@@ -352,15 +374,16 @@ func CommandRuntimeSpecFingerprint(spec CommandRuntimeResolvedSpec) string {
 	}{
 		Version: spec.Spec.Version, Profile: spec.Spec.Profile,
 		ExecutablePath: spec.ExecutablePath, ExecutableSHA256: spec.ExecutableSHA256,
-		Argv:                cloneCommandRuntimeStrings(spec.CanonicalArgv),
-		WorkingDirectory:    spec.Spec.WorkingDirectory,
-		Environment:         cloneCommandRuntimeEnvironment(spec.Spec.Environment),
-		EnvironmentSHA256:   spec.EnvironmentSHA256,
-		StdinPolicy:         spec.Spec.StdinPolicy,
-		InitialStdinSHA256:  commandRuntimeStringSHA256(spec.Spec.InitialStdin),
-		CloseInitialStdin:   spec.Spec.CloseInitialStdin,
-		TimeoutMilliseconds: spec.Spec.TimeoutMilliseconds,
-		Output:              spec.Spec.Output, Network: spec.Spec.Network,
+		ExecutableIdentityKind: spec.ExecutableIdentityKind,
+		Argv:                   cloneCommandRuntimeStrings(spec.CanonicalArgv),
+		WorkingDirectory:       spec.Spec.WorkingDirectory,
+		Environment:            cloneCommandRuntimeEnvironment(spec.Spec.Environment),
+		EnvironmentSHA256:      spec.EnvironmentSHA256,
+		StdinPolicy:            spec.Spec.StdinPolicy,
+		InitialStdinSHA256:     commandRuntimeStringSHA256(spec.Spec.InitialStdin),
+		CloseInitialStdin:      spec.Spec.CloseInitialStdin,
+		TimeoutMilliseconds:    spec.Spec.TimeoutMilliseconds,
+		Output:                 spec.Spec.Output, Network: spec.Spec.Network,
 		Credentials: spec.Spec.Credentials,
 		Purpose:     spec.Spec.Purpose, WorkspaceRootSHA256: spec.WorkspaceRootSHA256,
 		AttachmentManifestSHA256: commandRuntimeAttachmentManifest(spec),
@@ -757,6 +780,7 @@ func commandRuntimeIntentJSON(spec CommandRuntimeResolvedSpec) string {
 		Profile                  CommandRuntimeProfile          `json:"profile"`
 		ExecutablePath           string                         `json:"executable_path"`
 		ExecutableSHA256         string                         `json:"executable_sha256"`
+		ExecutableIdentityKind   string                         `json:"executable_identity_kind,omitempty"`
 		Argv                     []string                       `json:"argv"`
 		WorkingDirectory         string                         `json:"working_directory"`
 		Environment              []CommandRuntimeEnvironment    `json:"environment"`
@@ -774,17 +798,18 @@ func commandRuntimeIntentJSON(spec CommandRuntimeResolvedSpec) string {
 	}{
 		Version: spec.Spec.Version, PolicyVersion: CommandRuntimePolicyVersion,
 		Profile: spec.Spec.Profile, ExecutablePath: spec.ExecutablePath,
-		ExecutableSHA256:    spec.ExecutableSHA256,
-		Argv:                cloneCommandRuntimeStrings(spec.CanonicalArgv),
-		WorkingDirectory:    spec.Spec.WorkingDirectory,
-		Environment:         cloneCommandRuntimeEnvironment(spec.Spec.Environment),
-		EnvironmentSHA256:   spec.EnvironmentSHA256,
-		StdinPolicy:         spec.Spec.StdinPolicy,
-		InitialStdinBytes:   len([]byte(spec.Spec.InitialStdin)),
-		InitialStdinSHA256:  commandRuntimeStringSHA256(spec.Spec.InitialStdin),
-		CloseInitialStdin:   spec.Spec.CloseInitialStdin,
-		TimeoutMilliseconds: spec.Spec.TimeoutMilliseconds,
-		Output:              spec.Spec.Output, Network: spec.Spec.Network,
+		ExecutableSHA256:       spec.ExecutableSHA256,
+		ExecutableIdentityKind: spec.ExecutableIdentityKind,
+		Argv:                   cloneCommandRuntimeStrings(spec.CanonicalArgv),
+		WorkingDirectory:       spec.Spec.WorkingDirectory,
+		Environment:            cloneCommandRuntimeEnvironment(spec.Spec.Environment),
+		EnvironmentSHA256:      spec.EnvironmentSHA256,
+		StdinPolicy:            spec.Spec.StdinPolicy,
+		InitialStdinBytes:      len([]byte(spec.Spec.InitialStdin)),
+		InitialStdinSHA256:     commandRuntimeStringSHA256(spec.Spec.InitialStdin),
+		CloseInitialStdin:      spec.Spec.CloseInitialStdin,
+		TimeoutMilliseconds:    spec.Spec.TimeoutMilliseconds,
+		Output:                 spec.Spec.Output, Network: spec.Spec.Network,
 		Credentials: spec.Spec.Credentials, Purpose: spec.Spec.Purpose,
 		AttachmentManifestSHA256: commandRuntimeAttachmentManifest(spec),
 	}

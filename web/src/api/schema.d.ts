@@ -3560,6 +3560,30 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/sandbox/environment": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Inspect Local, Docker Engine and Docker Sandboxes environments
+         * @description Reads saved and active settings with bounded installation and readiness observations.
+         */
+        get: operations["getSandboxEnvironment"];
+        /**
+         * Save sandbox environment preferences
+         * @description Atomically saves revision-bound preferences for the next desktop startup. Execution continues to require task approval and current backend readiness.
+         */
+        put: operations["saveSandboxEnvironment"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/scheduled-jobs": {
         parameters: {
             query?: never;
@@ -5798,14 +5822,14 @@ export interface components {
             grace_period_millis: number;
         };
         CapabilityReadinessOptionView: {
-            blocked_by: ("run_not_quiescent" | "execution_lease_active" | "startup_gate_closed" | "capability_not_implemented" | "surface_mismatch" | "profile_mismatch" | "permission_mismatch" | "workspace_untrusted" | "sandbox_unproven" | "docker_unavailable" | "backend_not_ready")[];
-            remediation: ("pause_run" | "create_new_run" | "wait_for_execution_lease" | "restart_with_startup_gate" | "upgrade_application" | "select_required_surface" | "select_required_profile" | "select_required_permission" | "trust_workspace" | "verify_sandbox" | "install_or_start_docker" | "retry_backend_readiness")[];
+            blocked_by: ("run_not_quiescent" | "execution_lease_active" | "startup_gate_closed" | "capability_not_implemented" | "surface_mismatch" | "profile_mismatch" | "permission_mismatch" | "workspace_untrusted" | "sandbox_unproven" | "docker_unavailable" | "backend_not_ready" | "sbx_unavailable")[];
+            remediation: ("pause_run" | "create_new_run" | "wait_for_execution_lease" | "restart_with_startup_gate" | "upgrade_application" | "select_required_surface" | "select_required_profile" | "select_required_permission" | "trust_workspace" | "verify_sandbox" | "install_or_start_docker" | "retry_backend_readiness" | "install_or_start_sbx")[];
             restart_required: boolean;
             runtime_available: boolean;
             selectable: boolean;
             selected: boolean;
             /** @enum {string} */
-            value: "ask" | "auto" | "full" | "conservative" | "workspace_access" | "approval" | "full_access" | "debug" | "preview" | "docker" | "local" | "controlled" | "cyber" | "restricted" | "full_debug" | "standard_code";
+            value: "ask" | "auto" | "full" | "conservative" | "workspace_access" | "approval" | "full_access" | "debug" | "preview" | "docker" | "local" | "sbx" | "controlled" | "cyber" | "restricted" | "full_debug" | "standard_code";
         };
         Change: {
             binary: boolean;
@@ -10505,7 +10529,7 @@ export interface components {
             created_at: string;
             execution_authorized: boolean;
             /** @enum {string} */
-            execution_profile: "preview" | "docker" | "local";
+            execution_profile: "preview" | "docker" | "local" | "sbx";
             /** Format: int64 */
             execution_profile_revision: number;
             /** @enum {string} */
@@ -10520,7 +10544,7 @@ export interface components {
             /** @enum {string} */
             protocol_version: "run_execution_interaction.v1";
             /** @enum {string} */
-            required_gate: "none" | "local_os_sandbox_gate" | "docker_sandbox_gate" | "debug_agent_input_lease" | "cyber_container_terminal_gate";
+            required_gate: "none" | "local_os_sandbox_gate" | "sbx_microvm_gate" | "docker_sandbox_gate" | "debug_agent_input_lease" | "cyber_container_terminal_gate";
             /** Format: int64 */
             revision: number;
             /** @enum {string} */
@@ -10596,7 +10620,7 @@ export interface components {
         };
         RunExecutionProfileControlRequestView: {
             /** @enum {string} */
-            profile: "preview" | "docker" | "local";
+            profile: "preview" | "docker" | "local" | "sbx";
             reason?: string;
         };
         RunExecutionProfileControlView: {
@@ -10607,7 +10631,7 @@ export interface components {
             /** @enum {string} */
             approval_policy: "none" | "always";
             /** @enum {string} */
-            backend: "noop" | "docker" | "local";
+            backend: "noop" | "docker" | "local" | "sbx";
             capability_grant: boolean;
             /** Format: date-time */
             created_at: string;
@@ -10620,11 +10644,11 @@ export interface components {
             policy_version: "execution_profile_policy.v1";
             process_enabled: boolean;
             /** @enum {string} */
-            profile: "preview" | "docker" | "local";
+            profile: "preview" | "docker" | "local" | "sbx";
             /** @enum {string} */
             protocol_version: "run_execution_profile.v1";
             /** @enum {string} */
-            required_gate: "none" | "docker_production_start_gate" | "local_os_sandbox_gate";
+            required_gate: "none" | "docker_production_start_gate" | "local_os_sandbox_gate" | "sbx_microvm_gate";
             /** Format: int64 */
             revision: number;
             /** @enum {string} */
@@ -10924,6 +10948,50 @@ export interface components {
             workspace_checkpoint_control_enabled: boolean;
             workspace_import_enabled: boolean;
             workspace_sandbox_enabled: boolean;
+        };
+        SandboxEnvironmentBackendView: {
+            /** @enum {string} */
+            backend: "local" | "docker" | "sbx";
+            blockers: components["schemas"]["SandboxEnvironmentBlockerView"][];
+            configured: boolean;
+            enabled: boolean;
+            installed: boolean;
+            ready: boolean;
+            /** @enum {string} */
+            status: "ready" | "disabled" | "unavailable" | "configuration_required" | "not_checked";
+        };
+        SandboxEnvironmentBlockerView: {
+            code: string;
+            message: string;
+        };
+        SandboxEnvironmentControlRequestView: {
+            /** Format: int64 */
+            expected_revision: number;
+            settings: components["schemas"]["SandboxEnvironmentSettingsView"];
+            /** @enum {string} */
+            version: "sandbox_environment.v1";
+        };
+        SandboxEnvironmentSettingsView: {
+            /** @enum {string} */
+            default_backend: "local" | "docker" | "sbx";
+            docker_enabled: boolean;
+            docker_image_digest: string;
+            sbx_enabled: boolean;
+            sbx_template: string;
+        };
+        SandboxEnvironmentView: {
+            active_settings: components["schemas"]["SandboxEnvironmentSettingsView"];
+            backends: components["schemas"]["SandboxEnvironmentBackendView"][];
+            capability_grant: boolean;
+            /** @enum {string} */
+            probe_status: "checked" | "not_checked";
+            /** @enum {string} */
+            protocol_version: "sandbox_environment.v1";
+            replayed: boolean;
+            restart_required: boolean;
+            /** Format: int64 */
+            revision: number;
+            settings: components["schemas"]["SandboxEnvironmentSettingsView"];
         };
         ScheduledJob: {
             /** Format: date-time */
@@ -11548,9 +11616,9 @@ export interface components {
         StandardCodeBackendReadinessView: {
             available: boolean;
             /** @enum {string} */
-            backend: "local" | "docker";
-            blocked_by: ("run_not_quiescent" | "execution_lease_active" | "startup_gate_closed" | "capability_not_implemented" | "surface_mismatch" | "profile_mismatch" | "permission_mismatch" | "workspace_untrusted" | "sandbox_unproven" | "docker_unavailable" | "backend_not_ready")[];
-            remediation: ("pause_run" | "create_new_run" | "wait_for_execution_lease" | "restart_with_startup_gate" | "upgrade_application" | "select_required_surface" | "select_required_profile" | "select_required_permission" | "trust_workspace" | "verify_sandbox" | "install_or_start_docker" | "retry_backend_readiness")[];
+            backend: "local" | "docker" | "sbx";
+            blocked_by: ("run_not_quiescent" | "execution_lease_active" | "startup_gate_closed" | "capability_not_implemented" | "surface_mismatch" | "profile_mismatch" | "permission_mismatch" | "workspace_untrusted" | "sandbox_unproven" | "docker_unavailable" | "backend_not_ready" | "sbx_unavailable")[];
+            remediation: ("pause_run" | "create_new_run" | "wait_for_execution_lease" | "restart_with_startup_gate" | "upgrade_application" | "select_required_surface" | "select_required_profile" | "select_required_permission" | "trust_workspace" | "verify_sandbox" | "install_or_start_docker" | "retry_backend_readiness" | "install_or_start_sbx")[];
         };
         StandardCodeDeliveryArtifact: {
             id: string;
@@ -11755,6 +11823,8 @@ export interface components {
             conclusion: "passed" | "failed" | "partial" | "blocked" | "stale";
             current_revision: boolean;
             environment_sha256: string;
+            /** @enum {string} */
+            executable_identity_kind?: "template_path_sha256";
             executable_sha256: string;
             /** Format: int32 */
             exit_code?: number;
@@ -11781,7 +11851,7 @@ export interface components {
         };
         StandardCodePresetControlRequestView: {
             /** @enum {string} */
-            backend_intent: "auto" | "local" | "docker";
+            backend_intent: "auto" | "local" | "docker" | "sbx";
             confirm_workspace_trust: boolean;
             expected_trust_digest?: string;
             goal?: string;
@@ -11793,8 +11863,8 @@ export interface components {
             /** @enum {string} */
             action: "configure" | "pause_and_configure";
             /** @enum {string} */
-            backend_intent: "auto" | "local" | "docker";
-            blocked_by: ("run_not_quiescent" | "execution_lease_active" | "startup_gate_closed" | "capability_not_implemented" | "surface_mismatch" | "profile_mismatch" | "permission_mismatch" | "workspace_untrusted" | "sandbox_unproven" | "docker_unavailable" | "backend_not_ready")[];
+            backend_intent: "auto" | "local" | "docker" | "sbx";
+            blocked_by: ("run_not_quiescent" | "execution_lease_active" | "startup_gate_closed" | "capability_not_implemented" | "surface_mismatch" | "profile_mismatch" | "permission_mismatch" | "workspace_untrusted" | "sandbox_unproven" | "docker_unavailable" | "backend_not_ready" | "sbx_unavailable")[];
             browser_cdp_permission?: components["schemas"]["RunBrowserCDPPermissionView"];
             capability_grant: boolean;
             /** @enum {string} */
@@ -11808,16 +11878,17 @@ export interface components {
             mode?: components["schemas"]["RunModeView"];
             /** @enum {string} */
             network: "disabled";
-            next_steps: ("confirm_workspace_trust" | "pause_and_configure" | "wait_for_quiescence" | "select_docker" | "select_ask" | "retry_readiness" | "create_new_run")[];
+            next_steps: ("confirm_workspace_trust" | "pause_and_configure" | "wait_for_quiescence" | "select_docker" | "select_sbx" | "select_ask" | "retry_readiness" | "create_new_run")[];
             /** @enum {string} */
             protocol_version: "standard_code_preset.v1";
             replayed: boolean;
             run?: components["schemas"]["RunView"];
             run_id?: string;
+            sbx_readiness: components["schemas"]["StandardCodeBackendReadinessView"];
             /** @enum {string} */
-            selected_backend?: "local" | "docker";
+            selected_backend?: "local" | "docker" | "sbx";
             /** @enum {string} */
-            selection_reason?: "auto_local_ready" | "explicit_local" | "explicit_docker";
+            selection_reason?: "auto_local_ready" | "explicit_local" | "explicit_docker" | "explicit_sbx";
             /** @enum {string} */
             status: "blocked" | "waiting_for_pause" | "configured";
             trust_digest?: string;
@@ -22612,6 +22683,82 @@ export interface operations {
             403: components["responses"]["Forbidden"];
             404: components["responses"]["NotFound"];
             414: components["responses"]["RequestTooLarge"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
+        };
+    };
+    getSandboxEnvironment: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful read */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["SandboxEnvironmentView"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            414: components["responses"]["RequestTooLarge"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
+        };
+    };
+    saveSandboxEnvironment: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SandboxEnvironmentControlRequestView"];
+            };
+        };
+        responses: {
+            /** @description Control request accepted or idempotently replayed */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["SandboxEnvironmentView"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            412: components["responses"]["FailedPrecondition"];
+            413: components["responses"]["RequestEntityTooLarge"];
+            414: components["responses"]["RequestTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
             503: components["responses"]["Unavailable"];

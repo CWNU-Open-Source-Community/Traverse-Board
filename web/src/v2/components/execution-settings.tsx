@@ -1,17 +1,14 @@
 import { useQuery } from "@tanstack/react-query";
-import { lazy, Suspense, useState } from "react";
 import type { APIClient } from "../../api/client";
 import type { RunDetailView, ThreadDetailView, WorkspaceView } from "../../api/types";
-import { ExecutionInteractionPanel, ExecutionProfilePanel } from "../../components/run-permission-settings";
+import { ExecutionInteractionPanel, ExecutionProfilePanel, StandardCodeReadinessPanel } from "../../components/run-permission-settings";
 import { v2QueryKeys } from "../query-keys";
-const DockerSandboxPanel = lazy(() => import("../../components/docker-sandbox-panel").then((module) => ({ default: module.DockerSandboxPanel })));
 
 export function V2ExecutionSettings({ client, threadID, workspaces }: {
   client: APIClient;
   threadID: string;
   workspaces: WorkspaceView[];
 }) {
-  const [dockerOpen, setDockerOpen] = useState(false);
   const thread = useQuery({
     queryKey: v2QueryKeys.thread(threadID),
     queryFn: ({ signal }) => client.get<ThreadDetailView>(
@@ -54,14 +51,11 @@ export function V2ExecutionSettings({ client, threadID, workspaces }: {
               <p>先选择执行环境，再确认信任项目并启用 Code。运行期间需要更改时，先返回对话停止当前执行。</p>
               <details><summary>权限与运行条件</summary><p>审批偏好决定操作如何获批。隔离工作区、调试运行时、网络范围与浏览器能力分别配置；需要批准时，请核对具体操作、目录和用途。</p></details>
             </div>
-            <ExecutionProfilePanel client={client} detail={detail.data} readiness={readiness.data}
-              key={`profile-${runID}`} />
-            <ExecutionInteractionPanel client={client} detail={detail.data} readiness={readiness.data}
-              key={`interaction-${runID}`} />
-            <details onToggle={(event) => setDockerOpen(event.currentTarget.open)}><summary>准备 Docker 编码环境</summary>
-              {dockerOpen && <Suspense fallback={<p role="status">正在加载 Docker 环境…</p>}>
-                <DockerSandboxPanel client={client} runID={runID} threadID={threadID} />
-              </Suspense>}
+            <StandardCodeReadinessPanel client={client} detail={detail.data} readiness={readiness.data}
+              threadID={threadID} key={`preset-${runID}`} />
+            <details><summary>查看单项执行与项目信任设置</summary>
+              <ExecutionProfilePanel client={client} detail={detail.data} readiness={readiness.data} key={`profile-${runID}`} />
+              <ExecutionInteractionPanel client={client} detail={detail.data} readiness={readiness.data} key={`interaction-${runID}`} />
             </details>
           </>}
   </section>;

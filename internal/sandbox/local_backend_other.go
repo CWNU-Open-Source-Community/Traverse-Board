@@ -49,7 +49,7 @@ func (b *unavailableLocalBackend) Readiness(_ context.Context,
 func (*unavailableLocalBackend) Run(context.Context,
 	LocalRunRequest,
 ) (LocalExecutionResult, error) {
-	return LocalExecutionResult{}, ErrLocalSandboxUnavailable
+	return localNoProcessResult(), ErrLocalSandboxUnavailable
 }
 
 func (*unavailableLocalBackend) RunWithStdin(_ context.Context,
@@ -58,7 +58,7 @@ func (*unavailableLocalBackend) RunWithStdin(_ context.Context,
 	if stdin != nil {
 		_ = stdin.Close()
 	}
-	return LocalExecutionResult{}, ErrLocalSandboxUnavailable
+	return localNoProcessResult(), ErrLocalSandboxUnavailable
 }
 
 func (*unavailableLocalBackend) Close() error { return nil }

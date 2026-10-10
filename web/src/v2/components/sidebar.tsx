@@ -159,6 +159,7 @@ const settingsGroups: Array<{ label: string; items: Array<{
     { id: "models", label: "模型", icon: Cpu },
     { id: "extensions", label: "扩展与代码智能", icon: PlugZap },
     { id: "skills", label: "Skill 包", icon: PackageSearch },
+    { id: "environment", label: "执行环境", icon: Box },
   ] },
   { label: "任务与观察", items: [
     { id: "task-configuration", label: "任务预算与项目配置", icon: Settings },

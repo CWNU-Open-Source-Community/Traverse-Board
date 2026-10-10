@@ -492,6 +492,9 @@ func (c openAPIThreadPullRequestController) ImportCredential(ctx context.Context
 
 func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 	fixture := newAPIFixture(t)
+	environmentFixture := newSandboxEnvironmentAPIFixture(t)
+	fixture.api.sandboxEnvironmentController = environmentFixture.api.sandboxEnvironmentController
+	fixture.api.sandboxEnvironmentControlEnabled = true
 	fixture.api.eventStream = testEventStreamConfig(1, 100*time.Millisecond)
 	fullCDPStartedAt := time.Date(2026, time.August, 30, 1, 2, 3, 0, time.UTC)
 	fullCDPExpiresAt := fullCDPStartedAt.Add(15 * time.Minute)
@@ -1324,7 +1327,9 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 				response = previewConfigurationRequest(fixture.api, testAccessToken, `{"workspace_id":"`+fixture.workspace.ID+`"}`)
 			} else if spec.Control {
 				body := `{"profile":"docker"}`
-				if spec.OperationID == "prepareBatchWorkbench" {
+				if spec.Path == SandboxEnvironmentPath {
+					body = sandboxEnvironmentControlTestBody()
+				} else if spec.OperationID == "prepareBatchWorkbench" {
 					body = `{"version":"batch-delivery-workbench.v1","proposal_id":"proposal-openapi-missing-0001","tasks":[],"confirm":true}`
 				} else if spec.OperationID == "controlThreadPlan" {
 					body = `{"version":"plan_delivery_control.v1","run_id":"` + openAPIThreadRun.ID + `","action":"enter_plan"}`

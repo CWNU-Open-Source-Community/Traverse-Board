@@ -32,6 +32,7 @@ const (
 	CapabilityBlockerWorkspaceUntrusted      CapabilityReadinessBlocker = "workspace_untrusted"
 	CapabilityBlockerSandboxUnproven         CapabilityReadinessBlocker = "sandbox_unproven"
 	CapabilityBlockerDockerUnavailable       CapabilityReadinessBlocker = "docker_unavailable"
+	CapabilityBlockerSBXUnavailable          CapabilityReadinessBlocker = "sbx_unavailable"
 )
 
 type CapabilityReadinessRemediation string
@@ -49,6 +50,7 @@ const (
 	CapabilityRemediationTrustWorkspace           CapabilityReadinessRemediation = "trust_workspace"
 	CapabilityRemediationVerifySandbox            CapabilityReadinessRemediation = "verify_sandbox"
 	CapabilityRemediationInstallOrStartDocker     CapabilityReadinessRemediation = "install_or_start_docker"
+	CapabilityRemediationInstallOrStartSBX        CapabilityReadinessRemediation = "install_or_start_sbx"
 )
 
 const StandardCodePresetValue = "standard_code"
@@ -59,7 +61,7 @@ var capabilityBlockerOrder = map[CapabilityReadinessBlocker]int{
 	CapabilityBlockerSurfaceMismatch: 4, CapabilityBlockerProfileMismatch: 5,
 	CapabilityBlockerPermissionMismatch: 6, CapabilityBlockerWorkspaceUntrusted: 7,
 	CapabilityBlockerSandboxUnproven: 8, CapabilityBlockerDockerUnavailable: 9,
-	CapabilityBlockerBackendNotReady: 10,
+	CapabilityBlockerBackendNotReady: 10, CapabilityBlockerSBXUnavailable: 11,
 }
 
 var capabilityRemediationOrder = map[CapabilityReadinessRemediation]int{
@@ -72,7 +74,7 @@ var capabilityRemediationOrder = map[CapabilityReadinessRemediation]int{
 	CapabilityRemediationSelectRequiredPermission: 7,
 	CapabilityRemediationTrustWorkspace:           8, CapabilityRemediationVerifySandbox: 9,
 	CapabilityRemediationInstallOrStartDocker:  10,
-	CapabilityRemediationRetryBackendReadiness: 11,
+	CapabilityRemediationRetryBackendReadiness: 11, CapabilityRemediationInstallOrStartSBX: 12,
 }
 
 var capabilityRemediationsByBlocker = map[CapabilityReadinessBlocker][]CapabilityReadinessRemediation{
@@ -86,6 +88,7 @@ var capabilityRemediationsByBlocker = map[CapabilityReadinessBlocker][]Capabilit
 	CapabilityBlockerWorkspaceUntrusted:      {CapabilityRemediationTrustWorkspace},
 	CapabilityBlockerSandboxUnproven:         {CapabilityRemediationVerifySandbox},
 	CapabilityBlockerDockerUnavailable:       {CapabilityRemediationInstallOrStartDocker},
+	CapabilityBlockerSBXUnavailable:          {CapabilityRemediationInstallOrStartSBX},
 	CapabilityBlockerBackendNotReady:         {CapabilityRemediationRetryBackendReadiness},
 }
 
@@ -94,6 +97,7 @@ var capabilityRuntimeFailureBlockers = map[CapabilityReadinessBlocker]struct{}{
 	CapabilityBlockerProfileMismatch: {}, CapabilityBlockerPermissionMismatch: {},
 	CapabilityBlockerWorkspaceUntrusted: {}, CapabilityBlockerSandboxUnproven: {},
 	CapabilityBlockerDockerUnavailable: {}, CapabilityBlockerBackendNotReady: {},
+	CapabilityBlockerSBXUnavailable: {},
 }
 
 type CapabilityReadinessOption struct {
@@ -145,6 +149,9 @@ type CapabilityReadinessRuntime struct {
 	DockerAvailable                    bool
 	DockerBackendReady                 bool
 	DockerReadiness                    *sandbox.DockerReadiness
+	SBXStartupGateEnabled              bool
+	SBXAvailable                       bool
+	SBXBackendReady                    bool
 	BrowserBackendReady                bool
 	CommandRuntimeAdapters             []commandruntimeadapter.Identity
 }
@@ -197,6 +204,10 @@ func (r CapabilityReadinessRuntime) Validate() error {
 	}
 	if r.DockerBackendReady && (!r.DockerStartupGateEnabled || !r.DockerAvailable) {
 		return errors.New("a ready Docker backend requires its startup gate and installation")
+	}
+	if r.SBXBackendReady && (!r.SBXStartupGateEnabled || !r.SBXAvailable ||
+		!r.ExecutionPermissionCapabilities.WorkspaceSandboxEnabled) {
+		return errors.New("a ready Docker Sandboxes backend requires its startup gate and proof")
 	}
 	if r.DockerReadiness != nil {
 		if r.DockerReadiness.Validate() != nil ||
@@ -410,6 +421,8 @@ func (p capabilityReadinessProjection) commandRuntimeReadiness() CommandRuntimeR
 			ready = p.runtime.LocalBackendReady
 		case CommandRuntimeDockerSandboxBackend:
 			ready = p.runtime.DockerBackendReady
+		case "docker_sandboxes":
+			ready = p.runtime.SBXBackendReady
 		}
 		result.AdapterReady = result.AdapterReady || ready
 		if !adapter.AllowsPermission(p.permission.Mode) ||
@@ -490,7 +503,7 @@ func (p capabilityReadinessProjection) permissionOptions() []CapabilityReadiness
 
 func (p capabilityReadinessProjection) profileOptions() []CapabilityReadinessOption {
 	profiles := []domain.RunExecutionProfile{domain.RunExecutionProfilePreview,
-		domain.RunExecutionProfileDocker, domain.RunExecutionProfileLocal}
+		domain.RunExecutionProfileDocker, domain.RunExecutionProfileLocal, domain.RunExecutionProfileSBX}
 	options := make([]CapabilityReadinessOption, 0, len(profiles))
 	for _, target := range profiles {
 		builder := newReadinessOption(string(target), p.profile.Profile == target)
@@ -510,6 +523,8 @@ func (p capabilityReadinessProjection) profileOptions() []CapabilityReadinessOpt
 			runtimeAvailable = p.addLocalBackendBlockers(builder)
 		case domain.RunExecutionProfileDocker:
 			runtimeAvailable = p.addDockerBackendBlockers(builder)
+		case domain.RunExecutionProfileSBX:
+			runtimeAvailable = p.addSBXBackendBlockers(builder)
 		}
 		if target != domain.RunExecutionProfilePreview &&
 			p.interaction.WorkspaceTrust != domain.WorkspaceTrustTrusted {
@@ -549,7 +564,7 @@ func (p capabilityReadinessProjection) interactionOptions() []CapabilityReadines
 			} else if target == domain.RunExecutionInteractionDebug {
 				expectedProfile = domain.RunExecutionProfileLocal
 			} else if expectedProfile != domain.RunExecutionProfileLocal &&
-				expectedProfile != domain.RunExecutionProfileDocker {
+				expectedProfile != domain.RunExecutionProfileDocker && expectedProfile != domain.RunExecutionProfileSBX {
 				expectedProfile = domain.RunExecutionProfileLocal
 			}
 			if p.mode.Surface != expectedSurface {
@@ -571,6 +586,10 @@ func (p capabilityReadinessProjection) interactionOptions() []CapabilityReadines
 				(target == domain.RunExecutionInteractionControlled &&
 					p.profile.Profile == domain.RunExecutionProfileDocker) {
 				if !p.addDockerBackendBlockers(builder) {
+					runtimeAvailable = false
+				}
+			} else if target == domain.RunExecutionInteractionControlled && p.profile.Profile == domain.RunExecutionProfileSBX {
+				if !p.addSBXBackendBlockers(builder) {
 					runtimeAvailable = false
 				}
 			} else if !p.addLocalBackendBlockers(builder) {
@@ -645,7 +664,7 @@ func (p capabilityReadinessProjection) presetOptions() []CapabilityReadinessOpti
 	selected := p.mode.Surface == domain.ExecutionSurfaceCode &&
 		p.mode.Phase == domain.ExecutionPhasePlan &&
 		(p.profile.Profile == domain.RunExecutionProfileLocal ||
-			p.profile.Profile == domain.RunExecutionProfileDocker) &&
+			p.profile.Profile == domain.RunExecutionProfileDocker || p.profile.Profile == domain.RunExecutionProfileSBX) &&
 		p.interaction.Mode == domain.RunExecutionInteractionControlled &&
 		p.interaction.ExecutionProfile == p.profile.Profile &&
 		p.interaction.ExecutionProfileRevision == p.profile.Revision &&
@@ -666,6 +685,8 @@ func (p capabilityReadinessProjection) presetOptions() []CapabilityReadinessOpti
 	backendReady := false
 	if selected && p.profile.Profile == domain.RunExecutionProfileDocker {
 		backendReady = p.addDockerBackendBlockers(builder)
+	} else if selected && p.profile.Profile == domain.RunExecutionProfileSBX {
+		backendReady = p.addSBXBackendBlockers(builder)
 	} else {
 		backendReady = p.addLocalBackendBlockers(builder)
 	}
@@ -678,6 +699,22 @@ func (p capabilityReadinessProjection) presetOptions() []CapabilityReadinessOpti
 			CapabilityRemediationTrustWorkspace)
 	}
 	return []CapabilityReadinessOption{builder.finish(selectable, runtimeAvailable)}
+}
+
+func (p capabilityReadinessProjection) addSBXBackendBlockers(builder *capabilityReadinessOptionBuilder) bool {
+	ready := true
+	if !p.runtime.SBXStartupGateEnabled || !p.runtime.ExecutionPermissionCapabilities.WorkspaceSandboxEnabled {
+		ready = false
+		builder.add(CapabilityBlockerStartupGateClosed, CapabilityRemediationRestartWithStartupGate)
+	}
+	if !p.runtime.SBXAvailable {
+		ready = false
+		builder.add(CapabilityBlockerSBXUnavailable, CapabilityRemediationInstallOrStartSBX)
+	} else if !p.runtime.SBXBackendReady {
+		ready = false
+		builder.add(CapabilityBlockerBackendNotReady, CapabilityRemediationRetryBackendReadiness)
+	}
+	return ready
 }
 
 func (p capabilityReadinessProjection) addLocalBackendBlockers(
@@ -826,7 +863,7 @@ func (r RunCapabilityReadiness) Validate() error {
 		maxSelected int
 	}{
 		{"permissions", r.Permissions, []string{"ask", "auto", "full"}, 1},
-		{"profiles", r.Profiles, []string{"preview", "docker", "local"}, 1},
+		{"profiles", r.Profiles, []string{"preview", "docker", "local", "sbx"}, 1},
 		{"interactions", r.Interactions, []string{"preview", "controlled", "debug", "cyber"}, 1},
 		{"browser CDP permissions", r.BrowserCDPPermissions, []string{"restricted", "full_debug"}, 1},
 		{"presets", r.Presets, []string{StandardCodePresetValue}, 1},

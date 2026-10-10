@@ -442,8 +442,10 @@ func migrationPlan() []migration {
 		Statements: operatorCommandInvocationStatements()})
 	previous = append(previous, migration{Version: 186, Name: "Bounded task budgets and immutable narrowing-only project configuration",
 		Statements: controlledTaskConfigurationStatements()})
-	return append(previous, migration{Version: 187, Name: "Version-bound observed declarative Hook decisions",
+	previous = append(previous, migration{Version: 187, Name: "Version-bound observed declarative Hook decisions",
 		Statements: pluginHookDiagnosticsStatements()})
+	return append(previous, migration{Version: 188, Name: "Explicit Local, Docker Engine and Docker Sandboxes selection",
+		Statements: sandboxBackendSelectionStatements(previous), DisableForeignKeys: true})
 }
 
 func (s *SQLiteStore) SaveWorkspace(ctx context.Context, rec WorkspaceRecord) error {

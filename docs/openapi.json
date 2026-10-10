@@ -20615,6 +20615,171 @@
         "x-cyberagent-read-only": true
       }
     },
+    "/api/v1/sandbox/environment": {
+      "get": {
+        "operationId": "getSandboxEnvironment",
+        "summary": "Inspect Local, Docker Engine and Docker Sandboxes environments",
+        "description": "Reads saved and active settings with bounded installation and readiness observations.",
+        "tags": [
+          "Sandbox"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful read",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/SandboxEnvironmentView"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
+          }
+        },
+        "x-cyberagent-read-only": true
+      },
+      "put": {
+        "operationId": "saveSandboxEnvironment",
+        "summary": "Save sandbox environment preferences",
+        "description": "Atomically saves revision-bound preferences for the next desktop startup. Execution continues to require task approval and current backend readiness.",
+        "tags": [
+          "Sandbox"
+        ],
+        "responses": {
+          "200": {
+            "description": "Control request accepted or idempotently replayed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/SandboxEnvironmentView"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "412": {
+            "$ref": "#/components/responses/FailedPrecondition"
+          },
+          "413": {
+            "$ref": "#/components/responses/RequestEntityTooLarge"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
+          }
+        },
+        "security": [
+          {
+            "ControlBearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SandboxEnvironmentControlRequestView"
+              }
+            }
+          }
+        },
+        "x-cyberagent-read-only": false
+      }
+    },
     "/api/v1/scheduled-jobs": {
       "get": {
         "operationId": "listScheduledJobs",
@@ -31927,7 +32092,8 @@
                 "workspace_untrusted",
                 "sandbox_unproven",
                 "docker_unavailable",
-                "backend_not_ready"
+                "backend_not_ready",
+                "sbx_unavailable"
               ],
               "type": "string"
             },
@@ -31947,7 +32113,8 @@
                 "trust_workspace",
                 "verify_sandbox",
                 "install_or_start_docker",
-                "retry_backend_readiness"
+                "retry_backend_readiness",
+                "install_or_start_sbx"
               ],
               "type": "string"
             },
@@ -31978,6 +32145,7 @@
               "preview",
               "docker",
               "local",
+              "sbx",
               "controlled",
               "cyber",
               "restricted",
@@ -50615,7 +50783,8 @@
             "enum": [
               "preview",
               "docker",
-              "local"
+              "local",
+              "sbx"
             ],
             "type": "string"
           },
@@ -50663,6 +50832,7 @@
             "enum": [
               "none",
               "local_os_sandbox_gate",
+              "sbx_microvm_gate",
               "docker_sandbox_gate",
               "debug_agent_input_lease",
               "cyber_container_terminal_gate"
@@ -50984,7 +51154,8 @@
             "enum": [
               "preview",
               "docker",
-              "local"
+              "local",
+              "sbx"
             ],
             "type": "string"
           },
@@ -51028,7 +51199,8 @@
             "enum": [
               "noop",
               "docker",
-              "local"
+              "local",
+              "sbx"
             ],
             "type": "string"
           },
@@ -51068,7 +51240,8 @@
             "enum": [
               "preview",
               "docker",
-              "local"
+              "local",
+              "sbx"
             ],
             "type": "string"
           },
@@ -51082,7 +51255,8 @@
             "enum": [
               "none",
               "docker_production_start_gate",
-              "local_os_sandbox_gate"
+              "local_os_sandbox_gate",
+              "sbx_microvm_gate"
             ],
             "type": "string"
           },
@@ -52251,6 +52425,185 @@
           "code_intel_enabled",
           "wake_worker",
           "scheduled_job_worker"
+        ],
+        "type": "object"
+      },
+      "SandboxEnvironmentBackendView": {
+        "additionalProperties": false,
+        "properties": {
+          "backend": {
+            "enum": [
+              "local",
+              "docker",
+              "sbx"
+            ],
+            "type": "string"
+          },
+          "blockers": {
+            "items": {
+              "$ref": "#/components/schemas/SandboxEnvironmentBlockerView"
+            },
+            "type": "array"
+          },
+          "configured": {
+            "type": "boolean"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "installed": {
+            "type": "boolean"
+          },
+          "ready": {
+            "type": "boolean"
+          },
+          "status": {
+            "enum": [
+              "ready",
+              "disabled",
+              "unavailable",
+              "configuration_required",
+              "not_checked"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "backend",
+          "enabled",
+          "installed",
+          "configured",
+          "ready",
+          "status",
+          "blockers"
+        ],
+        "type": "object"
+      },
+      "SandboxEnvironmentBlockerView": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "type": "object"
+      },
+      "SandboxEnvironmentControlRequestView": {
+        "additionalProperties": false,
+        "properties": {
+          "expected_revision": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "settings": {
+            "$ref": "#/components/schemas/SandboxEnvironmentSettingsView"
+          },
+          "version": {
+            "enum": [
+              "sandbox_environment.v1"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "expected_revision",
+          "settings"
+        ],
+        "type": "object"
+      },
+      "SandboxEnvironmentSettingsView": {
+        "additionalProperties": false,
+        "properties": {
+          "default_backend": {
+            "enum": [
+              "local",
+              "docker",
+              "sbx"
+            ],
+            "type": "string"
+          },
+          "docker_enabled": {
+            "type": "boolean"
+          },
+          "docker_image_digest": {
+            "type": "string"
+          },
+          "sbx_enabled": {
+            "type": "boolean"
+          },
+          "sbx_template": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "default_backend",
+          "docker_enabled",
+          "docker_image_digest",
+          "sbx_enabled",
+          "sbx_template"
+        ],
+        "type": "object"
+      },
+      "SandboxEnvironmentView": {
+        "additionalProperties": false,
+        "properties": {
+          "active_settings": {
+            "$ref": "#/components/schemas/SandboxEnvironmentSettingsView"
+          },
+          "backends": {
+            "items": {
+              "$ref": "#/components/schemas/SandboxEnvironmentBackendView"
+            },
+            "type": "array"
+          },
+          "capability_grant": {
+            "type": "boolean"
+          },
+          "probe_status": {
+            "enum": [
+              "checked",
+              "not_checked"
+            ],
+            "type": "string"
+          },
+          "protocol_version": {
+            "enum": [
+              "sandbox_environment.v1"
+            ],
+            "type": "string"
+          },
+          "replayed": {
+            "type": "boolean"
+          },
+          "restart_required": {
+            "type": "boolean"
+          },
+          "revision": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "settings": {
+            "$ref": "#/components/schemas/SandboxEnvironmentSettingsView"
+          }
+        },
+        "required": [
+          "protocol_version",
+          "revision",
+          "settings",
+          "active_settings",
+          "restart_required",
+          "probe_status",
+          "backends",
+          "capability_grant",
+          "replayed"
         ],
         "type": "object"
       },
@@ -54720,7 +55073,8 @@
           "backend": {
             "enum": [
               "local",
-              "docker"
+              "docker",
+              "sbx"
             ],
             "type": "string"
           },
@@ -54737,11 +55091,12 @@
                 "workspace_untrusted",
                 "sandbox_unproven",
                 "docker_unavailable",
-                "backend_not_ready"
+                "backend_not_ready",
+                "sbx_unavailable"
               ],
               "type": "string"
             },
-            "maxItems": 11,
+            "maxItems": 12,
             "type": "array"
           },
           "remediation": {
@@ -54758,11 +55113,12 @@
                 "trust_workspace",
                 "verify_sandbox",
                 "install_or_start_docker",
-                "retry_backend_readiness"
+                "retry_backend_readiness",
+                "install_or_start_sbx"
               ],
               "type": "string"
             },
-            "maxItems": 12,
+            "maxItems": 13,
             "type": "array"
           }
         },
@@ -55695,6 +56051,12 @@
             "pattern": "^[0-9a-f]{64}$",
             "type": "string"
           },
+          "executable_identity_kind": {
+            "enum": [
+              "template_path_sha256"
+            ],
+            "type": "string"
+          },
           "executable_sha256": {
             "maxLength": 64,
             "minLength": 64,
@@ -55810,7 +56172,8 @@
             "enum": [
               "auto",
               "local",
-              "docker"
+              "docker",
+              "sbx"
             ],
             "type": "string"
           },
@@ -55860,7 +56223,8 @@
             "enum": [
               "auto",
               "local",
-              "docker"
+              "docker",
+              "sbx"
             ],
             "type": "string"
           },
@@ -55877,11 +56241,12 @@
                 "workspace_untrusted",
                 "sandbox_unproven",
                 "docker_unavailable",
-                "backend_not_ready"
+                "backend_not_ready",
+                "sbx_unavailable"
               ],
               "type": "string"
             },
-            "maxItems": 11,
+            "maxItems": 12,
             "type": "array"
           },
           "browser_cdp_permission": {
@@ -55930,6 +56295,7 @@
                 "pause_and_configure",
                 "wait_for_quiescence",
                 "select_docker",
+                "select_sbx",
                 "select_ask",
                 "retry_readiness",
                 "create_new_run"
@@ -55956,10 +56322,14 @@
             "minLength": 1,
             "type": "string"
           },
+          "sbx_readiness": {
+            "$ref": "#/components/schemas/StandardCodeBackendReadinessView"
+          },
           "selected_backend": {
             "enum": [
               "local",
-              "docker"
+              "docker",
+              "sbx"
             ],
             "type": "string"
           },
@@ -55967,7 +56337,8 @@
             "enum": [
               "auto_local_ready",
               "explicit_local",
-              "explicit_docker"
+              "explicit_docker",
+              "explicit_sbx"
             ],
             "type": "string"
           },
@@ -56002,6 +56373,7 @@
           "backend_intent",
           "local_readiness",
           "docker_readiness",
+          "sbx_readiness",
           "blocked_by",
           "next_steps",
           "trust_required",

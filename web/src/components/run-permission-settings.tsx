@@ -28,6 +28,8 @@ import { shortID } from "../lib/format";
 import { useLocale } from "../lib/locale";
 import { ErrorState, LoadingState, StatusBadge } from "./common";
 import { v2QueryKeys } from "../v2/query-keys";
+import { sandboxEnvironmentQueryKey, type SandboxBackend } from "../api/sandbox-environment";
+import { SandboxBackendSelector, sandboxBackendLabels } from "./sandbox-backend-selector";
 
 const executionProfiles: Array<{
   id: RunExecutionProfileView["profile"];
@@ -38,8 +40,9 @@ const executionProfiles: Array<{
   icon: typeof Eye;
 }> = [
   { id: "preview", chinese: "预览", english: "Preview", detailChinese: "不启动进程", detailEnglish: "No process execution", icon: Eye },
-  { id: "docker", chinese: "Docker", english: "Docker", detailChinese: "隔离容器", detailEnglish: "Isolated container", icon: Container },
+  { id: "docker", chinese: "Docker Engine", english: "Docker Engine", detailChinese: "隔离容器", detailEnglish: "Isolated container", icon: Container },
   { id: "local", chinese: "本地工作区", english: "Local workspace", detailChinese: "按当前权限执行本地命令", detailEnglish: "Local commands under the current permission", icon: Terminal },
+  { id: "sbx", chinese: "Docker Sandboxes (sbx)", english: "Docker Sandboxes (sbx)", detailChinese: "官方 sbx 微虚拟机", detailEnglish: "Official sbx microVM", icon: Container },
 ];
 
 export function ExecutionProfilePanel({ client, detail, readiness }: {
@@ -81,8 +84,8 @@ export function ExecutionProfilePanel({ client, detail, readiness }: {
         <StatusBadge status={profile.risk_tier} />
       </div>
       <div aria-label={t("Run 执行环境", "Run execution profile")}
-        className="permission-option-grid permission-option-grid-three" role="group">
-        {executionProfiles.map(({ id, chinese, english, detailChinese, detailEnglish, icon: Icon }) => {
+        className={`permission-option-grid permission-option-grid-${readiness.profiles.some((item) => item.value === "sbx") ? "four" : "three"}`} role="group">
+        {executionProfiles.filter(({ id }) => readiness.profiles.some((item) => item.value === id)).map(({ id, chinese, english, detailChinese, detailEnglish, icon: Icon }) => {
           const option = capabilityReadinessOption(readiness.profiles, id);
           return <button aria-pressed={option.selected}
             disabled={mutation.isPending || option.selected || !option.selectable}
@@ -231,7 +234,7 @@ export function ExecutionInteractionPanel({ client, detail, readiness }: {
 }
 
 type PresetAction = "configure" | "pause_and_configure";
-type PresetBackend = "auto" | "docker";
+type PresetBackend = "auto" | SandboxBackend;
 interface PresetAttempt {
   runID: string;
   threadID?: string;
@@ -246,14 +249,15 @@ interface PresetInteraction {
   error?: string;
 }
 const presetIntentKey = (runID: string) => ["run", runID, "standard-code-preset-intent"] as const;
+const presetBackendDraftKey = (runID: string) => ["run", runID, "standard-code-backend-draft"] as const;
 
-export function StandardCodeReadinessPanel({ client, detail, readiness, threadID, configureDisabledReason, preferredBackend = "auto" }: {
+export function StandardCodeReadinessPanel({ client, detail, readiness, threadID, configureDisabledReason, preferredBackend }: {
   client: APIClient;
   detail: RunDetailView;
   readiness: RunCapabilityReadinessView;
   threadID?: string;
   configureDisabledReason?: string;
-  preferredBackend?: PresetBackend;
+  preferredBackend?: SandboxBackend;
 }) {
   const { t } = useLocale();
   const queryClient = useQueryClient();
@@ -263,12 +267,39 @@ export function StandardCodeReadinessPanel({ client, detail, readiness, threadID
     detail.mode.phase === "deliver";
   const intent = useQuery<PresetInteraction | null>({ queryKey: presetIntentKey(detail.run.id),
     queryFn: () => null, enabled: false, initialData: null, gcTime: Infinity });
+  const backendDraft = useQuery<SandboxBackend | null>({ queryKey: presetBackendDraftKey(detail.run.id),
+    queryFn: () => null, enabled: false, initialData: null, gcTime: Infinity });
+  const environment = useQuery({ queryKey: sandboxEnvironmentQueryKey,
+    queryFn: ({ signal }) => client.getSandboxEnvironment(signal),
+    enabled: typeof client.getSandboxEnvironment === "function", retry: false });
+  const recoveredBackend = intent.data?.attempt.body.backend_intent;
+  const backend: SandboxBackend = recoveredBackend ? recoveredBackend === "auto" ? "local" : recoveredBackend
+    : backendDraft.data ?? preferredBackend ?? environment.data?.settings.default_backend ?? "local";
   const result = intent.data?.result;
   const pending = intent.data?.state === "pending";
   const unknown = intent.data?.state === "unknown";
   const invalidated = intent.data?.state === "invalidated";
   const waiting = intent.data?.state === "confirmed" && result?.status === "waiting_for_pause";
   const pendingTrust = intent.data?.state === "confirmed" && result?.trust_required && result.trust_digest ? result : null;
+  const chooseBackend = (next: SandboxBackend) => {
+    const current = queryClient.getQueryData<PresetInteraction | null>(presetIntentKey(detail.run.id));
+    if (configuredDelivery || option.selected || configureDisabledReason || current?.state === "pending" ||
+      current?.state === "unknown" || current?.state === "confirmed" &&
+      (current.result?.status === "waiting_for_pause" || current.result?.status === "configured")) return;
+    queryClient.setQueryData(presetBackendDraftKey(detail.run.id), next);
+    // Confirmations bind the selected backend and exact source digest together.
+    // An unknown request stays recoverable and locks selection until resolved.
+    if (current?.state === "confirmed" || current?.state === "invalidated") {
+      queryClient.setQueryData(presetIntentKey(detail.run.id), null);
+    }
+  };
+  const cancelTrust = () => {
+    const current = queryClient.getQueryData<PresetInteraction | null>(presetIntentKey(detail.run.id));
+    if (current?.state === "confirmed" && current.result?.trust_required &&
+      current.attempt.operationKey === intent.data?.attempt.operationKey) {
+      queryClient.setQueryData(presetIntentKey(detail.run.id), null);
+    }
+  };
   const action: PresetAction = detail.run.status === "running"
     ? "pause_and_configure" : "configure";
   const mutation = useMutation({
@@ -313,6 +344,7 @@ export function StandardCodeReadinessPanel({ client, detail, readiness, threadID
   const submit = (attempt: PresetAttempt) => {
     const current = queryClient.getQueryData<PresetInteraction | null>(presetIntentKey(attempt.runID));
     if (!client.hasStandardCodePreset || current?.state === "pending" ||
+      current?.state === "confirmed" && current.result?.status === "configured" ||
       (current?.state === "unknown" && current.attempt.operationKey !== attempt.operationKey)) return;
     queryClient.setQueryData<PresetInteraction>(presetIntentKey(attempt.runID), { attempt, state: "pending", result: current?.result });
     mutation.mutate(attempt);
@@ -336,19 +368,64 @@ export function StandardCodeReadinessPanel({ client, detail, readiness, threadID
     queryClient.setQueryData(presetIntentKey(detail.run.id), null);
     invoke(current.attempt.body.backend_intent as PresetBackend);
   };
-  const statusLabel = configuredDelivery ? t("已配置，交付中", "Configured, in Deliver") : result
-    ? result.status === "configured" ? t("已配置", "configured")
-      : result.status === "waiting_for_pause" ? t("等待静止", "waiting for quiescence")
-        : t("被阻止", "blocked")
-    : option.runtime_available ? t("就绪", "ready") : t("未就绪", "not ready");
+  const confirmTrust = () => {
+    const current = queryClient.getQueryData<PresetInteraction | null>(presetIntentKey(detail.run.id));
+    const reviewed = current?.result;
+    if (current?.state !== "confirmed" || current.attempt.operationKey !== intent.data?.attempt.operationKey ||
+      !reviewed?.trust_required || !reviewed.trust_digest || configureDisabledReason || configuredDelivery) return;
+    invoke(reviewed.backend_intent as PresetBackend, reviewed.action as PresetAction, true, reviewed.trust_digest);
+  };
   const pauseCanResolve = detail.run.status === "running" &&
     option.blocked_by.length > 0 && option.blocked_by.every((blocker) =>
       blocker === "run_not_quiescent" || blocker === "execution_lease_active");
+  const backendNeedsCheck = option.blocked_by.length > 0 && option.blocked_by.every((blocker) =>
+    ["sandbox_unproven", "docker_unavailable", "sbx_unavailable", "backend_not_ready"].includes(blocker));
+  const selectedBackend = (configuredDelivery || option.selected) && ["docker", "sbx"].includes(detail.execution_profile.profile)
+    ? detail.execution_profile.profile as SandboxBackend : configuredDelivery || option.selected ? "local" : backend;
+  const backendPresentation = (choice: SandboxBackend) => {
+    const observed = choice === "local" ? result?.local_readiness : choice === "docker" ? result?.docker_readiness : result?.sbx_readiness;
+    const profile = readiness.profiles.find((item) => item.value === choice);
+    const checked = environment.data?.probe_status === "checked"
+      ? environment.data.backends.find((item) => item.backend === choice) : undefined;
+    // An explicit preset response is the latest backend check. Before that,
+    // the active environment can veto an unavailable backend independently of
+    // the generic preset's auto-selected backend. This projection is display only.
+    const available = observed?.available ?? (checked && !checked.ready ? false
+      : profile?.runtime_available ?? checked?.ready);
+    const backendBlockers = new Set(["sandbox_unproven", "docker_unavailable", "sbx_unavailable", "backend_not_ready"]);
+    const backendRemediation = new Set(["verify_sandbox", "install_or_start_docker", "install_or_start_sbx", "retry_backend_readiness"]);
+    const blockedBy = [...new Set([...option.blocked_by.filter((value) => !backendBlockers.has(value)),
+      ...(observed ? observed.blocked_by ?? [] : profile?.blocked_by ?? [])])];
+    if (available !== true && !blockedBy.some((value) => backendBlockers.has(value))) blockedBy.push("backend_not_ready");
+    const presentationOption: CapabilityReadinessOptionView = { ...option,
+      runtime_available: available === true, blocked_by: blockedBy,
+      remediation: [...new Set([...option.remediation.filter((value) => !backendRemediation.has(value)),
+        ...(observed ? observed.remediation ?? [] : profile?.remediation ?? [])])] };
+    const preparation = checked?.blockers.map((blocker) => blocker.message).join(" · ");
+    const detail = available === undefined ? t("点击检查所选后端，再核对工作区来源并配置编码环境。",
+      "Check the selected backend, then review the Workspace source and configure the coding environment.")
+      : available ? capabilityReadinessDetail(presentationOption,
+        t("工作区执行与受控沙箱", "Workspace access with controlled sandbox"), t)
+        : `${preparation || capabilityReadinessSummary(presentationOption, sandboxBackendLabels[choice], t)} ${t("点击检查并配置，按检测结果准备环境。", "Check and configure, then prepare the environment using the check result.")}`;
+    return { available, option: presentationOption, detail };
+  };
+  const selectedPresentation = backendPresentation(selectedBackend);
+  const backendStatuses = Object.fromEntries((["local", "docker", "sbx"] as const).map((choice) => {
+    const presentation = backendPresentation(choice);
+    return [choice, presentation.available === undefined ? t("配置时检查状态", "Checked when configuring")
+      : presentation.available ? t("已检查就绪", "Checked and ready") : t("需要准备环境", "Environment needs preparation")];
+  }));
+  const statusLabel = configuredDelivery ? t("已配置，交付中", "Configured, in Deliver") : result
+    ? result.status === "configured" ? t("已配置", "configured")
+      : result.status === "waiting_for_pause" ? t("等待静止", "waiting for quiescence") : t("被阻止", "blocked")
+    : selectedPresentation.available === undefined ? t("待检查", "Awaiting a check")
+      : selectedPresentation.available ? t("就绪", "ready") : t("未就绪", "not ready");
   const runtimeFacts = <>
     <dl className="permission-facts">
       <div><dt>{t("已选择", "Selected")}</dt><dd>{option.selected ? t("是", "yes") : t("否", "no")}</dd></div>
       <div><dt>{t("可选择", "Selectable")}</dt><dd>{option.selectable ? t("是", "yes") : t("否", "no")}</dd></div>
-      <div><dt>{t("运行时", "Runtime")}</dt><dd>{option.runtime_available ? t("可用", "available") : t("不可用", "unavailable")}</dd></div>
+      <div><dt>{t("所选环境", "Selected environment")}</dt><dd>{selectedPresentation.available === undefined ? t("待检查", "Awaiting a check")
+        : selectedPresentation.available ? t("可用", "available") : t("需要准备环境", "Environment needs preparation")}</dd></div>
       <div><dt>{t("协议", "Protocol")}</dt><dd>{runtime.protocol_available ? t("存在", "available") : t("缺失", "missing")}</dd></div>
       <div><dt>{t("Adapter", "Adapter")}</dt><dd>{runtime.adapter_installed ? t("已安装", "installed") : t("未安装", "not installed")}</dd></div>
       <div><dt>{t("后端", "Backend")}</dt><dd>{runtime.adapter_ready ? t("就绪", "ready") : t("未就绪", "not ready")}</dd></div>
@@ -364,48 +441,44 @@ export function StandardCodeReadinessPanel({ client, detail, readiness, threadID
       <div>
         <h2><Code2 aria-hidden="true" size={16} />Standard Code</h2>
         <span>{configuredDelivery ? t("编码环境已配置，继续交付已选计划。", "The coding environment is configured. Continue delivering the selected plan.")
-          : capabilityReadinessSummary(option,
+          : selectedPresentation.available === undefined ? t("所选后端待检查", "The selected backend awaits a check")
+            : capabilityReadinessSummary(selectedPresentation.option,
             threadID ? t("编码环境", "Coding environment") : t("原子预设 readiness", "Atomic preset readiness"), t)}</span>
       </div>
       <StatusBadge status={configuredDelivery ? "configured" : result?.status === "configured" || option.selected
         ? "ready" : "blocked"} />
     </div>
+    <SandboxBackendSelector value={selectedBackend} onChange={chooseBackend} statuses={backendStatuses}
+      disabled={configuredDelivery || option.selected || Boolean(configureDisabledReason) || pending || unknown || waiting} />
     <div aria-label={t("Standard Code 预设", "Standard Code preset")}
       className="permission-option-grid permission-option-grid-two" role="group">
       <button aria-pressed={configuredDelivery || option.selected}
         disabled={configuredDelivery || !client.hasStandardCodePreset || Boolean(configureDisabledReason) || pending || unknown || invalidated || waiting || Boolean(pendingTrust) || option.selected ||
-          (!option.selectable && !pauseCanResolve)}
-        onClick={() => invoke(preferredBackend)} type="button">
+          (!option.selectable && !pauseCanResolve && !backendNeedsCheck)}
+        onClick={() => invoke(backend)} type="button">
         <Code2 aria-hidden="true" size={17} />
         <span>
           <strong>{configuredDelivery ? t("交付中", "In Deliver") : detail.run.status === "running"
             ? t("暂停并开始编码", "Pause and start coding")
-            : preferredBackend === "docker" ? t("使用 Docker 开始编码", "Start coding with Docker") : t("开始编码", "Start coding")}</strong>
+            : selectedPresentation.available !== true ? t(`检查并配置 ${sandboxBackendLabels[selectedBackend]}`, `Check and configure ${sandboxBackendLabels[selectedBackend]}`)
+              : selectedBackend === "local" ? t("开始编码", "Start coding") : t(`使用 ${sandboxBackendLabels[selectedBackend]} 开始编码`, `Start coding with ${sandboxBackendLabels[selectedBackend]}`)}</strong>
           {configuredDelivery ? <em className="capability-state capability-state-selected">{t("已配置", "Configured")}</em>
-            : <CapabilityState option={option} />}
+            : selectedPresentation.available === undefined ? <em className="capability-state capability-state-action_required"
+              data-readiness-state="action_required">{t("待检查", "Awaiting a check")}</em>
+              : <CapabilityState option={selectedPresentation.option} />}
           <small>{configuredDelivery
             ? t("沿用已选计划继续交付；执行权限仍按每次操作检查。", "Continue with the selected plan; execution authority is checked for each operation.")
-            : capabilityReadinessDetail(option,
-              t("工作区执行与受控沙箱", "Workspace access with controlled sandbox"), t)}</small>
+            : selectedPresentation.detail}</small>
         </span>
         {(configuredDelivery || option.selected) && <Check aria-hidden="true" size={15} />}
       </button>
-      {result?.docker_readiness.available && result.next_steps.includes("select_docker") &&
-        <button disabled={configuredDelivery || pending || unknown || waiting || Boolean(configureDisabledReason)} onClick={() => invoke("docker")} type="button">
-          <Container aria-hidden="true" size={17} />
-          <span><strong>{t("显式使用 Docker", "Use Docker explicitly")}</strong>
-            <small>{t("固定 network=none 与无凭证", "Fixed network=none and no credentials")}</small>
-          </span>
-        </button>}
     </div>
     {configureDisabledReason && <p>{configureDisabledReason}</p>}
     {pendingTrust && !configureDisabledReason && !configuredDelivery && <PermissionConfirmation
       description={`${t("确认当前工作区来源摘要后，创建或复用受信任 Drydock 并一次性提交完整预设。",
         "Confirm the reviewed Workspace source digest, then create or reuse the trusted Drydock and commit the complete preset once.")} ${pendingTrust.trust_digest}`}
       label={t("确认工作区来源", "Confirm Workspace source")}
-      loading={pending} onCancel={() => queryClient.setQueryData(presetIntentKey(detail.run.id), null)}
-      onConfirm={() => invoke(pendingTrust.backend_intent as PresetBackend, pendingTrust.action as PresetAction, true,
-        pendingTrust.trust_digest)} />}
+      loading={pending} onCancel={cancelTrust} onConfirm={confirmTrust} />}
     {threadID ? <><p>{t("此编码预设使用关闭的网络与空凭据环境。", "This coding preset uses disabled networking and an empty credential environment.")}</p>
       <details><summary>{t("查看运行环境详情", "View runtime environment details")}</summary>{runtimeFacts}</details></> : runtimeFacts}
     {result && result.status !== "configured" && result.next_steps.length > 0 &&
@@ -453,6 +526,7 @@ function localizedStandardCodeNextStep(value: string, t: ReadinessTranslator): s
     pause_and_configure: ["显式暂停并配置", "Pause and configure explicitly"],
     wait_for_quiescence: ["等待执行静止", "Wait for quiescence"],
     select_docker: ["显式选择 Docker", "Select Docker explicitly"],
+    select_sbx: ["选择 Docker Sandboxes (sbx)", "Select Docker Sandboxes (sbx)"],
     select_ask: ["改用 Ask 审批", "Use Ask approval"],
     retry_readiness: ["修复后重试 readiness", "Repair and retry readiness"],
     create_new_run: ["创建新的 Code Run", "Create a new Code Run"],
@@ -494,6 +568,7 @@ const readinessBlockerLabels: Record<string, [string, string]> = {
   workspace_untrusted: ["工作区尚未信任", "Workspace is untrusted"],
   sandbox_unproven: ["沙箱隔离尚未证明", "Sandbox isolation is unproven"],
   docker_unavailable: ["Docker 不可用", "Docker is unavailable"],
+  sbx_unavailable: ["sbx 环境待准备", "sbx needs preparation"],
 };
 
 const readinessRemediationLabels: Record<string, [string, string]> = {
@@ -509,6 +584,7 @@ const readinessRemediationLabels: Record<string, [string, string]> = {
   trust_workspace: ["确认工作区信任", "Confirm Workspace trust"],
   verify_sandbox: ["安装并验证沙箱", "Install and verify the sandbox"],
   install_or_start_docker: ["安装或启动 Docker", "Install or start Docker"],
+  install_or_start_sbx: ["安装或启动官方 sbx", "Install or start official sbx"],
 };
 
 function capabilityReadinessSummary(option: CapabilityReadinessOptionView,
@@ -547,7 +623,7 @@ function capabilityPresentationState(option: CapabilityReadinessOptionView,
     return "startup_unavailable";
   }
   if (blockers.has("backend_not_ready") || blockers.has("sandbox_unproven") ||
-    blockers.has("docker_unavailable")) {
+    blockers.has("docker_unavailable") || blockers.has("sbx_unavailable")) {
     return "backend_unavailable";
   }
   if (blockers.has("surface_mismatch") || blockers.has("profile_mismatch") ||
@@ -622,6 +698,9 @@ function localizedProtocolValue(value: string,
     workspace: ["工作区", "workspace"], unrestricted: ["不受限", "unrestricted"],
     closed: ["关闭", "closed"], full: ["完整", "full"], fixed: ["固定", "fixed"],
     stateless: ["无状态", "stateless"], persistent: ["持久", "persistent"],
+    local: ["Local", "Local"], docker: ["Docker Engine", "Docker Engine"],
+    sbx: ["Docker Sandboxes (sbx)", "Docker Sandboxes (sbx)"],
+    sbx_microvm_gate: ["sbx 微虚拟机闸门", "sbx microVM gate"],
   };
   const label = labels[value];
   return label ? t(label[0], label[1]) : value.replaceAll("_", " ");

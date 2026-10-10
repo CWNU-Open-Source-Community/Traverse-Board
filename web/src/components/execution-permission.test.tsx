@@ -6,6 +6,13 @@ import type { RunDetailView } from "../api/types";
 import { capabilityReadinessFixture, patchCapabilityReadiness } from
   "../test/capability-readiness";
 import { StandardCodeReadinessPanel } from "./run-permission-settings";
+import { sandboxEnvironmentFixture } from "../test/sandbox-environment";
+
+function stubPresetFetch(fetchMock: (url: string, init: RequestInit) => unknown) {
+  vi.stubGlobal("fetch", (url: string, init: RequestInit) => url.endsWith("/sandbox/environment")
+    ? Promise.resolve(new Response(JSON.stringify({ version: "api.v1", request_id: "environment-read", data: sandboxEnvironmentFixture() }),
+      { status: 200, headers: { "Content-Type": "application/json" } })) : fetchMock(url, init));
+}
 
 vi.mock("../lib/locale", () => ({
   useLocale: () => ({ locale: "zh-CN", setLocale: () => undefined,
@@ -84,7 +91,9 @@ function detail(): RunDetailView {
 }
 
 function standardCodeReadyReadiness() {
-  return patchCapabilityReadiness(capabilityReadinessFixture(),
+  return patchCapabilityReadiness(patchCapabilityReadiness(capabilityReadinessFixture(), "profiles", "local", {
+    runtime_available: true, blocked_by: [], remediation: [], restart_required: false,
+  }),
     "presets", "standard_code", {
       selectable: true, runtime_available: true, blocked_by: [], remediation: [],
       restart_required: false,
@@ -142,7 +151,7 @@ describe("StandardCodeReadinessPanel", () => {
   it("uses the atomic preset endpoint and requires exact Workspace source confirmation", async () => {
     const trustDigest = "a".repeat(64);
     const blocked = {
-      action: "configure", backend_intent: "auto",
+      action: "configure", backend_intent: "local",
       blocked_by: ["workspace_untrusted"], capability_grant: false,
       credentials: "none",
       docker_readiness: { backend: "docker", available: false,
@@ -153,13 +162,13 @@ describe("StandardCodeReadinessPanel", () => {
       network: "disabled", next_steps: ["confirm_workspace_trust"],
       protocol_version: "standard_code_preset.v1", replayed: false,
       run_id: "run-1", selected_backend: "local",
-      selection_reason: "auto_local_ready", status: "blocked",
+      selection_reason: "explicit_local", status: "blocked",
       trust_digest: trustDigest, trust_required: true, workspace_id: "workspace-1",
     };
     const fetchMock = vi.fn().mockImplementation(() => Promise.resolve(new Response(JSON.stringify({
       version: "api.v1", request_id: "req-standard-code", data: blocked,
     }), { status: 202, headers: { "Content-Type": "application/json" } })));
-    vi.stubGlobal("fetch", fetchMock);
+    stubPresetFetch(fetchMock);
     const user = userEvent.setup();
     render(<QueryClientProvider client={new QueryClient()}>
       <StandardCodeReadinessPanel
@@ -175,7 +184,7 @@ describe("StandardCodeReadinessPanel", () => {
     const [firstURL, firstInit] = fetchMock.mock.calls[0] as [string, RequestInit];
     expect(firstURL).toContain("/runs/run-1/standard-code/preset");
     expect(JSON.parse(String(firstInit.body))).toEqual({
-      version: "standard_code_preset.v1", backend_intent: "auto",
+      version: "standard_code_preset.v1", backend_intent: "local",
       confirm_workspace_trust: false,
     });
     expect(screen.getByText("确认工作区来源")).toBeInTheDocument();
@@ -185,7 +194,7 @@ describe("StandardCodeReadinessPanel", () => {
     await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(2));
     const [, secondInit] = fetchMock.mock.calls[1] as [string, RequestInit];
     expect(JSON.parse(String(secondInit.body))).toEqual({
-      version: "standard_code_preset.v1", backend_intent: "auto",
+      version: "standard_code_preset.v1", backend_intent: "local",
       confirm_workspace_trust: true, expected_trust_digest: trustDigest,
     });
     expect(new Headers(firstInit.headers).get("Idempotency-Key"))
@@ -198,6 +207,177 @@ describe("StandardCodeReadinessPanel", () => {
       .toBe(new Headers(thirdInit.headers).get("Idempotency-Key"));
   });
 
+  it("always shows three backend choices and discards an old trust binding when the user selects another backend", async () => {
+    const user = userEvent.setup();
+    const configureStandardCode = vi.fn(async (_run: string, _action: string, body: { backend_intent: string }, _key: string) => ({
+      status: "blocked", backend_intent: body.backend_intent, action: "configure", trust_required: true,
+      trust_digest: "b".repeat(64), next_steps: ["confirm_workspace_trust"], local_readiness: { available: true },
+      docker_readiness: { available: true }, sbx_readiness: { available: true },
+    }));
+    const client = { hasStandardCodePreset: true, configureStandardCode } as unknown as APIClient;
+    render(<QueryClientProvider client={new QueryClient()}><StandardCodeReadinessPanel client={client} detail={detail()}
+      readiness={standardCodeReadyReadiness()} /></QueryClientProvider>);
+    const choices = screen.getByRole("group", { name: "编码环境后端" });
+    expect(within(choices).getAllByRole("button")).toHaveLength(3);
+    expect(within(choices).getByRole("button", { name: /^Local/u })).toHaveAttribute("aria-pressed", "true");
+    await user.click(within(choices).getByRole("button", { name: /^Docker Sandboxes/u }));
+    expect(configureStandardCode).not.toHaveBeenCalled();
+    await user.click(screen.getByRole("button", { name: /检查并配置/u }));
+    await screen.findByRole("button", { name: "确认" });
+    const first = configureStandardCode.mock.calls[0]!;
+    expect(first[2]).toMatchObject({ backend_intent: "sbx", confirm_workspace_trust: false });
+    await user.click(within(choices).getByRole("button", { name: /^Docker Engine/u }));
+    expect(screen.queryByRole("button", { name: "确认" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /检查并配置/u }));
+    await waitFor(() => expect(configureStandardCode).toHaveBeenCalledTimes(2));
+    expect(configureStandardCode.mock.calls[1]![2]).toMatchObject({ backend_intent: "docker", confirm_workspace_trust: false });
+    expect(configureStandardCode.mock.calls[1]![2]).not.toHaveProperty("expected_trust_digest");
+    expect(configureStandardCode.mock.calls[1]![3]).not.toBe(first[3]);
+  });
+
+  it.each(["docker", "sbx"] as const)("projects an unready %s selection instead of the ready Local auto preset", async (backend) => {
+    const user = userEvent.setup();
+    const environment = sandboxEnvironmentFixture({ default_backend: backend,
+      docker_enabled: backend === "docker", sbx_enabled: backend === "sbx" });
+    if (backend === "sbx") environment.backends[2].blockers = [{ code: "MCP_ISOLATION_UNVERIFIED",
+      message: "sbx 的 MCP 隔离仍需验证，当前可选 Local 或 Docker Engine。" }];
+    const readiness = standardCodeReadyReadiness();
+    readiness.profiles.push({ value: "sbx", selected: false, selectable: false, runtime_available: false,
+      blocked_by: ["sbx_unavailable"], remediation: ["install_or_start_sbx"], restart_required: false });
+    const configureStandardCode = vi.fn().mockResolvedValue({ status: "blocked", backend_intent: backend,
+      action: "configure", trust_required: false, next_steps: ["retry_readiness"],
+      local_readiness: { available: true, blocked_by: [], remediation: [] },
+      docker_readiness: { available: false, blocked_by: ["docker_unavailable"], remediation: ["install_or_start_docker"] },
+      sbx_readiness: { available: false, blocked_by: ["sbx_unavailable"], remediation: ["install_or_start_sbx"] } });
+    const client = { hasStandardCodePreset: true, getSandboxEnvironment: vi.fn().mockResolvedValue(environment),
+      configureStandardCode } as unknown as APIClient;
+    render(<QueryClientProvider client={new QueryClient()}><StandardCodeReadinessPanel client={client}
+      detail={detail()} readiness={readiness} /></QueryClientProvider>);
+    const name = backend === "docker" ? "Docker Engine" : "Docker Sandboxes (sbx)";
+    const start = await screen.findByRole("button", { name: new RegExp(`检查并配置 ${name.replace(/[()]/gu, "\\$&")}`, "u") });
+    expect(start).toBeEnabled();
+    expect(within(start).getByText("后端不可用")).toHaveAttribute("data-readiness-state", "backend_unavailable");
+    expect(within(start).queryByText("可用")).not.toBeInTheDocument();
+    expect(within(start).queryByText("工作区执行与受控沙箱")).not.toBeInTheDocument();
+    if (backend === "sbx") expect(start).toHaveTextContent("MCP 隔离仍需验证");
+    await user.click(start);
+    await waitFor(() => expect(configureStandardCode).toHaveBeenCalledOnce());
+    expect(configureStandardCode).toHaveBeenCalledWith("run-1", "configure", {
+      version: "standard_code_preset.v1", backend_intent: backend, confirm_workspace_trust: false }, expect.any(String));
+    await screen.findByText("下一步", { exact: false });
+    expect(within(start).getByText("后端不可用")).toBeInTheDocument();
+    expect(within(start).queryByText("可用")).not.toBeInTheDocument();
+  });
+
+  it("keeps an unchecked historical sbx profile from inheriting ready Local state", async () => {
+    const user = userEvent.setup(); const client = { hasStandardCodePreset: true,
+      configureStandardCode: vi.fn() } as unknown as APIClient;
+    render(<QueryClientProvider client={new QueryClient()}><StandardCodeReadinessPanel client={client}
+      detail={detail()} readiness={standardCodeReadyReadiness()} /></QueryClientProvider>);
+    await user.click(screen.getByRole("button", { name: /^Docker Sandboxes/u }));
+    const start = screen.getByRole("button", { name: /检查并配置 Docker Sandboxes/u });
+    expect(start).toBeEnabled();
+    expect(within(start).getByText("待检查")).toBeInTheDocument();
+    expect(within(start).queryByText("可用")).not.toBeInTheDocument();
+    expect(start).toHaveTextContent("点击检查所选后端");
+    expect(client.configureStandardCode).not.toHaveBeenCalled();
+  });
+
+  it("locks backend switching while an unknown sbx request remains recoverable after closing", async () => {
+    const user = userEvent.setup(); const queryClient = new QueryClient();
+    const configureStandardCode = vi.fn().mockRejectedValueOnce(new Error("response lost")).mockResolvedValue({ status: "blocked",
+      backend_intent: "sbx", trust_required: false, next_steps: ["retry_readiness"], sbx_readiness: { available: false } });
+    const client = { hasStandardCodePreset: true, configureStandardCode } as unknown as APIClient;
+    const ui = <QueryClientProvider client={queryClient}><StandardCodeReadinessPanel client={client} detail={detail()}
+      readiness={standardCodeReadyReadiness()} /></QueryClientProvider>;
+    const view = render(ui);
+    await user.click(screen.getByRole("button", { name: /^Docker Sandboxes/u }));
+    await user.click(screen.getByRole("button", { name: /检查并配置/u }));
+    await screen.findByRole("button", { name: "确认上次编码配置" });
+    const original = configureStandardCode.mock.calls[0];
+    view.unmount(); render(ui);
+    expect(screen.getByRole("button", { name: /^Local/u })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /^Docker Sandboxes/u })).toHaveAttribute("aria-pressed", "true");
+    await user.click(screen.getByRole("button", { name: "确认上次编码配置" }));
+    await waitFor(() => expect(configureStandardCode).toHaveBeenCalledTimes(2));
+    expect(configureStandardCode.mock.calls[1]).toEqual(original);
+  });
+
+  it("applies the saved default asynchronously without replacing a backend the user already chose", async () => {
+    let finishRead!: (value: ReturnType<typeof sandboxEnvironmentFixture>) => void;
+    const getSandboxEnvironment = vi.fn(() => new Promise<ReturnType<typeof sandboxEnvironmentFixture>>((resolve) => { finishRead = resolve; }));
+    const client = { hasStandardCodePreset: true, getSandboxEnvironment, configureStandardCode: vi.fn() } as unknown as APIClient;
+    const user = userEvent.setup();
+    render(<QueryClientProvider client={new QueryClient()}><StandardCodeReadinessPanel client={client} detail={detail()}
+      readiness={standardCodeReadyReadiness()} /></QueryClientProvider>);
+    expect(screen.getByRole("button", { name: /^Local/u })).toHaveAttribute("aria-pressed", "true");
+    await user.click(screen.getByRole("button", { name: /^Docker Engine/u }));
+    await act(async () => finishRead(sandboxEnvironmentFixture({ default_backend: "sbx", sbx_enabled: true })));
+    expect(screen.getByRole("button", { name: /^Docker Engine/u })).toHaveAttribute("aria-pressed", "true");
+    expect(client.configureStandardCode).not.toHaveBeenCalled();
+  });
+
+  it("keeps an explicit backend draft across closing and scopes it to the original task", async () => {
+    const user = userEvent.setup(); const queries = new QueryClient();
+    const configureStandardCode = vi.fn();
+    const client = { hasStandardCodePreset: true, configureStandardCode } as unknown as APIClient;
+    const draw = (runID = "run-1") => <QueryClientProvider client={queries}><StandardCodeReadinessPanel client={client}
+      detail={{ ...detail(), run: { ...detail().run, id: runID } }} readiness={standardCodeReadyReadiness()} /></QueryClientProvider>;
+    const view = render(draw());
+    await user.click(screen.getByRole("button", { name: /^Docker Sandboxes/u }));
+    view.unmount();
+    const reopened = render(draw());
+    expect(screen.getByRole("button", { name: /^Docker Sandboxes/u })).toHaveAttribute("aria-pressed", "true");
+    reopened.rerender(draw("run-2"));
+    expect(screen.getByRole("button", { name: /^Local/u })).toHaveAttribute("aria-pressed", "true");
+    reopened.rerender(draw());
+    expect(screen.getByRole("button", { name: /^Docker Sandboxes/u })).toHaveAttribute("aria-pressed", "true");
+    expect(configureStandardCode).not.toHaveBeenCalled();
+  });
+
+  it.each(["pending", "configured"])("retains a newly %s binding when stale choice and trust controls fire before query subscribers redraw", async (state) => {
+    const user = userEvent.setup(); const queries = new QueryClient();
+    const configureStandardCode = vi.fn().mockResolvedValue({ status: "blocked", action: "configure", backend_intent: "sbx",
+      trust_required: true, trust_digest: "a".repeat(64), next_steps: ["confirm_workspace_trust"] });
+    const client = { hasStandardCodePreset: true, configureStandardCode } as unknown as APIClient;
+    render(<QueryClientProvider client={queries}><StandardCodeReadinessPanel client={client} detail={detail()}
+      readiness={standardCodeReadyReadiness()} /></QueryClientProvider>);
+    await user.click(screen.getByRole("button", { name: /^Docker Sandboxes/u }));
+    await user.click(screen.getByRole("button", { name: /检查并配置/u }));
+    const confirm = await screen.findByRole("button", { name: "确认" });
+    const cancel = screen.getByRole("button", { name: "取消" });
+    const docker = screen.getByRole("button", { name: /^Docker Engine/u });
+    const key = ["run", "run-1", "standard-code-preset-intent"];
+    const prior = queries.getQueryData<Record<string, unknown>>(key)!;
+    const pending = { ...prior, state: state === "pending" ? "pending" : "confirmed",
+      ...(state === "configured" ? { result: { ...prior.result as Record<string, unknown>, status: "configured", trust_required: false } } : {}) };
+    act(() => {
+      queries.setQueryData(key, pending);
+      fireEvent.click(docker); fireEvent.click(cancel); fireEvent.click(confirm);
+    });
+    expect(queries.getQueryData(key)).toEqual(pending);
+    expect(queries.getQueryData(["run", "run-1", "standard-code-backend-draft"])).toBe("sbx");
+    expect(configureStandardCode).toHaveBeenCalledOnce();
+  });
+
+  it("uses a saved default for an untouched task while preserving a historical auto recovery request", async () => {
+    const user = userEvent.setup(); const queryClient = new QueryClient();
+    const configureStandardCode = vi.fn().mockRejectedValue(new Error("response remains unknown"));
+    const getSandboxEnvironment = vi.fn().mockResolvedValue(sandboxEnvironmentFixture({ default_backend: "sbx", sbx_enabled: true }));
+    const client = { hasStandardCodePreset: true, getSandboxEnvironment, configureStandardCode } as unknown as APIClient;
+    const draw = () => <QueryClientProvider client={queryClient}><StandardCodeReadinessPanel client={client} detail={detail()}
+      readiness={standardCodeReadyReadiness()} /></QueryClientProvider>;
+    const view = render(draw());
+    await waitFor(() => expect(screen.getByRole("button", { name: /^Docker Sandboxes/u })).toHaveAttribute("aria-pressed", "true"));
+    view.unmount();
+    const old = { runID: "run-1", action: "configure", body: { version: "standard_code_preset.v1", backend_intent: "auto", confirm_workspace_trust: false }, operationKey: "historical-auto-intent" };
+    queryClient.setQueryData(["run", "run-1", "standard-code-preset-intent"], { state: "unknown", attempt: old });
+    render(draw());
+    await user.click(screen.getByRole("button", { name: "确认上次编码配置" }));
+    await waitFor(() => expect(configureStandardCode).toHaveBeenCalledOnce());
+    expect(configureStandardCode).toHaveBeenCalledWith("run-1", "configure", old.body, old.operationKey);
+  });
+
   it("keeps pause-and-configure visibly incomplete until the lease is released", async () => {
     const running = { ...detail(), run: { ...detail().run, status: "running" as const } };
     const readiness = patchCapabilityReadiness(capabilityReadinessFixture(),
@@ -207,7 +387,7 @@ describe("StandardCodeReadinessPanel", () => {
         remediation: ["pause_run", "wait_for_execution_lease"], restart_required: false,
       });
     const waiting = {
-      action: "pause_and_configure", backend_intent: "auto",
+      action: "pause_and_configure", backend_intent: "local",
       blocked_by: ["execution_lease_active"], capability_grant: false,
       credentials: "none",
       docker_readiness: { backend: "docker", available: false,
@@ -218,13 +398,13 @@ describe("StandardCodeReadinessPanel", () => {
       network: "disabled", next_steps: ["wait_for_quiescence"],
       protocol_version: "standard_code_preset.v1", replayed: false,
       run_id: "run-1", selected_backend: "local",
-      selection_reason: "auto_local_ready", status: "waiting_for_pause",
+      selection_reason: "explicit_local", status: "waiting_for_pause",
       trust_required: false, workspace_id: "workspace-1",
     };
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
       version: "api.v1", request_id: "req-standard-code-waiting", data: waiting,
     }), { status: 202, headers: { "Content-Type": "application/json" } }));
-    vi.stubGlobal("fetch", fetchMock);
+    stubPresetFetch(fetchMock);
     const user = userEvent.setup();
     render(<QueryClientProvider client={new QueryClient()}>
       <StandardCodeReadinessPanel
@@ -250,7 +430,7 @@ describe("StandardCodeReadinessPanel", () => {
     const successor = detail();
     successor.run = { ...successor.run, id: "run-new-code" };
     const configured = {
-      action: "configure", backend_intent: "auto", blocked_by: [],
+      action: "configure", backend_intent: "local", blocked_by: [],
       capability_grant: false, credentials: "none",
       docker_readiness: { backend: "docker", available: false,
         blocked_by: ["docker_unavailable"], remediation: ["install_or_start_docker"] },
@@ -259,7 +439,7 @@ describe("StandardCodeReadinessPanel", () => {
         blocked_by: [], remediation: [] },
       network: "disabled", next_steps: [], protocol_version: "standard_code_preset.v1",
       replayed: false, run_id: "run-new-code", selected_backend: "local",
-      selection_reason: "auto_local_ready", status: "configured",
+      selection_reason: "explicit_local", status: "configured",
       trust_required: false, workspace_id: "workspace-1",
       run: successor.run, mode: successor.mode,
       execution_profile: successor.execution_profile,
@@ -270,7 +450,7 @@ describe("StandardCodeReadinessPanel", () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
       version: "api.v1", request_id: "req-standard-code-successor", data: configured,
     }), { status: 202, headers: { "Content-Type": "application/json" } }));
-    vi.stubGlobal("fetch", fetchMock);
+    stubPresetFetch(fetchMock);
     const queryClient = new QueryClient();
     queryClient.setQueryData(["run", "run-1"], original);
     const user = userEvent.setup();
@@ -332,7 +512,7 @@ describe("StandardCodeReadinessPanel", () => {
   });
 
   it.each([true, undefined] as const)("only restarts an invalidated configuration after explicit recheck (marker %s)", async (marker) => {
-    const trust = { status: "blocked", run_id: "run-1", action: "configure", backend_intent: "auto", trust_required: true,
+    const trust = { status: "blocked", run_id: "run-1", action: "configure", backend_intent: "local", trust_required: true,
       trust_digest: "a".repeat(64), next_steps: ["confirm_workspace_trust"], docker_readiness: { available: false },
       network: "disabled", credentials: "none" };
     const configureStandardCode = vi.fn().mockResolvedValueOnce(trust)
@@ -358,7 +538,7 @@ describe("StandardCodeReadinessPanel", () => {
     const retry = configureStandardCode.mock.calls[2];
     if (marker) {
       expect(retry[0]).toBe(original[0]);
-      expect(retry[2]).toEqual({ version: "standard_code_preset.v1", backend_intent: "auto", confirm_workspace_trust: false });
+      expect(retry[2]).toEqual({ version: "standard_code_preset.v1", backend_intent: "local", confirm_workspace_trust: false });
       expect(retry[3]).not.toBe(original[3]);
     } else expect(retry).toEqual(original);
     await screen.findByText(new RegExp("b".repeat(64)));

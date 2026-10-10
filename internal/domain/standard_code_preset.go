@@ -19,12 +19,13 @@ const (
 	StandardCodeBackendAuto   StandardCodeBackendIntent = "auto"
 	StandardCodeBackendLocal  StandardCodeBackendIntent = "local"
 	StandardCodeBackendDocker StandardCodeBackendIntent = "docker"
+	StandardCodeBackendSBX    StandardCodeBackendIntent = "sbx"
 )
 
 func ParseStandardCodeBackendIntent(value string) (StandardCodeBackendIntent, error) {
 	intent := StandardCodeBackendIntent(strings.ToLower(strings.TrimSpace(value)))
 	switch intent {
-	case StandardCodeBackendAuto, StandardCodeBackendLocal, StandardCodeBackendDocker:
+	case StandardCodeBackendAuto, StandardCodeBackendLocal, StandardCodeBackendDocker, StandardCodeBackendSBX:
 		return intent, nil
 	default:
 		return "", fmt.Errorf("unsupported Standard Code backend intent %q", value)
@@ -41,13 +42,17 @@ type StandardCodeBackend string
 const (
 	StandardCodeSelectedLocal  StandardCodeBackend = "local"
 	StandardCodeSelectedDocker StandardCodeBackend = "docker"
+	StandardCodeSelectedSBX    StandardCodeBackend = "sbx"
 )
 
 func (b StandardCodeBackend) Valid() bool {
-	return b == StandardCodeSelectedLocal || b == StandardCodeSelectedDocker
+	return b == StandardCodeSelectedLocal || b == StandardCodeSelectedDocker || b == StandardCodeSelectedSBX
 }
 
 func (b StandardCodeBackend) ExecutionProfile() RunExecutionProfile {
+	if b == StandardCodeSelectedSBX {
+		return RunExecutionProfileSBX
+	}
 	if b == StandardCodeSelectedDocker {
 		return RunExecutionProfileDocker
 	}
@@ -63,12 +68,13 @@ const (
 	StandardCodeReasonAutoLocalReady StandardCodeSelectionReason = "auto_local_ready"
 	StandardCodeReasonExplicitLocal  StandardCodeSelectionReason = "explicit_local"
 	StandardCodeReasonExplicitDocker StandardCodeSelectionReason = "explicit_docker"
+	StandardCodeReasonExplicitSBX    StandardCodeSelectionReason = "explicit_sbx"
 )
 
 func (r StandardCodeSelectionReason) Valid() bool {
 	switch r {
 	case StandardCodeReasonAutoLocalReady, StandardCodeReasonExplicitLocal,
-		StandardCodeReasonExplicitDocker:
+		StandardCodeReasonExplicitDocker, StandardCodeReasonExplicitSBX:
 		return true
 	default:
 		return false
@@ -182,7 +188,10 @@ func (o StandardCodePresetOperation) Validate() error {
 				o.SelectionReason != StandardCodeReasonExplicitLocal)) ||
 		(o.BackendIntent == StandardCodeBackendDocker &&
 			(o.SelectedBackend != StandardCodeSelectedDocker ||
-				o.SelectionReason != StandardCodeReasonExplicitDocker)) {
+				o.SelectionReason != StandardCodeReasonExplicitDocker)) ||
+		(o.BackendIntent == StandardCodeBackendSBX &&
+			(o.SelectedBackend != StandardCodeSelectedSBX ||
+				o.SelectionReason != StandardCodeReasonExplicitSBX)) {
 		return errors.New("Standard Code preset backend selection does not match its intent")
 	}
 	if o.EventSequenceStart <= 0 || o.EventSequenceEnd < o.EventSequenceStart {

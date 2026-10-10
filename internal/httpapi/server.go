@@ -398,6 +398,8 @@ type Config struct {
 	UIEvidenceController                  UIEvidenceController
 	DockerSandboxController               DockerSandboxController
 	DockerEnvironmentController           DockerEnvironmentController
+	SandboxEnvironmentController          SandboxEnvironmentController
+	SandboxEnvironmentControlEnabled      bool
 	ModelRegistry                         *modelregistry.Registry
 	AppVersion                            string
 	EventStream                           EventStreamConfig
@@ -500,6 +502,8 @@ type API struct {
 	uiEvidenceController                  UIEvidenceController
 	dockerSandboxController               DockerSandboxController
 	dockerEnvironmentController           DockerEnvironmentController
+	sandboxEnvironmentController          SandboxEnvironmentController
+	sandboxEnvironmentControlEnabled      bool
 	modelRegistry                         *modelregistry.Registry
 	appVersion                            string
 	openAPI                               []byte
@@ -550,10 +554,13 @@ func New(store Store, config Config) (*API, error) {
 		config.VerificationEvidenceEnabled || config.EmbeddedAnalyzerExecutionEnabled ||
 		config.WorkspaceCheckpointControlEnabled || config.BatchDeliveryControlEnabled ||
 		config.GitAdvancedControlEnabled || config.GitHubReviewControlEnabled ||
-		config.ExtensionControlEnabled || config.UIEvidenceControlEnabled) &&
+		config.ExtensionControlEnabled || config.UIEvidenceControlEnabled || config.SandboxEnvironmentControlEnabled) &&
 		!controlTokenPresent {
 		return nil, apperror.New(apperror.CodeInvalidArgument,
 			"HTTP API control capabilities require a control token")
+	}
+	if config.SandboxEnvironmentControlEnabled && config.SandboxEnvironmentController == nil {
+		return nil, apperror.New(apperror.CodeInvalidArgument, "HTTP API sandbox environment controller is required when enabled")
 	}
 	if config.RunLifecycleEnabled && config.RunLifecycleController == nil {
 		return nil, apperror.New(apperror.CodeInvalidArgument,
@@ -939,6 +946,8 @@ func New(store Store, config Config) (*API, error) {
 		uiEvidenceController:                config.UIEvidenceController,
 		dockerSandboxController:             config.DockerSandboxController,
 		dockerEnvironmentController:         config.DockerEnvironmentController,
+		sandboxEnvironmentController:        config.SandboxEnvironmentController,
+		sandboxEnvironmentControlEnabled:    controlTokenPresent && config.SandboxEnvironmentControlEnabled,
 		modelRegistry:                       modelRegistry,
 		openAPI:                             document, eventStream: eventStream,
 		eventStreamSlots: make(chan struct{}, eventStream.MaxConnections),
@@ -1075,6 +1084,10 @@ func (a *API) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 	}
 	if request.URL.Path == DockerEnvironmentPath {
 		a.serveDockerEnvironment(tracked, request, requestID)
+		return
+	}
+	if request.URL.Path == SandboxEnvironmentPath {
+		a.serveSandboxEnvironment(tracked, request, requestID)
 		return
 	}
 	if isDockerSandboxPath(request.URL.Path) {

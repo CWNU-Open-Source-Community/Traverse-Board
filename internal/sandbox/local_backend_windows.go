@@ -234,6 +234,7 @@ func (b *windowsLocalBackend) probeReadinessLocked(ctx context.Context) (returnE
 func (b *windowsLocalBackend) Run(ctx context.Context,
 	request LocalRunRequest,
 ) (result LocalExecutionResult, returnErr error) {
+	result = localNoProcessResult()
 	if request.StdinPipe {
 		return result, ErrLocalSandboxBoundary
 	}
@@ -243,6 +244,7 @@ func (b *windowsLocalBackend) Run(ctx context.Context,
 func (b *windowsLocalBackend) RunWithStdin(ctx context.Context,
 	request LocalRunRequest, stdin io.ReadCloser,
 ) (result LocalExecutionResult, returnErr error) {
+	result = localNoProcessResult()
 	if stdin == nil || !request.StdinPipe {
 		if stdin != nil {
 			_ = stdin.Close()
@@ -254,11 +256,19 @@ func (b *windowsLocalBackend) RunWithStdin(ctx context.Context,
 
 func (b *windowsLocalBackend) run(ctx context.Context,
 	request LocalRunRequest, stdin io.ReadCloser,
+) (LocalExecutionResult, error) {
+	return b.runWithProcess(ctx, request, stdin, runLocalProcess)
+}
+
+func (b *windowsLocalBackend) runWithProcess(ctx context.Context,
+	request LocalRunRequest, stdin io.ReadCloser,
+	runProcess func(context.Context, localProcessSpec) (localProcessResult, error),
 ) (result LocalExecutionResult, returnErr error) {
+	result = localNoProcessResult()
 	if stdin != nil {
 		defer stdin.Close()
 	}
-	if b == nil || ctx == nil {
+	if b == nil || ctx == nil || runProcess == nil {
 		return result, ErrLocalSandboxUnavailable
 	}
 	b.mu.Lock()
@@ -378,7 +388,9 @@ func (b *windowsLocalBackend) run(ctx context.Context,
 		}
 	}
 
-	process, processErr := runLocalProcess(ctx, localProcessSpec{profile: profile,
+	// The process transport changes its proof at successful native creation;
+	// never infer dispatch or cleanup from an error message at this layer.
+	process, processErr := runProcess(ctx, localProcessSpec{profile: profile,
 		executable: prepared.executable, arguments: prepared.arguments,
 		workingDir: prepared.workingDir, environment: prepared.environment,
 		resources:    normalized.Manifest.Resources,

@@ -30,6 +30,14 @@ function savedOutput(content = "已保存的中文正文\n[REDACTED:secret]") {
 }
 
 describe("StandardCodeDeliveryPanel", () => {
+  it("labels the sbx executable digest as a pinned template and guest command path binding", async () => {
+    const report = observedReport();
+    report.verifications[0] = { ...report.verifications[0]!, backend: "docker_sandboxes", executable_identity_kind: "template_path_sha256" };
+    render(<QueryClientProvider client={new QueryClient()}><StandardCodeDeliveryPanel client={{
+      standardCodeDelivery: vi.fn().mockResolvedValue(report), hasControl: false,
+    } as unknown as APIClient} runID="run-1" onOpenCheckpoints={vi.fn()} onOpenFile={vi.fn()} /></QueryClientProvider>);
+    expect(await screen.findByText(/sbx pinned template and guest command path digest/u)).toHaveTextContent(report.verifications[0]!.executable_sha256);
+  });
   it.each(["HTTP API endpoint was not found", "Standard Code delivery report was not found"])(
     "does not turn an ambiguous 404 into a claim that no report exists (%s)", async (message) => {
       const read = vi.fn().mockRejectedValue(new APIRequestError(message, "NOT_FOUND", 404));

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, ChevronDown, ChevronLeft, ChevronRight, CircleAlert,
   LoaderCircle, RotateCcw, Settings } from "lucide-react";
@@ -125,7 +125,6 @@ export function V2ModelRouteControl({ client, threadID, pendingRoute, runActive 
   const triggerRef = useRef<HTMLButtonElement>(null);
   const settingsMenuRef = useRef<HTMLDivElement>(null);
   const modelsMenuRef = useRef<HTMLDivElement>(null);
-  const modelRowRef = useRef<HTMLButtonElement>(null);
   const pendingFocusOriginRef = useRef<HTMLElement | null>(null);
   const routeKey = ["v2", "thread", threadID, "model-route"] as const;
   const catalogKey = ["v2", "models", "available-routes"] as const;
@@ -136,10 +135,11 @@ export function V2ModelRouteControl({ client, threadID, pendingRoute, runActive 
     // Async route completion must likewise respect focus outside this control.
     const active = document.activeElement;
     const origin = pendingFocusOriginRef.current;
-    const disabledMenuLostFocus = active === document.body && origin &&
-      rootRef.current?.contains(origin) && origin.matches(":disabled");
+    // Cache/mutation notification may re-enable the original item before this
+    // callback. Its recorded focus ownership survives that DOM state change.
+    const pendingMenuLostFocus = active === document.body && origin && rootRef.current?.contains(origin);
     pendingFocusOriginRef.current = null;
-    if (rootRef.current?.contains(active) || disabledMenuLostFocus) triggerRef.current?.focus();
+    if (rootRef.current?.contains(active) || pendingMenuLostFocus) triggerRef.current?.focus();
     setLevel("closed");
   };
 
@@ -188,23 +188,26 @@ export function V2ModelRouteControl({ client, threadID, pendingRoute, runActive 
       event.preventDefault();
       closeMenu();
     };
+    const focusOutside = (event: FocusEvent) => {
+      if (event.target !== document.body && !rootRef.current?.contains(event.target as Node)) {
+        pendingFocusOriginRef.current = null;
+      }
+    };
     document.addEventListener("mousedown", outside);
+    document.addEventListener("focusin", focusOutside);
     window.addEventListener("keydown", keyboard);
     return () => {
       document.removeEventListener("mousedown", outside);
+      document.removeEventListener("focusin", focusOutside);
       window.removeEventListener("keydown", keyboard);
     };
   }, [level]);
 
-  useEffect(() => {
-    if (level === "settings") {
-      const frame = requestAnimationFrame(() => focusMenuItem(settingsMenuRef.current, "first"));
-      return () => cancelAnimationFrame(frame);
-    }
-    if (level === "models") {
-      const frame = requestAnimationFrame(() => focusMenuItem(modelsMenuRef.current, "first"));
-      return () => cancelAnimationFrame(frame);
-    }
+  useLayoutEffect(() => {
+    // Focus while the newly opened menu is committed, before the operator can
+    // move elsewhere. A delayed frame could override newer keyboard/input focus.
+    if (level === "settings") focusMenuItem(settingsMenuRef.current, "first");
+    if (level === "models") focusMenuItem(modelsMenuRef.current, "first");
   }, [level]);
 
   const groups = useMemo(() => {
@@ -278,7 +281,7 @@ export function V2ModelRouteControl({ client, threadID, pendingRoute, runActive 
       </dl>}
       <button onClick={() => setLevel("models")} onKeyDown={(event) => {
         if (event.key === "ArrowRight") { event.preventDefault(); setLevel("models"); }
-      }} ref={modelRowRef} role="menuitem" type="button">
+      }} role="menuitem" type="button">
         <span>模型</span><strong title={routeDescription}>{triggerLabel}</strong><ChevronRight aria-hidden="true" size={15} />
       </button>
       <button disabled role="menuitem" title="当前供应商尚未声明 reasoning_effort" type="button">
@@ -303,7 +306,6 @@ export function V2ModelRouteControl({ client, threadID, pendingRoute, runActive 
         if (event.key === "ArrowLeft") {
           event.preventDefault();
           setLevel("settings");
-          requestAnimationFrame(() => modelRowRef.current?.focus());
           return;
         }
         moveMenuFocus(event);

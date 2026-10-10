@@ -49,6 +49,7 @@ type ControlPlane struct {
 	closeErr                       error
 	skillInstaller                 *application.SkillPackageRegistryService
 	dockerSandbox                  *application.DockerSandboxService
+	sbxBackend                     *sandbox.SBXBackend
 	userTerminal                   *desktopUserTerminalService
 	debugAgentInput                application.DebugTerminalAgentInputController
 	commandRuntime                 application.CommandRuntimeRuntime
@@ -125,6 +126,10 @@ type ControlPlaneConfig struct {
 	LocalSandboxBackend                sandbox.LocalBackend
 	StandardCodeDockerImageDigest      string
 	StandardCodeDockerReadiness        *sandbox.DockerReadiness
+	SBXBackend                         *sandbox.SBXBackend
+	SBXReadiness                       *sandbox.SBXReadiness
+	SandboxEnvironmentControlEnabled   bool
+	SandboxEnvironmentSettings         *application.SandboxEnvironmentSettings
 	WebSearchEndpoint                  string
 	BrowserCDPPermissionControlEnabled bool
 	BrowserCDPPermissionCapabilities   domain.BrowserCDPPermissionRuntimeCapabilities
@@ -191,9 +196,26 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 	}
 	localReady := config.LocalSandboxReadiness != nil && config.LocalSandboxReadiness.Ready
 	dockerReady := config.StandardCodeDockerReadiness != nil && config.StandardCodeDockerReadiness.Ready
-	if config.ExecutionPermissionCapabilities.WorkspaceSandboxEnabled && !localReady && !dockerReady {
+	sbxReady := config.SBXReadiness != nil && config.SBXReadiness.Ready
+	if config.SBXReadiness != nil && (config.SBXReadiness.Validate() != nil || config.SBXBackend == nil ||
+		config.SBXReadiness.Generation != config.SBXBackend.Generation() ||
+		(sbxReady && (!config.SBXReadiness.ReadyAt(time.Now().UTC()) || !config.ExecutionPermissionCapabilities.WorkspaceSandboxEnabled))) {
+		return nil, apperror.New(apperror.CodeInvalidArgument, "desktop Docker Sandboxes readiness does not match its backend")
+	}
+	if config.SandboxEnvironmentSettings != nil {
+		if err := config.SandboxEnvironmentSettings.Validate(); err != nil {
+			return nil, err
+		}
+		if config.SandboxEnvironmentSettings.DockerEnabled != config.DockerExecutionEnabled ||
+			config.SandboxEnvironmentSettings.DockerImageDigest != config.StandardCodeDockerImageDigest ||
+			(config.SBXReadiness != nil && config.SBXReadiness.FeatureEnabled != config.SandboxEnvironmentSettings.SBXEnabled) ||
+			(config.SBXBackend != nil && config.SBXBackend.TemplateReference() != config.SandboxEnvironmentSettings.SBXTemplate) {
+			return nil, apperror.New(apperror.CodeInvalidArgument, "desktop sandbox settings differ from active startup configuration")
+		}
+	}
+	if config.ExecutionPermissionCapabilities.WorkspaceSandboxEnabled && !localReady && !dockerReady && !sbxReady {
 		return nil, apperror.New(apperror.CodeInvalidArgument,
-			"desktop Workspace Sandbox startup gate requires validated Local or Docker readiness")
+			"desktop Workspace Sandbox startup gate requires validated backend readiness")
 	}
 	if config.LocalSandboxBackend != nil &&
 		(config.LocalSandboxReadiness == nil ||
@@ -207,6 +229,14 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 			!config.ExecutionPermissionCapabilities.OperatorApprovalEnabled) {
 		return nil, apperror.New(apperror.CodeInvalidArgument,
 			"desktop Docker execution requires operator approval permission control")
+	}
+	if config.SBXReadiness != nil && config.SBXReadiness.FeatureEnabled &&
+		(!config.ExecutionPermissionControlEnabled || !config.ExecutionPermissionCapabilities.OperatorApprovalEnabled) {
+		return nil, apperror.New(apperror.CodeInvalidArgument,
+			"desktop Docker Sandboxes execution requires operator approval permission control")
+	}
+	if config.SandboxEnvironmentControlEnabled && config.SandboxEnvironmentSettings == nil {
+		return nil, apperror.New(apperror.CodeInvalidArgument, "desktop sandbox settings control requires active settings")
 	}
 	if config.GitAdvancedControlEnabled &&
 		(!config.ExecutionPermissionControlEnabled ||
@@ -289,6 +319,9 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 		LocalSandboxInstalled:            localReady,
 		DockerStartupGateEnabled:         config.DockerExecutionEnabled,
 		DockerAvailable:                  config.StandardCodeDockerReadiness != nil && config.StandardCodeDockerReadiness.DaemonReachable,
+		SBXStartupGateEnabled:            config.SBXReadiness != nil && config.SBXReadiness.FeatureEnabled,
+		SBXAvailable:                     config.SBXReadiness != nil && config.SBXReadiness.CLIInstalled,
+		SBXBackendReady:                  sbxReady,
 	}
 	if config.LocalSandboxReadiness != nil {
 		projected, projectionErr := capabilityReadinessRuntime.
@@ -532,6 +565,18 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 			_ = stateStore.Close()
 		}
 	}()
+	if config.SBXBackend != nil {
+		recoveryContext, cancelRecovery := context.WithTimeout(context.Background(), 30*time.Second)
+		recoveryErr := config.SBXBackend.RecoverStartup(recoveryContext)
+		if recoveryErr == nil {
+			_, recoveryErr = runner.ReconcileSandboxCommandRuntimeStartup(recoveryContext, stateStore,
+				commandruntimeadapter.SandboxedWorkspace(sandbox.SBXBackendName, sandbox.SBXPolicyVersion, config.SBXBackend.Generation()))
+		}
+		cancelRecovery()
+		if recoveryErr != nil {
+			return nil, apperror.Wrap(apperror.CodeUnavailable, "Docker Sandboxes owned execution recovery needs attention", recoveryErr)
+		}
+	}
 	commandManager, err := runner.NewPlatformCommandRuntimeManager(stateStore,
 		idgen.New("command-runtime-owner"))
 	if err != nil {
@@ -550,6 +595,9 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 	if config.RunExecutionEnabled && standardCodeRuntime != nil &&
 		commandRuntimeDrydocks != nil {
 		commandOptions.StandardCodeDockerRuntime = standardCodeRuntime
+	}
+	if config.RunExecutionEnabled && sbxReady && commandRuntimeDrydocks != nil {
+		commandOptions.SBXBackend = config.SBXBackend
 	}
 	commandSet, err = application.OpenCommandRuntimeSet(context.Background(), stateStore,
 		commandManager, commandOptions)
@@ -783,6 +831,8 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 			ready = capabilityReadinessRuntime.LocalBackendReady
 		case application.CommandRuntimeDockerSandboxBackend:
 			ready = capabilityReadinessRuntime.DockerBackendReady
+		case application.CommandRuntimeSBXBackend:
+			ready = capabilityReadinessRuntime.SBXBackendReady
 		}
 		commandRuntimeAdapterReady = commandRuntimeAdapterReady || ready
 	}
@@ -802,6 +852,10 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 		}
 		threadGit = application.NewThreadGitService(stateStore, localGit, remoteGit,
 			workspaceCheckpoints, commandRuntimeDrydocks, config.ExecutionPermissionCapabilities).WithAdvanced(gitAdvanced)
+	}
+	sandboxEnvironmentController, err := newDesktopSandboxEnvironmentController(home, config, standardCodeRuntime != nil)
+	if err != nil {
+		return nil, err
 	}
 	api, err := httpapi.New(stateStore, httpapi.Config{
 		AccessToken: config.ReadToken, ControlToken: config.ControlToken,
@@ -885,13 +939,15 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 		GitHubReviewController:              githubReview,
 		BatchDeliveryController: application.NewBatchDeliveryWorkbenchService(batchDelivery).
 			WithWorker(application.NewBatchDeliveryModelWorker(batchDelivery, stateStore, models.Router(), checker)),
-		ExtensionController:      extensionControl,
-		CodeIntelSource:          codeIntelManager,
-		CodeIntelController:      codeIntelControl,
-		UIEvidenceController:     uiEvidence,
-		FullCDPSessionController: fullCDPSessions,
-		AgentBrowserController:   agentBrowserController,
-		DockerSandboxController:  dockerSandbox,
+		ExtensionController:              extensionControl,
+		CodeIntelSource:                  codeIntelManager,
+		CodeIntelController:              codeIntelControl,
+		UIEvidenceController:             uiEvidence,
+		FullCDPSessionController:         fullCDPSessions,
+		AgentBrowserController:           agentBrowserController,
+		DockerSandboxController:          dockerSandbox,
+		SandboxEnvironmentController:     sandboxEnvironmentController,
+		SandboxEnvironmentControlEnabled: config.SandboxEnvironmentControlEnabled,
 		DockerEnvironmentController: httpapi.NewDockerEnvironmentController(application.NewDockerEnvironmentService(
 			config.DockerExecutionEnabled, config.StandardCodeDockerImageDigest, standardCodeRuntime != nil)),
 		ModelRegistry: models,
@@ -935,6 +991,7 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 		agentBrowser:                   agentBrowser,
 		commandRuntimeManager:          commandManager,
 		commandRuntimeSet:              commandSet,
+		sbxBackend:                     config.SBXBackend,
 		commandRuntimeAdapterInstalled: len(installedCommandRuntimeAdapters) > 0,
 		commandRuntimeAdapterReady:     commandRuntimeAdapterReady,
 		standardCodePresetEnabled:      standardCodePreset != nil,
@@ -1261,9 +1318,14 @@ func (c *ControlPlane) Close() error {
 			c.closeErr = errors.Join(c.closeErr, <-fullCDPShutdown)
 			fullCDPShutdownCancel()
 		}
+		commandDrainPending := false
 		if c.commandRuntimeSet != nil {
+			shutdownTimeout := 7 * time.Second
+			if c.sbxBackend != nil {
+				shutdownTimeout = 70 * time.Second
+			}
 			shutdownContext, shutdownCancel := context.WithTimeout(
-				context.Background(), 7*time.Second)
+				context.Background(), shutdownTimeout)
 			c.closeErr = errors.Join(c.closeErr, c.commandRuntimeSet.Shutdown(shutdownContext))
 			shutdownCancel()
 		} else if c.commandRuntimeManager != nil {
@@ -1272,6 +1334,16 @@ func (c *ControlPlane) Close() error {
 			c.closeErr = errors.Join(c.closeErr,
 				c.commandRuntimeManager.Shutdown(shutdownContext))
 			shutdownCancel()
+		}
+		if c.sbxBackend != nil {
+			c.closeErr = errors.Join(c.closeErr, c.sbxBackend.Close())
+			if c.commandRuntimeSet != nil {
+				drainContext, drainCancel := context.WithTimeout(context.Background(), 20*time.Second)
+				drainErr := c.commandRuntimeSet.Shutdown(drainContext)
+				commandDrainPending = errors.Is(drainErr, context.DeadlineExceeded) || errors.Is(drainErr, context.Canceled)
+				c.closeErr = errors.Join(c.closeErr, drainErr)
+				drainCancel()
+			}
 		}
 		if c.codeIntelManager != nil {
 			shutdownContext, shutdownCancel := context.WithTimeout(
@@ -1290,7 +1362,18 @@ func (c *ControlPlane) Close() error {
 			c.closeErr = errors.Join(c.closeErr,
 				c.terminalManager.Shutdown())
 		}
-		c.closeErr = errors.Join(c.closeErr, c.stateStore.Close())
+		if commandDrainPending {
+			// Keep the borrowed store alive if a stalled completion exceeded the
+			// visible shutdown budget. The last writer releases it after draining;
+			// a process exit also closes its OS handles.
+			runtimes, stateStore := c.commandRuntimeSet, c.stateStore
+			go func() {
+				_ = runtimes.Shutdown(context.Background())
+				_ = stateStore.Close()
+			}()
+		} else {
+			c.closeErr = errors.Join(c.closeErr, c.stateStore.Close())
+		}
 	})
 	return c.closeErr
 }

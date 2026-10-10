@@ -87,17 +87,20 @@ func (e *DockerSandboxCommandRuntimeExecutor) ExecuteSandboxCommand(ctx context.
 	scope runner.CommandRuntimeScope, spec runner.CommandRuntimeResolvedSpec,
 	stdin io.ReadCloser,
 ) (runner.CommandRuntimeSandboxResult, error) {
+	// Preparation and admission review create no container. After Start is
+	// attempted, only its actual terminal receipt can prove the tree is reaped.
+	noProcess := runner.CommandRuntimeSandboxResult{ExitCode: 125, TreeReaped: true}
 	if ctx == nil || ctx.Err() != nil {
-		return runner.CommandRuntimeSandboxResult{}, fmt.Errorf(
+		return noProcess, fmt.Errorf(
 			"%w: execution context is unavailable", runner.ErrCommandRuntimeBoundary)
 	}
 	if !e.Available() {
-		return runner.CommandRuntimeSandboxResult{}, fmt.Errorf(
+		return noProcess, fmt.Errorf(
 			"%w: Docker Standard Code adapter is unavailable or stale",
 			runner.ErrCommandRuntimeBoundary)
 	}
 	if scope.Validate() != nil || !scope.Adapter.SameBackend(e.identity) {
-		return runner.CommandRuntimeSandboxResult{}, fmt.Errorf(
+		return noProcess, fmt.Errorf(
 			"%w: execution scope does not match the Docker Standard Code adapter",
 			runner.ErrCommandRuntimeBoundary)
 	}
@@ -108,17 +111,17 @@ func (e *DockerSandboxCommandRuntimeExecutor) ExecuteSandboxCommand(ctx context.
 		(spec.Spec.StdinPolicy == runner.CommandRuntimeStdinPipe && stdin == nil) ||
 		(spec.Spec.StdinPolicy != runner.CommandRuntimeStdinClosed &&
 			spec.Spec.StdinPolicy != runner.CommandRuntimeStdinPipe) {
-		return runner.CommandRuntimeSandboxResult{}, fmt.Errorf(
+		return noProcess, fmt.Errorf(
 			"%w: command or stdin policy is unsupported by Docker Standard Code",
 			runner.ErrCommandRuntimeBoundary)
 	}
 	command, err := commandRuntimeDockerCommand(spec)
 	if err != nil {
-		return runner.CommandRuntimeSandboxResult{}, err
+		return noProcess, err
 	}
 	workspace, found, err := readRunFileDrydock(ctx, e.service.store, scope.RunID)
 	if err != nil || !found {
-		return runner.CommandRuntimeSandboxResult{}, errors.Join(err,
+		return noProcess, errors.Join(err,
 			runner.ErrCommandRuntimeBoundary)
 	}
 	baseKey := "command-runtime-docker-" + runmutation.Fingerprint(
@@ -134,30 +137,30 @@ func (e *DockerSandboxCommandRuntimeExecutor) ExecuteSandboxCommand(ctx context.
 		OperationKey:       baseKey + "-prepare", RequestedBy: scope.RootAgentID,
 		Command: command}, stdinPolicy)
 	if err != nil {
-		return runner.CommandRuntimeSandboxResult{}, err
+		return noProcess, err
 	}
 	if prepared.Blocked || prepared.Preparation == nil || prepared.Approval == nil {
-		return runner.CommandRuntimeSandboxResult{}, errors.New(
+		return noProcess, errors.New(
 			"Docker Standard Code adapter is not ready for this command")
 	}
 	decision, err := e.service.manifests.ReviewApproval(ctx,
 		prepared.Preparation.Preparation.ID, approval.ActionApprove,
 		baseKey+"-approve", "command_runtime_adapter", "")
 	if err != nil {
-		return runner.CommandRuntimeSandboxResult{}, err
+		return noProcess, err
 	}
 	lease, found, err := e.service.store.GetRunExecutionLease(ctx, scope.RunID)
 	if err != nil || !found || lease.LeaseID != scope.LeaseID ||
 		lease.Generation != scope.LeaseGeneration || lease.OwnerID != scope.LeaseOwnerID ||
 		lease.Status != domain.RunExecutionLeaseActive {
-		return runner.CommandRuntimeSandboxResult{}, errors.Join(err,
+		return noProcess, errors.Join(err,
 			fmt.Errorf("%w: Run execution lease changed during Docker admission",
 				runner.ErrCommandRuntimeBoundary))
 	}
 	executionCtx, output := withDockerCommandRuntimeOutput(ctx, scope.RunID,
 		spec.Spec.Output.ArtifactBytes)
 	if err := runner.CheckCommandRuntimeDispatch(executionCtx, spec); err != nil {
-		return runner.CommandRuntimeSandboxResult{}, err
+		return noProcess, err
 	}
 	executed, err := e.service.executeCommandRuntime(executionCtx,
 		StandardCodeDockerExecuteRequest{
@@ -168,7 +171,7 @@ func (e *DockerSandboxCommandRuntimeExecutor) ExecuteSandboxCommand(ctx context.
 			RequestedBy: scope.RootAgentID, Command: command}, lease, stdinPolicy, stdin)
 	if !executed.Executed || executed.Result == nil ||
 		executed.Result.Validate() != nil || executed.Result.ExitCode == nil {
-		return runner.CommandRuntimeSandboxResult{}, errors.Join(err, errors.New(
+		return runner.CommandRuntimeSandboxResult{ExitCode: 125, TreeReaped: output.noOwnedTree()}, errors.Join(err, errors.New(
 			"Docker Standard Code adapter did not return a terminal receipt"))
 	}
 	// An actual terminal failure still carries its bounded captured diagnostics.

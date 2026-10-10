@@ -1,5 +1,17 @@
 # Frontend rebuild status
 
+## Sandbox environment selection — 2026-10-10
+
+The follow-up starts from main `6a4402e7` after #296 merged. The desktop now
+separates Local, Docker Engine and official Docker Sandboxes preferences from
+task approval modes, with Local as the default and revision-bound settings
+applied through a fixed native restart. Existing CLI startup gates remain explicit.
+The SBX adapter and recovery integration are implemented, but production readiness
+remains blocked on the official MCP isolation contract. See
+[execution environments](sandbox-environments.md) for setup, current support and
+the evidence required to enable SBX execution. This is a recorded implementation
+boundary, not completed real-SBX acceptance.
+
 ## Completion integration — 2026-10-10
 
 The user requested completion of the remaining roadmap after #295 merged.

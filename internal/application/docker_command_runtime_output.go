@@ -10,6 +10,7 @@ import (
 	"sync"
 	"unicode/utf8"
 
+	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/runner"
 	"cyberagent-workbench/internal/sandbox"
 	"cyberagent-workbench/internal/standardcode"
@@ -20,14 +21,52 @@ import (
 type dockerCommandRuntimeOutputKey struct{}
 
 type dockerCommandRuntimeOutput struct {
-	mu          sync.Mutex
-	runID       string
-	admissionID string
-	maximum     int
-	captured    bool
-	status      string
-	stdout      string
-	stderr      string
+	mu               sync.Mutex
+	runID            string
+	admissionID      string
+	maximum          int
+	captured         bool
+	dispatchPossible bool
+	cleanupConfirmed bool
+	status           string
+	stdout           string
+	stderr           string
+}
+
+// This provenance is private to the live executor. A preparation or admission
+// alone never proves dispatch. An uncertain Start WAL, an existing Start/Launch,
+// or entering the lifecycle may own a container until a durable terminal receipt
+// confirms cleanup.
+func (output *dockerCommandRuntimeOutput) noteDispatchPossible() {
+	output.mu.Lock()
+	defer output.mu.Unlock()
+	output.dispatchPossible = true
+}
+
+func noteDockerCommandRuntimeDispatchPossible(ctx context.Context) {
+	if ctx == nil {
+		return
+	}
+	if output := dockerCommandRuntimeOutputFromContext(ctx); output != nil {
+		output.noteDispatchPossible()
+	}
+}
+
+func (output *dockerCommandRuntimeOutput) noOwnedTree() bool {
+	output.mu.Lock()
+	defer output.mu.Unlock()
+	return !output.dispatchPossible || output.cleanupConfirmed
+}
+
+func (output *dockerCommandRuntimeOutput) confirmCleanup(record domain.DockerSandboxRecord) error {
+	output.mu.Lock()
+	defer output.mu.Unlock()
+	if record.Validate() != nil || record.Receipt == nil || !record.Receipt.CleanupComplete ||
+		record.Admission.RunID != output.runID || (output.admissionID != "" && output.admissionID != record.Admission.ID) {
+		return errors.New("Docker Command Runtime cleanup receipt binding is invalid")
+	}
+	output.cleanupConfirmed = true
+	return nil
 }
 
 func withDockerCommandRuntimeOutput(ctx context.Context, runID string, maximum int) (

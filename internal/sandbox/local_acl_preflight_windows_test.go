@@ -57,7 +57,8 @@ func TestWindowsLocalToolchainPreflightRejectsBeforeOwnerOrACLMutation(t *testin
 	closeErr := backend.Close()
 	if !errors.Is(runErr, windows.ERROR_ACCESS_DENIED) || !strings.Contains(runErr.Error(), "preflight") ||
 		!strings.Contains(runErr.Error(), "toolchain") || !strings.Contains(runErr.Error(), "WRITE_DAC") ||
-		!strings.Contains(runErr.Error(), strconv.Quote(toolchain.path)) || closeErr != nil || !result.StartedAt.IsZero() {
+		!strings.Contains(runErr.Error(), strconv.Quote(toolchain.path)) || closeErr != nil || !result.StartedAt.IsZero() ||
+		!result.TreeReaped || result.ExitCode != 125 {
 		t.Fatalf("unmodifiable toolchain lacks a clean preflight rejection: run=%v close=%v result=%+v", runErr, closeErr, result)
 	}
 	after, err := captureLocalSecurity(pinned)

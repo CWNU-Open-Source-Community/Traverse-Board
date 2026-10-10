@@ -864,6 +864,44 @@ describe("APIClient", () => {
     expect(String(init.body)).not.toContain("control-secret");
   });
 
+  it("sends an explicit sbx request and rejects a response rebound to another backend or without sbx readiness", async () => {
+    const data = standardCodeTrustData({ backend_intent: "sbx", selected_backend: "sbx", selection_reason: "explicit_sbx",
+      sbx_readiness: { backend: "sbx", available: true, blocked_by: [], remediation: [] } });
+    const fetchMock = vi.fn(); vi.stubGlobal("fetch", fetchMock);
+    const client = new APIClient("read", "/api/v1", "control", { standardCodePresetEnabled: true });
+    const respond = (value: unknown) => new Response(JSON.stringify({ version: "api.v1", request_id: "sbx-preset", data: value }),
+      { status: 202, headers: { "Content-Type": "application/json" } });
+    fetchMock.mockResolvedValueOnce(respond(data));
+    const body = { version: "standard_code_preset.v1" as const, backend_intent: "sbx" as const, confirm_workspace_trust: false };
+    expect(await client.configureStandardCode("run-1", "configure", body, "web-preset-sbx-0001"))
+      .toMatchObject({ selected_backend: "sbx", trust_required: true });
+    expect(JSON.parse(String(fetchMock.mock.calls[0]?.[1].body))).toEqual(body);
+    for (const value of [standardCodeTrustData(), { ...data, sbx_readiness: undefined },
+      { ...data, sbx_readiness: { backend: "sbx", available: true, blocked_by: ["sbx_unavailable"], remediation: ["install_or_start_sbx"] } }]) {
+      fetchMock.mockResolvedValueOnce(respond(value));
+      await expect(client.configureStandardCode("run-1", "configure", body, "web-preset-sbx-0001"))
+        .rejects.toMatchObject({ code: "INVALID_RESPONSE" });
+    }
+  });
+
+  it("reads historical three and current four backend profiles and rejects unavailable sbx claims of a ready runtime", async () => {
+    const current = capabilityReadinessData();
+    const old = { ...current, profiles: current.profiles.filter((profile) => profile.value !== "sbx") };
+    const sbx = { value: "sbx", selected: false, selectable: false, runtime_available: false,
+      restart_required: false, blocked_by: ["sbx_unavailable"], remediation: ["install_or_start_sbx"] };
+    const data = { ...old, profiles: [...old.profiles, sbx] };
+    const fetchMock = vi.fn(); vi.stubGlobal("fetch", fetchMock);
+    const client = new APIClient("read");
+    const respond = (value: unknown) => new Response(JSON.stringify({ version: "api.v1", request_id: "sbx-readiness", data: value }),
+      { status: 200, headers: { "Content-Type": "application/json" } });
+    fetchMock.mockResolvedValueOnce(respond(old));
+    expect((await client.runCapabilityReadiness("run-1")).profiles).toHaveLength(3);
+    fetchMock.mockResolvedValueOnce(respond(data));
+    expect((await client.runCapabilityReadiness("run-1")).profiles).toHaveLength(4);
+    fetchMock.mockResolvedValueOnce(respond({ ...data, profiles: [...old.profiles, { ...sbx, runtime_available: true }] }));
+    await expect(client.runCapabilityReadiness("run-1")).rejects.toMatchObject({ code: "INVALID_RESPONSE" });
+  });
+
   it("fails closed for an invalid or rebound first-run Standard Code target", async () => {
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
       version: "api.v1", request_id: "req-standard-code-rebound",

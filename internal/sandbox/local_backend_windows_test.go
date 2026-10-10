@@ -848,7 +848,7 @@ func TestWindowsLocalSandboxRejectsPreexistingReparseEscapeBeforeStartingProcess
 		[]string{"-test.run=^TestWindowsLocalSandboxChildProbe$"})
 	result, runErr := backend.Run(context.Background(), request)
 	if runErr == nil || !errors.Is(runErr, ErrLocalSandboxBoundary) ||
-		!result.StartedAt.IsZero() {
+		!result.StartedAt.IsZero() || !result.TreeReaped || result.ExitCode != 125 {
 		t.Fatalf("reparse escape was not rejected before process start: %#v err=%v",
 			result, runErr)
 	}
@@ -884,9 +884,9 @@ func TestWindowsLocalSandboxRejectsPreexistingHardlinkEscapeBeforeACLGrant(t *te
 	request := localWindowsTestRequest(t, backend, drydock, filepath.Dir(executable),
 		"/test-toolchain", "/test-toolchain/"+filepath.ToSlash(filepath.Base(executable)),
 		[]string{"-test.run=^TestWindowsLocalSandboxChildProbe$"})
-	if _, err := backend.Run(context.Background(), request); !errors.Is(err,
-		ErrLocalSandboxBoundary) {
-		t.Fatalf("preexisting hardlink was not rejected: %v", err)
+	if result, err := backend.Run(context.Background(), request); !errors.Is(err,
+		ErrLocalSandboxBoundary) || !result.TreeReaped || result.ExitCode != 125 || !result.StartedAt.IsZero() {
+		t.Fatalf("preexisting hardlink was not rejected before dispatch: result=%+v error=%v", result, err)
 	}
 	payload, err := os.ReadFile(outside)
 	if err != nil || string(payload) != "host-secret" {

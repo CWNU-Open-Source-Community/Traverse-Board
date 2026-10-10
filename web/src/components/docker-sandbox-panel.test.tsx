@@ -73,7 +73,7 @@ it("prepares the current project through Docker preset intent and exact trust co
   const client = { hasControl: true, hasStandardCodePreset: true, getDockerEnvironment, configureStandardCode,
     get: vi.fn().mockResolvedValue(detail), runCapabilityReadiness: vi.fn().mockResolvedValue(readiness) } as unknown as APIClient;
   render(<QueryClientProvider client={new QueryClient()}><DockerSandboxPanel client={client} runID="run-1" threadID="thread-1" /></QueryClientProvider>);
-  await user.click(await screen.findByRole("button", { name: /Start coding with Docker/ }));
+  await user.click(await screen.findByRole("button", { name: /Check and configure Docker/ }));
   await waitFor(() => expect(configureStandardCode).toHaveBeenCalledTimes(1));
   expect(configureStandardCode.mock.calls[0]![2]).toMatchObject({ backend_intent: "docker", confirm_workspace_trust: false });
   expect(await screen.findByText(/Confirm the reviewed Workspace source digest/)).toHaveTextContent("a".repeat(64));

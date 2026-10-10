@@ -6,7 +6,9 @@ import type { APIClient } from "../../api/client";
 import type { ThreadDetailView } from "../../api/types";
 import { standardCodeDeliveryFixture } from "../../test/standard-code-delivery";
 import { capabilityReadinessFixture, patchCapabilityReadiness } from "../../test/capability-readiness";
+import { sandboxEnvironmentFixture } from "../../test/sandbox-environment";
 import { V2TaskReview } from "./task-review";
+import { V2ExecutionSettings } from "./execution-settings";
 
 vi.mock("../../components/workspace-checkpoint-panel", () => ({ WorkspaceCheckpointPanel: () => <div>Checkpoint timeline</div> }));
 vi.mock("../../components/code-handoff-panel", () => ({ CodeHandoffPanel: ({ runID }: { runID: string }) => <div>Ordinary Code handoff {runID}</div> }));
@@ -238,7 +240,7 @@ it("offers coding configuration and the exact plan within the current task while
     capabilityReadinessFixture(runID), "presets", "standard_code", { selectable: true, runtime_available: true,
       blocked_by: [], remediation: [], restart_required: false })));
   const configureStandardCode = vi.fn().mockResolvedValue({ status: "blocked", run_id: "run-2", action: "configure",
-    backend_intent: "auto", trust_required: true, trust_digest: "a".repeat(64), next_steps: ["confirm_workspace_trust"],
+    backend_intent: "local", trust_required: true, trust_digest: "a".repeat(64), next_steps: ["confirm_workspace_trust"],
     docker_readiness: { available: false }, network: "disabled", credentials: "none" });
   const client = { ...reportClient(vi.fn()), get, runCapabilityReadiness, configureStandardCode } as unknown as APIClient;
   renderReview(client, new QueryClient({ defaultOptions: { queries: { retry: false } } }), detail);
@@ -246,12 +248,45 @@ it("offers coding configuration and the exact plan within the current task while
   expect(await screen.findByText("No plan proposal yet")).toBeInTheDocument();
   expect(screen.queryByRole("button", { name: "生成当前交付报告" })).not.toBeInTheDocument();
   expect(screen.queryByRole("group", { name: "Run execution permission" })).not.toBeInTheDocument();
-  await user.click(screen.getByRole("button", { name: /Start coding/ }));
+  await user.click(screen.getByRole("button", { name: /Check and configure Local/ }));
   await screen.findByText("Confirm Workspace source");
   expect(configureStandardCode).toHaveBeenCalledWith("run-2", "configure", {
-    version: "standard_code_preset.v1", backend_intent: "auto", confirm_workspace_trust: false }, expect.any(String));
+    version: "standard_code_preset.v1", backend_intent: "local", confirm_workspace_trust: false }, expect.any(String));
   expect(screen.getByRole("combobox", { name: "选择审阅的执行记录" })).toHaveValue("run-2");
   await user.selectOptions(screen.getByRole("combobox", { name: "选择审阅的执行记录" }), "run-1");
   expect(await screen.findByText(/当前未结束的 Code 执行；历史执行仍可审阅/)).toBeInTheDocument();
-  expect(screen.getByRole("button", { name: /Start coding/ })).toBeDisabled();
+  expect(screen.getByRole("button", { name: /Check and configure Local/ })).toBeDisabled();
+});
+
+it("shares a nonauthorizing backend draft between actual task settings and review entrances", async () => {
+  const user = userEvent.setup(); const detail = reportDetail();
+  const run = { ...detail.active_run, status: "created", standard_code_preset_configured: false };
+  const current = { run, mission: { workspace_id: "workspace-1" }, mode: { phase: "plan", surface: "code" },
+    execution_permission: { mode: "ask" },
+    execution_profile: { profile: "preview", backend: "noop", risk_tier: "minimal", approval_policy: "none", required_gate: "none" },
+    execution_interaction: { mode: "preview", workspace_trust: "untrusted", command_form: "none", required_gate: "none" },
+  };
+  const configureStandardCode = vi.fn(); const postControl = vi.fn();
+  const client = { ...reportClient(vi.fn()), configureStandardCode, postControl,
+    get: vi.fn((path: string) => Promise.resolve(path.startsWith("/threads/") ? detail : current)),
+    getSandboxEnvironment: vi.fn().mockResolvedValue(sandboxEnvironmentFixture({ default_backend: "sbx", sbx_enabled: true })),
+    runCapabilityReadiness: vi.fn((runID: string) => Promise.resolve(patchCapabilityReadiness(capabilityReadinessFixture(runID),
+      "presets", "standard_code", { selectable: true, runtime_available: true, blocked_by: [], remediation: [], restart_required: false }))),
+  } as unknown as APIClient;
+  const queries = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const settings = () => <QueryClientProvider client={queries}><V2ExecutionSettings client={client}
+    threadID="thread-1" workspaces={[]} /></QueryClientProvider>;
+  const view = render(settings());
+  const settingsPicker = await screen.findByRole("group", { name: "Coding backend" });
+  await user.click(within(settingsPicker).getByRole("button", { name: /^Docker Engine/u }));
+  view.unmount();
+  const review = renderReview(client, queries, detail);
+  await openHistory(user, "检查与交付");
+  const picker = await screen.findByRole("group", { name: "Coding backend" });
+  expect(within(picker).getByRole("button", { name: /^Docker Engine/u })).toHaveAttribute("aria-pressed", "true");
+  await user.click(within(picker).getByRole("button", { name: /^Docker Sandboxes/u }));
+  review.unmount(); render(settings());
+  const reopenedPicker = await screen.findByRole("group", { name: "Coding backend" });
+  expect(within(reopenedPicker).getByRole("button", { name: /^Docker Sandboxes/u })).toHaveAttribute("aria-pressed", "true");
+  expect(configureStandardCode).not.toHaveBeenCalled(); expect(postControl).not.toHaveBeenCalled();
 });

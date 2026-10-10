@@ -338,6 +338,20 @@ func (s *fixedOperatorDiagnosticStore) GetRunExecutionLease(ctx context.Context,
 	return lease, found, err
 }
 
+func (s *fixedOperatorDiagnosticStore) RenewRunExecutionLease(ctx context.Context, expected domain.RunExecutionLease, ttl time.Duration) (domain.RunExecutionLease, error) {
+	started := time.Now()
+	lease, err := s.SQLiteStore.RenewRunExecutionLease(ctx, expected, ttl)
+	s.record(ctx, "RenewRunExecutionLease", started, fmt.Sprintf("expected_generation=%d generation=%d status=%s expires_at=%s", expected.Generation, lease.Generation, lease.Status, lease.ExpiresAt.UTC().Format(time.RFC3339Nano)), err)
+	return lease, err
+}
+
+func (s *fixedOperatorDiagnosticStore) ReleaseRunExecutionLease(ctx context.Context, expected domain.RunExecutionLease) (domain.RunExecutionLease, bool, error) {
+	started := time.Now()
+	lease, replayed, err := s.SQLiteStore.ReleaseRunExecutionLease(ctx, expected)
+	s.record(ctx, "ReleaseRunExecutionLease", started, fmt.Sprintf("expected_generation=%d generation=%d status=%s replayed=%t", expected.Generation, lease.Generation, lease.Status, replayed), err)
+	return lease, replayed, err
+}
+
 func (s *fixedOperatorDiagnosticStore) GetRunExecutionInteraction(ctx context.Context, id string) (domain.RunExecutionInteractionSnapshot, error) {
 	started := time.Now()
 	interaction, err := s.SQLiteStore.GetRunExecutionInteraction(ctx, id)

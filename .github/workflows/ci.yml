@@ -522,7 +522,7 @@ jobs:
           go test -v -count=1 -timeout 10m ./internal/runner -run '^TestWindowsFixedCommandRuntimeUsesRestrictedNativeProcess$'
           if ($fixedOperatorExitCode -ne 0) { exit $fixedOperatorExitCode }
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          go test -v -count=1 -timeout 10m ./internal/sandbox -run '^TestWindowsLocalSandbox'
+          go test -v -count=1 -timeout 10m ./internal/sandbox -run '^TestWindowsLocal(Sandbox|Backend|Process|FailedStart|ToolchainPreflight)'
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           # Local command manifests bind Windows drive roots and LPAC policy.
           # Run their launch freshness/capability tests on the actual platform.
