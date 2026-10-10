@@ -762,6 +762,7 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 	credentialFixture, credentialBinding, credentialStatus, _ := newMCPCredentialFixture(t)
 	fixture.api.dockerSandboxControlEnabled = true
 	fixture.api.dockerSandboxController = &dockerSandboxControllerStub{}
+	fixture.api.dockerEnvironmentController = &dockerEnvironmentStub{}
 	fixture.api.runLifecycleController = application.NewRunLifecycleControlService(fixture.store)
 	executionController := application.NewRunExecutionHandoffService(
 		fixture.store, llm.NewDefaultRouter(), policy.NewDefaultChecker())
@@ -840,7 +841,7 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 		fixture.store, llm.NewDefaultRouter(), policy.NewDefaultChecker())
 	fixture.api.childTaskControlController = application.NewChildTaskControlService(fixture.store)
 	fixture.api.batchDeliveryControlEnabled = true
-	fixture.api.batchDeliveryController = application.NewBatchDeliveryService(fixture.store)
+	fixture.api.batchDeliveryController = application.NewBatchDeliveryWorkbenchService(application.NewBatchDeliveryService(fixture.store))
 	credentialStore := credential.NewMemoryStore()
 	fixture.api.providerCredentialController = application.NewProviderCredentialService(
 		credentialStore).WithRegistryReload(fixture.api.modelRegistry, fixture.store)
@@ -1272,6 +1273,7 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 				spec.OperationID == "reviewRunChildTaskProposal" ||
 				spec.OperationID == "admitRunChildTaskProposal" ||
 				strings.Contains(spec.OperationID, "RunBatchDelivery") ||
+				strings.Contains(spec.OperationID, "BatchWorkbench") ||
 				spec.OperationID == "prepareRunBatchDelivery" {
 				expectedStatus = http.StatusNotFound
 			} else if spec.OperationID == "getWorkspaceRepositoryCommitFilePreview" {
@@ -1322,7 +1324,9 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 				response = previewConfigurationRequest(fixture.api, testAccessToken, `{"workspace_id":"`+fixture.workspace.ID+`"}`)
 			} else if spec.Control {
 				body := `{"profile":"docker"}`
-				if spec.OperationID == "controlThreadPlan" {
+				if spec.OperationID == "prepareBatchWorkbench" {
+					body = `{"version":"batch-delivery-workbench.v1","proposal_id":"proposal-openapi-missing-0001","tasks":[],"confirm":true}`
+				} else if spec.OperationID == "controlThreadPlan" {
 					body = `{"version":"plan_delivery_control.v1","run_id":"` + openAPIThreadRun.ID + `","action":"enter_plan"}`
 				} else if spec.OperationID == "stopThreadApplicationService" {
 					body = `{"version":"thread_application_services.v1","expected_run_id":"` + threadServiceJob.runID + `"}`
@@ -1652,6 +1656,10 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 						`"expected_descriptor_fingerprint":"` + strings.Repeat("a", 64) + `"}`
 				} else if spec.Path == ExtensionMCPRefreshPath {
 					body = `{"version":"extension-control.v1"}`
+				} else if spec.Path == ExtensionPluginRollbackPath {
+					body = `{"version":"plugin-lifecycle.v1","target_installation_id":"plugin-rollback-target","expected_current_fingerprint":"` + strings.Repeat("b", 64) + `","expected_current_generation":2,"expected_target_fingerprint":"` + strings.Repeat("b", 64) + `","expected_target_generation":2,"capabilities":["hooks"],"confirm_untrusted":true}`
+				} else if spec.Path == ExtensionPluginPublisherRevocationPath {
+					body = extensionJSON(t, PluginPublisherRevocationRequestView{Version: PluginLifecycleProtocol, ExpectedPublisherFingerprint: strings.Repeat("a", 64), ExpectedPublisherGeneration: 1, Confirm: true})
 				} else if spec.Path == ExtensionPluginReviewPath {
 					body = `{"version":"extension-control.v1","action":"disable",` +
 						`"expected_package_fingerprint":"` + strings.Repeat("b", 64) + `",` +
@@ -1782,6 +1790,7 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 					spec.OperationID != "reviewRunChildTaskProposal" &&
 					spec.OperationID != "admitRunChildTaskProposal" &&
 					!strings.Contains(spec.OperationID, "RunBatchDelivery") &&
+					!strings.Contains(spec.OperationID, "BatchWorkbench") &&
 					spec.OperationID != "prepareRunBatchDelivery" {
 					expectedStatus, statusErr = strconv.Atoi(status)
 					if statusErr != nil {

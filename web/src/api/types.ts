@@ -30,6 +30,10 @@ export type ChildTaskReviewRequestView = components["schemas"]["ChildTaskReviewR
 export type ChildTaskAdmitRequestView = components["schemas"]["ChildTaskAdmitRequestView"];
 export type BatchDeliveriesListView = components["schemas"]["BatchDeliveriesListView"];
 export type BatchDeliverySnapshotView = components["schemas"]["BatchDeliverySnapshotView"];
+export type BatchWorkbenchView = components["schemas"]["BatchWorkbenchView"];
+export type BatchWorkbenchPrepareRequestView = components["schemas"]["BatchWorkbenchPrepareRequestView"];
+export type BatchWorkbenchOwnerRequestView = components["schemas"]["BatchWorkbenchOwnerRequestView"];
+export type BatchWorkbenchExecuteRequestView = components["schemas"]["BatchWorkbenchExecuteRequestView"];
 export type BatchDeliveryReviewRequestView =
   components["schemas"]["BatchDeliveryReviewRequestView"];
 export type BatchDeliveryReviewControlView =
@@ -49,6 +53,7 @@ export type PriceSnapshotListView = components["schemas"]["PriceSnapshotListView
 export type PriceSnapshotImportRequestView = components["schemas"]["PriceSnapshotImportRequestView"];
 export type PriceSnapshotImportView = components["schemas"]["PriceSnapshotImportView"];
 export type DockerSandboxStatusView = components["schemas"]["DockerSandboxStatusView"];
+export type DockerEnvironmentView = components["schemas"]["DockerEnvironmentView"];
 export type DockerSandboxAdmissionRequestView = components["schemas"]["DockerSandboxAdmissionRequestView"];
 export type DockerSandboxAdmissionView = components["schemas"]["DockerSandboxAdmissionView"];
 export type DockerSandboxStartRequestView = components["schemas"]["DockerSandboxStartRequestView"];
@@ -191,6 +196,13 @@ export type ExtensionPluginInstallationView =
   components["schemas"]["ExtensionPluginInstallationView"];
 export type ExtensionPluginReviewRequestView =
   components["schemas"]["ExtensionPluginReviewRequestView"];
+export type PluginHistoryView = components["schemas"]["PluginHistoryView"];
+export type PluginRollbackRequestView = components["schemas"]["PluginRollbackRequestView"];
+export type PluginRollbackView = components["schemas"]["PluginRollbackView"];
+export type PluginPublisherRevocationRequestView = components["schemas"]["PluginPublisherRevocationRequestView"];
+export type PluginPublisherRevocationView = components["schemas"]["PluginPublisherRevocationView"];
+export type PluginPublisherTrustView = components["schemas"]["PluginPublisherTrustView"];
+export type HookDiagnosticsView = components["schemas"]["HookDiagnosticsView"];
 export type CodeIntelInventoryView = components["schemas"]["CodeIntelInventoryView"];
 export type CodeIntelServerView = components["schemas"]["CodeIntelServerView"];
 export type CodeIntelQualificationView =

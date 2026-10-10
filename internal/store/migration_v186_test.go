@@ -33,7 +33,7 @@ func TestSchemaV186UpgradePreservesLegacyCreationAndAdmitsBoundedBudget(t *testi
 	}
 	defer upgraded.Close()
 	version, err := upgraded.SchemaVersion(t.Context())
-	if err != nil || version != 186 {
+	if err != nil || version != LatestSchemaVersion {
 		t.Fatalf("schema=%d err=%v", version, err)
 	}
 	stored, err := upgraded.GetRun(t.Context(), legacy.ID)

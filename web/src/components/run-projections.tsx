@@ -19,6 +19,7 @@ import { formatBytes, formatDate, formatNumber, shortID } from "../lib/format";
 import { useLocale } from "../lib/locale";
 import { diagnosticVocabulary } from "../lib/vocabulary";
 import { EmptyState, ErrorState, LoadMoreButton, LoadingState, StatusBadge } from "./common";
+import { BatchPreparation, BatchWorkbenchControls } from "./batch-workbench";
 
 export function ExternalSkillsPanel({ projection }: { projection: ExternalSkillProjectionView }) {
   const { t } = useLocale();
@@ -408,6 +409,7 @@ export function ChildTasksPanel({ client, runID }: ProjectionProps) {
 
 export function BatchDeliveriesPanel({ client, runID }: ProjectionProps) {
   const { t } = useLocale();
+  const [showProposals, setShowProposals] = useState(false);
   const query = useQuery({
     queryKey: ["run", runID, "batch-deliveries"],
     queryFn: ({ signal }) => client.getRunBatchDeliveries(runID, signal),
@@ -433,6 +435,11 @@ export function BatchDeliveriesPanel({ client, runID }: ProjectionProps) {
         "当前可查看批量交付。Desktop 明确启用 --enable-batch-delivery-control 并连接控制凭证后，可验收、要求修改、合并或检查恢复状态。Go/npm 验证需另行完成上述配置。",
         "Batch deliveries are available for review. Explicitly enable --enable-batch-delivery-control in Desktop and connect a control credential to accept, request changes, merge, or reconcile. Configure Go/npm validation separately as described above.",
       )}</p>}
+      {client.hasBatchDeliveryControl && typeof client.getRunChildTaskProposals === "function" && <>
+        <BatchPreparation key={`${client.baseURL}/${runID}`} client={client} runID={runID}
+          usedProposalIDs={query.data.items.map((plan) => plan.proposal_id)} onReviewProposals={() => setShowProposals(!showProposals)} />
+        {showProposals && <ChildTasksPanel client={client} runID={runID} />}
+      </>}
       {query.data.items.length === 0 ?
         <EmptyState>{t("还没有批量交付计划。可在对话中提出需要独立完成并合并的子任务。", "No batch delivery plans yet. Describe independently deliverable subtasks in the conversation to prepare one.")}</EmptyState> :
         <div className="projection-stack">
@@ -446,8 +453,7 @@ export function BatchDeliveriesPanel({ client, runID }: ProjectionProps) {
 function BatchDeliveryDetail({ client, runID, planID }: ProjectionProps & { planID: string }) {
   const { t } = useLocale();
   const queryClient = useQueryClient();
-  const [reviewSummary, setReviewSummary] = useState("");
-  const [reviewConfirmed, setReviewConfirmed] = useState(false);
+  const [reviews, setReviews] = useState<Record<string, { summary: string; confirmed: boolean }>>({});
   const [baseReplayConfirmed, setBaseReplayConfirmed] = useState(false);
   const [busy, setBusy] = useState("");
   const query = useQuery({
@@ -463,13 +469,15 @@ function BatchDeliveryDetail({ client, runID, planID }: ProjectionProps & { plan
         case "changes": {
           const child = command.child;
           if (!child) throw new Error("A child delivery is required");
+          const review = reviews[`${child.workspace.ordinal}/${child.workspace.generation}/${child.receipt?.id}`];
+          if (!review?.confirmed || !review.summary.trim()) throw new Error("Confirm the independent review of this delivery");
           return client.reviewRunBatchDeliveryChild(runID, planID,
             child.workspace.ordinal, {
               version: "batch_delivery_review_control.v1",
               generation: child.workspace.generation,
               reviewer: "web_batch_delivery_reviewer",
               verdict: command.kind === "accept" ? "accepted" : "changes_requested",
-              summary: reviewSummary.trim(), full_diff_reviewed: true,
+              summary: review.summary.trim(), full_diff_reviewed: true,
               call_chain_reviewed: true, tests_reviewed: true,
             }, operation);
         }
@@ -492,11 +500,11 @@ function BatchDeliveryDetail({ client, runID, planID }: ProjectionProps & { plan
       }
     },
     onSuccess: () => {
-      setReviewSummary("");
-      setReviewConfirmed(false);
+      setReviews({});
       setBaseReplayConfirmed(false);
       void queryClient.invalidateQueries({ queryKey: ["run", runID, "batch-deliveries"] });
       void queryClient.invalidateQueries({ queryKey: ["run", runID, "batch-delivery", planID] });
+      void queryClient.invalidateQueries({ queryKey: ["run", runID, "batch-workbench", planID] });
       void queryClient.invalidateQueries({ queryKey: ["run", runID, "agent-graph"] });
     },
   });
@@ -524,6 +532,8 @@ function BatchDeliveryDetail({ client, runID, planID }: ProjectionProps & { plan
       <div className="assignment-list">
         {snapshot.children.map((child) => {
           const profile = child.workspace.tool_profile;
+          const reviewKey = `${child.workspace.ordinal}/${child.workspace.generation}/${child.receipt?.id}`;
+          const review = reviews[reviewKey] ?? { summary: "", confirmed: false };
           return <section key={child.workspace.ordinal}>
             <header><span>#{child.workspace.ordinal}</span>
               <strong>{shortID(child.workspace.agent_id)}</strong>
@@ -549,6 +559,9 @@ function BatchDeliveryDetail({ client, runID, planID }: ProjectionProps & { plan
             {child.review && <div className="projection-placeholder">
               <StatusBadge status={child.review.verdict} /> {child.review.summary} · {shortID(child.review.reviewer)}
             </div>}
+            {client.hasBatchDeliveryControl && !terminal && typeof client.getBatchWorkbench === "function" &&
+              <BatchWorkbenchControls key={`${client.baseURL}/${runID}/${planID}/${child.workspace.ordinal}`}
+                client={client} runID={runID} planID={planID} ordinal={child.workspace.ordinal} />}
             {child.mailbox.length > 0 && <ol className="projection-placeholder">
               {child.mailbox.slice(-8).map((message) => <li key={message.id}>
                 <StatusBadge status={message.kind} /> {message.summary} · {formatDate(message.created_at)}
@@ -560,19 +573,19 @@ function BatchDeliveryDetail({ client, runID, planID }: ProjectionProps & { plan
                   {t("独立审阅摘要", "Independent review summary")}</label>
                 <input id={`batch-review-${planID}-${child.workspace.ordinal}`}
                   className="batch-review-input"
-                  onChange={(event) => setReviewSummary(event.target.value)}
-                  placeholder={t("必填", "Required")} value={reviewSummary} />
-                <label className="checkbox-row"><input checked={reviewConfirmed}
-                  onChange={(event) => setReviewConfirmed(event.target.checked)} type="checkbox" />
+                  onChange={(event) => setReviews({ ...reviews, [reviewKey]: { ...review, summary: event.target.value } })}
+                  placeholder={t("必填", "Required")} value={review.summary} />
+                <label className="checkbox-row"><input checked={review.confirmed}
+                  onChange={(event) => setReviews({ ...reviews, [reviewKey]: { ...review, confirmed: event.target.checked } })} type="checkbox" />
                   {t("我已独立核对与共同基线的完整差异、调用链和测试结果",
                     "I independently reviewed the full merge-base diff, call chain, and test results")}
                 </label>
                 <button className="command-button" disabled={action.isPending ||
-                  !reviewSummary.trim() || !reviewConfirmed}
+                  !review.summary.trim() || !review.confirmed}
                   onClick={() => { setBusy(`accept-${child.workspace.ordinal}`); action.mutate({ kind: "accept", child }); }} type="button">
                   {t("接受", "Accept")}</button>
                 <button className="command-button danger" disabled={action.isPending ||
-                  !reviewSummary.trim() || !reviewConfirmed}
+                  !review.summary.trim() || !review.confirmed}
                   onClick={() => { setBusy(`changes-${child.workspace.ordinal}`); action.mutate({ kind: "changes", child }); }} type="button">
                   {t("要求修改", "Request changes")}</button>
               </div>}

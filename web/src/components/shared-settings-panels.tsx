@@ -5,6 +5,7 @@ import type { APIClient } from "../api/client";
 import type { CodeIntelQualificationView, CodeIntelServerView, ExtensionMCPServerView,
   ExtensionPluginInstallationView, HealthView } from "../api/types";
 import { useLocale } from "../lib/locale";
+import { HookDiagnostics, PluginLifecycleControls } from "./plugin-lifecycle";
 import { PrayuBrand } from "./prayu-brand";
 import { MCPRegistrationForm, MCPReviewControls, PluginImportForm, PluginReviewControls } from "./extension-onboarding";
 import { LSPConfigurationCard, LSPConfigurationForm } from "./lsp-onboarding";
@@ -215,10 +216,12 @@ export function ExtensionSettings({ client, selectedRunID, selectedWorkspaceID =
     <ExtensionCollection title="Plugin" count={inventory.data?.plugins.length ?? 0}>
       <PluginImportForm capabilityKnown={Boolean(inventory.data)} client={client} enabled={Boolean(client.hasExtensionControl && onboarding?.plugin_import)} />
       {inventory.data?.plugins.map((installation) => <PluginCard action={action}
-        client={client} installation={installation} key={installation.id} />)}
+        client={client} installation={installation} key={installation.id} lifecycle={onboarding?.plugin_lifecycle} />)}
       {inventory.data && inventory.data.plugins.length === 0 &&
         <ExtensionEmpty>{t("选择 plugin.v1 ZIP 包开始接入。导入后核对来源与指纹，审查并启用所需能力。", "Choose a plugin.v1 ZIP to get started. After import, inspect its source and fingerprint, then review and enable the capabilities you need.")}</ExtensionEmpty>}
     </ExtensionCollection>
+    {onboarding?.hook_diagnostics && <HookDiagnostics client={client} runID={selectedRunID} workspaceID={configurationWorkspaceID}
+      key={`${selectedRunID}/${configurationWorkspaceID}`} />}
   </section>;
 }
 
@@ -345,10 +348,11 @@ function MCPServerCard({ action, client, server, onOpenTask, credentialCapabilit
   </article>;
 }
 
-function PluginCard({ action, client, installation }: {
+function PluginCard({ action, client, installation, lifecycle }: {
   action: { isPending: boolean; mutate: (value: ExtensionAction) => void };
   client: APIClient;
   installation: ExtensionPluginInstallationView;
+  lifecycle?: boolean;
 }) {
   const { t } = useLocale();
   const disableable = !["disabled", "revoked", "rolled_back"].includes(installation.state);
@@ -373,6 +377,7 @@ function PluginCard({ action, client, installation }: {
       value={installation.package_fingerprint} />
     <p>{t("范围", "Scope")}: {t("本机安装；任务按已启用贡献加载", "Local installation; tasks load enabled contributions")}</p>
     <PluginReviewControls client={client} installation={installation} key={`${installation.state}/${installation.generation}`} />
+    {lifecycle && <PluginLifecycleControls client={client} installationID={installation.id} />}
     <div className="extension-actions">
       <button className="settings-action danger" disabled={!client.hasExtensionControl ||
         !disableable || action.isPending}

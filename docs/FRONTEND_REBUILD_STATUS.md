@@ -1,5 +1,18 @@
 # Frontend rebuild status
 
+## Completion integration — 2026-10-10
+
+The user requested completion of the remaining roadmap after #295 merged.
+The integration branch starts from main `010922ba`; separate implementation
+worktrees delivered Plugin/Hooks, Docker/UI Evidence/macOS runtime assembly and
+Batch preparation/rework. The integrated Batch worker uses the normal accounted
+Specialist runtime to propose scoped edits. The integration owner handles configured-model
+journeys, restart/reconnection, responsive/keyboard checks and platform evidence.
+The neutral palette and product-language conventions remain the design baseline.
+P4 implementation is complete; P5 acceptance remains tracked separately. Progress
+and actual acceptance results are tracked in
+[the completion record](acceptance/2026-10-10-frontend-completion.md).
+
 Baseline: main `71ede3053b1d71f4c6e4f7053b355ebe301c1a1b`, checked on
 2026-10-10. The roadmap is not complete. Merged PRs #288 and #293 finish
 the first recovery/connection fixes; #286 contributes scoped journey fixes.
@@ -98,8 +111,10 @@ requirements. No renderer-owned execution or credential authority is introduced.
   and typed command IDs remain recorded metadata without automatic filtering,
   installation or execution; see ADR 0170.
 - P4: Plugin version history/rollback/trust revocation, Hooks diagnostics, Docker
-  onboarding, guided UI Evidence, Batch preparation/rework and the scoped macOS
-  runtime assembly remain separate unfinished work.
+  onboarding, guided UI Evidence, Batch preparation/execution/rework and the scoped
+  macOS runtime assembly are implemented in the completion branch. Publisher
+  revocation and version switches share a transaction fence; Batch executions
+  retain actual model accounting, scoped file checks and independent review.
 - P5: Full project/model-to-delivery, restart/disconnection, long-session,
   keyboard/responsive and native cross-platform acceptance is still outstanding.
 

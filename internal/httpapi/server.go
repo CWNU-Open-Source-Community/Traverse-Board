@@ -397,6 +397,7 @@ type Config struct {
 	CodeIntelController                   CodeIntelController
 	UIEvidenceController                  UIEvidenceController
 	DockerSandboxController               DockerSandboxController
+	DockerEnvironmentController           DockerEnvironmentController
 	ModelRegistry                         *modelregistry.Registry
 	AppVersion                            string
 	EventStream                           EventStreamConfig
@@ -498,6 +499,7 @@ type API struct {
 	codeIntelController                   CodeIntelController
 	uiEvidenceController                  UIEvidenceController
 	dockerSandboxController               DockerSandboxController
+	dockerEnvironmentController           DockerEnvironmentController
 	modelRegistry                         *modelregistry.Registry
 	appVersion                            string
 	openAPI                               []byte
@@ -936,6 +938,7 @@ func New(store Store, config Config) (*API, error) {
 		codeIntelController:                 config.CodeIntelController,
 		uiEvidenceController:                config.UIEvidenceController,
 		dockerSandboxController:             config.DockerSandboxController,
+		dockerEnvironmentController:         config.DockerEnvironmentController,
 		modelRegistry:                       modelRegistry,
 		openAPI:                             document, eventStream: eventStream,
 		eventStreamSlots: make(chan struct{}, eventStream.MaxConnections),
@@ -1070,6 +1073,10 @@ func (a *API) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 		a.serveTaskConfiguration(tracked, request, requestID, runID)
 		return
 	}
+	if request.URL.Path == DockerEnvironmentPath {
+		a.serveDockerEnvironment(tracked, request, requestID)
+		return
+	}
 	if isDockerSandboxPath(request.URL.Path) {
 		a.serveDockerSandbox(tracked, request, requestID)
 		return
@@ -1108,6 +1115,14 @@ func (a *API) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 	}
 	if request.Method != http.MethodGet && isContextContinuityMutationPath(request.URL.Path) {
 		a.serveContextContinuityMutation(tracked, request, requestID)
+		return
+	}
+	if request.URL.Path == ExtensionHookDiagnosticsPath {
+		a.servePluginLifecycle(tracked, request, requestID, "", "hooks")
+		return
+	}
+	if id, action, matched := matchPluginLifecyclePath(request.URL.Path); matched {
+		a.servePluginLifecycle(tracked, request, requestID, id, action)
 		return
 	}
 	if request.URL.Path == ExtensionMCPRegistrationPath || request.URL.Path == ExtensionPluginImportPath {

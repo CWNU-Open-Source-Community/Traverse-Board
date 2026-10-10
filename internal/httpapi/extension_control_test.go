@@ -17,6 +17,24 @@ type extensionControllerStub struct {
 	inventory application.ExtensionInventory
 }
 
+func (s *extensionControllerStub) PluginHistory(_ context.Context, id string) (plugins.History, error) {
+	value := extensionTestPlugin(id)
+	return plugins.History{InstallationID: id, PackageID: value.PackageID(), Installations: []plugins.Installation{value}, PublisherInstallationIDs: []string{}, TotalVersions: 1}, nil
+}
+func (s *extensionControllerStub) RollbackPlugin(_ context.Context, currentID, targetID string, request plugins.RollbackRequest) (plugins.Installation, plugins.Installation, error) {
+	current, target := extensionTestPlugin(currentID), extensionTestPlugin(targetID)
+	current.State, target.State = plugins.StateRolledBack, plugins.StateEnabled
+	current.Generation, target.Generation = request.ExpectedCurrentGeneration+1, request.ExpectedTargetGeneration+1
+	target.EnabledCapabilities = request.Capabilities
+	return current, target, nil
+}
+func (s *extensionControllerStub) RevokePluginPublisher(_ context.Context, _, fingerprint string, generation int64, _ string) (plugins.PublisherTrust, error) {
+	return plugins.PublisherTrust{Fingerprint: fingerprint, Publisher: "test-publisher", State: plugins.PublisherRevoked, Generation: generation + 1, ReviewedAt: time.Now().UTC()}, nil
+}
+func (s *extensionControllerStub) HookDiagnostics(_ context.Context, runID, workspaceID string) (application.HookDiagnostics, error) {
+	return application.HookDiagnostics{RunID: runID, WorkspaceID: workspaceID, Declarations: []application.HookDeclaration{}, Observations: []hooks.AuditRecord{}}, nil
+}
+
 func (s *extensionControllerStub) Inventory(context.Context, string) (
 	application.ExtensionInventory, error,
 ) {

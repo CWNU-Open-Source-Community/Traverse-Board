@@ -199,12 +199,12 @@ func (s *SQLiteStore) UpdatePluginInstallation(ctx context.Context,
 
 func (s *SQLiteStore) RollbackPluginInstallation(ctx context.Context,
 	current plugins.Installation, currentExpected int64,
-	target plugins.Installation, targetExpected int64,
+	target plugins.Installation, targetExpected int64, publisherAuthority plugins.PublisherAuthority,
 ) (plugins.Installation, plugins.Installation, error) {
 	if current.Validate() != nil || target.Validate() != nil || current.ID == target.ID ||
 		current.PackageID() != target.PackageID() || current.ProtocolVersion != target.ProtocolVersion || current.Source.Surface != target.Source.Surface || current.Generation != currentExpected+1 ||
 		target.Generation != targetExpected+1 || current.State != plugins.StateRolledBack ||
-		target.State != plugins.StateEnabled {
+		target.State != plugins.StateEnabled || publisherAuthority.ExpectedGeneration < 0 {
 		return plugins.Installation{}, plugins.Installation{},
 			apperror.New(apperror.CodeInvalidArgument, "plugin rollback update is invalid")
 	}
@@ -224,6 +224,12 @@ func (s *SQLiteStore) RollbackPluginInstallation(ctx context.Context,
 	if currentBefore.Generation != currentExpected || targetBefore.Generation != targetExpected {
 		return plugins.Installation{}, plugins.Installation{},
 			apperror.New(apperror.CodeConflict, "plugin rollback changed concurrently")
+	}
+	// The retained target may have been excluded from a concurrent publisher
+	// revocation because it was rolled back. Its installation generation alone
+	// cannot fence that change. Read trust in this same write transaction.
+	if err := validateRollbackPublisherTx(ctx, tx, targetBefore, publisherAuthority); err != nil {
+		return plugins.Installation{}, plugins.Installation{}, err
 	}
 	if err := updatePluginInstallationTx(ctx, tx, current, currentExpected); err != nil {
 		return plugins.Installation{}, plugins.Installation{}, err
@@ -246,9 +252,15 @@ func (s *SQLiteStore) RollbackPluginInstallation(ctx context.Context,
 func (s *SQLiteStore) GetPluginPublisherTrust(ctx context.Context, fingerprint string) (
 	plugins.PublisherTrust, bool, error,
 ) {
+	return getPluginPublisherTrust(ctx, s.db, fingerprint)
+}
+
+func getPluginPublisherTrust(ctx context.Context, queryer interface {
+	QueryRowContext(context.Context, string, ...any) *sql.Row
+}, fingerprint string) (plugins.PublisherTrust, bool, error) {
 	var value plugins.PublisherTrust
 	var state, reviewedAt string
-	err := s.db.QueryRowContext(ctx, `SELECT protocol_version, fingerprint, publisher,
+	err := queryer.QueryRowContext(ctx, `SELECT protocol_version, fingerprint, publisher,
 		public_key, state, generation, reviewed_by, reviewed_at FROM plugin_publishers
 		WHERE fingerprint = ?`, strings.TrimSpace(fingerprint)).Scan(&value.ProtocolVersion,
 		&value.Fingerprint, &value.Publisher, &value.PublicKey, &state, &value.Generation,
@@ -262,6 +274,36 @@ func (s *SQLiteStore) GetPluginPublisherTrust(ctx context.Context, fingerprint s
 	value.State = plugins.PublisherState(state)
 	value.ReviewedAt = parseTS(reviewedAt)
 	return value, true, value.Validate()
+}
+
+func validateRollbackPublisherTx(ctx context.Context, tx *sql.Tx, target plugins.Installation,
+	authority plugins.PublisherAuthority,
+) error {
+	if !target.SignatureValid {
+		if authority.ExpectedGeneration != 0 || !authority.ConfirmUntrusted {
+			return apperror.New(apperror.CodePolicyDenied, "unsigned plugin rollback requires explicit confirmation")
+		}
+		return nil
+	}
+	trust, found, err := getPluginPublisherTrust(ctx, tx, target.PublisherFingerprint)
+	if err != nil {
+		return err
+	}
+	bound := found && trust.Publisher == target.Manifest.Publisher && trust.PublicKey == target.PublisherPublicKey
+	if found && trust.State == plugins.PublisherRevoked {
+		return apperror.New(apperror.CodePolicyDenied, "plugin publisher was revoked before the version switch")
+	}
+	generation := int64(0)
+	if found {
+		generation = trust.Generation
+	}
+	if generation != authority.ExpectedGeneration {
+		return apperror.New(apperror.CodeConflict, "plugin publisher trust changed before the version switch")
+	}
+	if (!bound || trust.State != plugins.PublisherTrusted) && !authority.ConfirmUntrusted {
+		return apperror.New(apperror.CodePolicyDenied, "untrusted plugin rollback requires explicit confirmation")
+	}
+	return nil
 }
 
 func (s *SQLiteStore) SetPluginPublisherTrust(ctx context.Context,
@@ -381,11 +423,16 @@ func (s *SQLiteStore) RecordHookAudit(ctx context.Context, audit hooks.AuditReco
 		audit.Outcome != "failed_continue") || audit.CreatedAt.IsZero() {
 		return apperror.New(apperror.CodeInvalidArgument, "plugin hook audit is invalid")
 	}
+	if (audit.PluginFingerprint != "" || audit.Action != "" || audit.Rejected != nil) &&
+		(len(audit.PluginFingerprint) != 64 || strings.Trim(audit.PluginFingerprint, "0123456789abcdef") != "" || !audit.Action.Valid() || audit.Rejected == nil ||
+			*audit.Rejected != (audit.Outcome == "failed_closed" || audit.Action == hooks.ActionDeny && audit.Outcome == "completed")) {
+		return apperror.New(apperror.CodeInvalidArgument, "plugin hook decision binding is invalid")
+	}
 	_, err := s.db.ExecContext(ctx, `INSERT INTO plugin_hook_audits
-		(id, plugin_id, hook_id, event, run_id, workspace_id, tool_name, outcome, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, idgen.New("hook-audit"), audit.PluginID,
+		(id, plugin_id, hook_id, event, run_id, workspace_id, tool_name, outcome, created_at, plugin_fingerprint, declared_action, rejected)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, idgen.New("hook-audit"), audit.PluginID,
 		audit.HookID, audit.Event, audit.RunID, audit.WorkspaceID, audit.ToolName,
-		audit.Outcome, ts(audit.CreatedAt))
+		audit.Outcome, ts(audit.CreatedAt), audit.PluginFingerprint, audit.Action, audit.Rejected)
 	return err
 }
 

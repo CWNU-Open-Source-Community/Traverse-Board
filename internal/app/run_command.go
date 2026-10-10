@@ -21,7 +21,6 @@ import (
 	"cyberagent-workbench/internal/runmutation"
 	"cyberagent-workbench/internal/runner"
 	"cyberagent-workbench/internal/sandbox"
-	"cyberagent-workbench/internal/standardcode"
 	"cyberagent-workbench/internal/standardcodedelivery"
 	"cyberagent-workbench/internal/store"
 	"cyberagent-workbench/internal/toolgateway"
@@ -2310,21 +2309,6 @@ func (a *App) standardCodeCapabilityDockerReadiness(ctx context.Context,
 	if !sandbox.ValidOCIImageDigest(imageDigest) {
 		return sandbox.DockerReadiness{}, false, nil
 	}
-	manifest, err := standardcode.CompileDockerManifest(standardcode.ExecutionContext{
-		RunID: "readiness-run", MissionID: "readiness-mission",
-		SessionID: "readiness-session", WorkspaceID: "readiness-workspace",
-		DrydockID: "readiness-drydock", DrydockWorkspaceID: "readiness-drydock-workspace",
-		DrydockGeneration: 1, CheckpointID: "readiness-checkpoint",
-		DrydockBindingSHA256: strings.Repeat("a", 64),
-		ProfileSnapshotID:    "readiness-profile", ProfileRevision: 1,
-		PermissionSnapshotID: "readiness-permission", PermissionRevision: 1,
-		CapabilityGeneration: strings.Repeat("b", 64),
-	}, standardcode.Command{ProtocolVersion: standardcode.CommandProtocolVersion,
-		Toolchain: sandbox.DockerStandardCodeToolchainGo, Arguments: []string{"version"},
-		WorkingDirectory: ".", TimeoutSeconds: 30, Purpose: "readiness probe"})
-	if err != nil {
-		return sandbox.DockerReadiness{}, false, err
-	}
 	probe := a.dockerReadinessProbe
 	if probe == nil {
 		local, probeErr := sandbox.NewLocalDockerReadinessProbe()
@@ -2333,8 +2317,7 @@ func (a *App) standardCodeCapabilityDockerReadiness(ctx context.Context,
 		}
 		probe = local
 	}
-	readiness, err := probe.Check(ctx, sandbox.DockerRuntimeCapabilities{Enabled: enabled},
-		manifest, imageDigest)
+	readiness, err := application.ProbeStandardCodeDockerReadinessWithProbe(ctx, probe, enabled, imageDigest)
 	return readiness, err == nil, err
 }
 

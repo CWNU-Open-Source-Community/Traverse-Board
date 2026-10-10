@@ -580,8 +580,13 @@ func enableSafeDesktopProductBundle(config *desktopOptions) {
 
 func desktopWorkspaceSandboxRuntimeAvailable(config desktopOptions,
 	readiness *sandbox.LocalReadiness,
+	dockerReadiness ...*sandbox.DockerReadiness,
 ) bool {
-	return config.workspaceSandbox && readiness != nil && readiness.Ready
+	var docker *sandbox.DockerReadiness
+	if len(dockerReadiness) == 1 {
+		docker = dockerReadiness[0]
+	}
+	return desktop.WorkspaceSandboxRuntimeAvailable(config.workspaceSandbox, config.dockerExecution, readiness, docker)
 }
 
 func runDesktop(config desktopOptions) error {
@@ -604,8 +609,17 @@ func runDesktop(config desktopOptions) error {
 		}
 		localReadiness = &readiness
 	}
+	imageDigest := strings.TrimSpace(os.Getenv(standardCodeDockerImageEnvironment))
+	var dockerReadiness *sandbox.DockerReadiness
+	if config.workspaceSandbox && config.dockerExecution && sandbox.ValidOCIImageDigest(imageDigest) {
+		readiness, err := desktop.ProbeStandardCodeDockerReadiness(context.Background(), true, imageDigest)
+		if err != nil {
+			return err
+		}
+		dockerReadiness = &readiness
+	}
 	workspaceSandboxAvailable := desktopWorkspaceSandboxRuntimeAvailable(config,
-		localReadiness)
+		localReadiness, dockerReadiness)
 	var executionRuntimeAuthority *domain.ExecutionPermissionRuntimeAuthority
 	if config.dangerFullAccess {
 		executionRuntimeAuthority = domain.NewExecutionPermissionRuntimeAuthority()
@@ -658,7 +672,8 @@ func runDesktop(config desktopOptions) error {
 		ExecutionPermissionCapabilities:    executionPermissionCapabilities,
 		LocalSandboxReadiness:              localReadiness,
 		LocalSandboxBackend:                localBackend,
-		StandardCodeDockerImageDigest:      strings.TrimSpace(os.Getenv(standardCodeDockerImageEnvironment)),
+		StandardCodeDockerReadiness:        dockerReadiness,
+		StandardCodeDockerImageDigest:      imageDigest,
 		WebSearchEndpoint:                  strings.TrimSpace(os.Getenv(webSearchEndpointEnvironment)),
 		BrowserCDPPermissionControlEnabled: config.browserCDPControl,
 		BrowserCDPPermissionCapabilities: domain.BrowserCDPPermissionRuntimeCapabilities{

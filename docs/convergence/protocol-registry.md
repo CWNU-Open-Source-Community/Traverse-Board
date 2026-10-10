@@ -9,7 +9,7 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 | --- | --- | --- | ---: | --- |
 | [activity-event-projection](#activity-event-projection) | `projection` | Run activity and HTTP maintainers | 5 | true |
 | [agent-browser-supervisor-ledger](#agent-browser-supervisor-ledger) | `internal-durable` | Agent browser, Supervisor tool, and persistence maintainers | 11 | true |
-| [agent-scheduling-delivery-ledgers](#agent-scheduling-delivery-ledgers) | `internal-durable` | Agent graph, scheduler, and batch-delivery maintainers | 73 | true |
+| [agent-scheduling-delivery-ledgers](#agent-scheduling-delivery-ledgers) | `internal-durable` | Agent graph, scheduler, and batch-delivery maintainers | 74 | true |
 | [analyzer-interchange](#analyzer-interchange) | `external-durable` | Analyzer contract maintainers | 40 | true |
 | [authority-approval-ledgers](#authority-approval-ledgers) | `internal-durable` | Execution authority and approval maintainers | 49 | true |
 | [browser-cdp-process-session](#browser-cdp-process-session) | `ephemeral` | Browser runtime maintainers | 23 | false |
@@ -19,11 +19,11 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 | [control-plane-ledgers](#control-plane-ledgers) | `internal-durable` | Core Go control-plane maintainers | 111 | true |
 | [credential-provider-ledgers](#credential-provider-ledgers) | `internal-durable` | Credential, provider, model-route, and pricing maintainers | 23 | true |
 | [desktop-risk-restart-session](#desktop-risk-restart-session) | `ephemeral` | Desktop shell lifecycle maintainers | 1 | false |
-| [desktop-web-presentation-state](#desktop-web-presentation-state) | `projection` | Desktop and React workbench maintainers | 14 | true |
+| [desktop-web-presentation-state](#desktop-web-presentation-state) | `projection` | Desktop and React workbench maintainers | 15 | true |
 | [docker-attach-process-session](#docker-attach-process-session) | `ephemeral` | Docker runtime transport maintainers | 1 | false |
 | [exported-evidence-and-handoff](#exported-evidence-and-handoff) | `external-durable` | Evidence, verification, report, and handoff maintainers | 35 | true |
 | [extension-package-contracts](#extension-package-contracts) | `external-durable` | Skill, Plugin, Hook, and extension maintainers | 48 | true |
-| [http-openapi-contract](#http-openapi-contract) | `external-durable` | HTTP/OpenAPI and generated-client maintainers | 116 | true |
+| [http-openapi-contract](#http-openapi-contract) | `external-durable` | HTTP/OpenAPI and generated-client maintainers | 120 | true |
 | [in-memory-token-session](#in-memory-token-session) | `ephemeral` | Credential and bootstrap maintainers | 1 | false |
 | [lsp-process-session](#lsp-process-session) | `ephemeral` | Code intelligence maintainers | 1 | false |
 | [mcp-interchange](#mcp-interchange) | `external-durable` | MCP client/server maintainers | 6 | true |
@@ -113,7 +113,7 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 - Readers:
   - `agent-scheduling-delivery-ledgers-reader` (`v1, v2`, active) at `internal/store`
 
-<details><summary>73 active identifiers</summary>
+<details><summary>74 active identifiers</summary>
 
 - `agent-code-edit.v1`
 - `agent_admission_operation.v1`
@@ -146,6 +146,7 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 - `batch-delivery-review.v1`
 - `batch-delivery-tools.v1`
 - `batch-delivery-workspace-tools.v1`
+- `batch-edit-proposal.v1`
 - `batch-validation-output.v2`
 - `batch-validation-process.v1`
 - `batch_delivery_cancel.v1`
@@ -694,7 +695,7 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 - Readers:
   - `desktop-web-presentation-state-reader` (`v1`, active) at `web/src`
 
-<details><summary>14 active identifiers</summary>
+<details><summary>15 active identifiers</summary>
 
 - `desktop_clipboard_files.v1`
 - `desktop_connection_bootstrap.v1`
@@ -709,6 +710,7 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 - `desktop_workspace_launcher_list.v1`
 - `desktop_workspace_open.v1`
 - `prayu.run-navigation.v1`
+- `universal-code.batch-workbench.v1`
 - `v2_file_upload.v1`
 
 </details>
@@ -874,7 +876,7 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 - Readers:
   - `http-openapi-contract-reader` (`v0, v1, v2`, active) at `web/src/api`
 
-<details><summary>116 active identifiers</summary>
+<details><summary>120 active identifiers</summary>
 
 - `agent-code-tools.v1`
 - `agent_browser_close.v1`
@@ -883,6 +885,7 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 - `api.v1`
 - `approval_control.v1`
 - `approval_queue.v1`
+- `batch-delivery-workbench.v1`
 - `batch-delivery.v1`
 - `browser_cdp_permission_policy.v1`
 - `browser_network_containment_policy.v2`
@@ -895,6 +898,7 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 - `context_provenance.v1`
 - `debug-query.v1`
 - `diagnostic-bundle.v1`
+- `docker_environment.v1`
 - `doctor-snapshot.v1`
 - `execution_interaction_policy.v1`
 - `execution_permission_policy.v1`
@@ -909,6 +913,7 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 - `full_cdp_preview_action.v1`
 - `full_cdp_session.v1`
 - `full_cdp_session_close.v1`
+- `hook-diagnostics.v1`
 - `mcp-credential.v1`
 - `mode_policy.v1`
 - `model_harness.v1`
@@ -928,6 +933,7 @@ This document is generated from [`protocols/registry.json`](../../protocols/regi
 - `operator_verification_plan_item_snapshot_receipt_review_inventory.v1`
 - `plan_delivery.v1`
 - `plan_delivery_control.v1`
+- `plugin-lifecycle.v1`
 - `provider_credential.v1`
 - `provider_diagnostic.v1`
 - `provider_model_discovery.v1`

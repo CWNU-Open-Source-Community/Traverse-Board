@@ -247,12 +247,13 @@ interface PresetInteraction {
 }
 const presetIntentKey = (runID: string) => ["run", runID, "standard-code-preset-intent"] as const;
 
-export function StandardCodeReadinessPanel({ client, detail, readiness, threadID, configureDisabledReason }: {
+export function StandardCodeReadinessPanel({ client, detail, readiness, threadID, configureDisabledReason, preferredBackend = "auto" }: {
   client: APIClient;
   detail: RunDetailView;
   readiness: RunCapabilityReadinessView;
   threadID?: string;
   configureDisabledReason?: string;
+  preferredBackend?: PresetBackend;
 }) {
   const { t } = useLocale();
   const queryClient = useQueryClient();
@@ -374,12 +375,12 @@ export function StandardCodeReadinessPanel({ client, detail, readiness, threadID
       <button aria-pressed={configuredDelivery || option.selected}
         disabled={configuredDelivery || !client.hasStandardCodePreset || Boolean(configureDisabledReason) || pending || unknown || invalidated || waiting || Boolean(pendingTrust) || option.selected ||
           (!option.selectable && !pauseCanResolve)}
-        onClick={() => invoke("auto")} type="button">
+        onClick={() => invoke(preferredBackend)} type="button">
         <Code2 aria-hidden="true" size={17} />
         <span>
           <strong>{configuredDelivery ? t("交付中", "In Deliver") : detail.run.status === "running"
             ? t("暂停并开始编码", "Pause and start coding")
-            : t("开始编码", "Start coding")}</strong>
+            : preferredBackend === "docker" ? t("使用 Docker 开始编码", "Start coding with Docker") : t("开始编码", "Start coding")}</strong>
           {configuredDelivery ? <em className="capability-state capability-state-selected">{t("已配置", "Configured")}</em>
             : <CapabilityState option={option} />}
           <small>{configuredDelivery

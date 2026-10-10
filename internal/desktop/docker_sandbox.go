@@ -5,13 +5,12 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"cyberagent-workbench/internal/application"
 	"cyberagent-workbench/internal/domain"
 	"cyberagent-workbench/internal/policy"
 	"cyberagent-workbench/internal/sandbox"
-	"cyberagent-workbench/internal/standardcode"
+
 	"cyberagent-workbench/internal/store"
 )
 
@@ -74,18 +73,7 @@ func newDesktopDockerSandboxService(ctx context.Context, stateStore *store.SQLit
 	if err != nil {
 		return nil, nil, nil, err
 	}
-	manifest, err := standardcode.CompileDockerManifest(standardcode.ExecutionContext{
-		RunID: "readiness-run", MissionID: "readiness-mission",
-		SessionID: "readiness-session", WorkspaceID: "readiness-workspace",
-		DrydockID: "readiness-drydock", DrydockWorkspaceID: "readiness-drydock-workspace",
-		DrydockGeneration: 1, CheckpointID: "readiness-checkpoint",
-		DrydockBindingSHA256: strings.Repeat("a", 64),
-		ProfileSnapshotID:    "readiness-profile", ProfileRevision: 1,
-		PermissionSnapshotID: "readiness-permission", PermissionRevision: 1,
-		CapabilityGeneration: strings.Repeat("b", 64),
-	}, standardcode.Command{ProtocolVersion: standardcode.CommandProtocolVersion,
-		Toolchain: sandbox.DockerStandardCodeToolchainGo, Arguments: []string{"version"},
-		WorkingDirectory: ".", TimeoutSeconds: 30, Purpose: "readiness probe"})
+	manifest, err := standardCodeDockerProbeManifest()
 	if err != nil {
 		return nil, nil, nil, err
 	}

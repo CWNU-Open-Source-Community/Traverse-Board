@@ -1,0 +1,17 @@
+.batch-workbench-preparation { margin-block: 14px; padding: 16px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); }
+.batch-workbench-preparation h3 { margin: 0; font-size: 15px; }
+.batch-workbench-preparation p, .batch-workbench-controls p { max-width: 70ch; line-height: 1.6; }
+.batch-workbench-form { display: grid; gap: 14px; }
+.batch-workbench-preparation label { display: grid; gap: 6px; font-size: 13px; }
+.batch-workbench-preparation fieldset { min-width: 0; margin: 0; padding: 14px; border: 1px solid var(--border); border-radius: 8px; }
+.batch-workbench-preparation legend { padding-inline: 5px; font-weight: 600; }
+.batch-workbench-preparation input, .batch-workbench-preparation select, .batch-workbench-preparation textarea { min-width: 0; width: 100%; box-sizing: border-box; padding: 8px 10px; border: 1px solid var(--border-strong); border-radius: 6px; background: var(--surface); color: var(--ink); font: inherit; }
+.batch-workbench-preparation textarea { resize: vertical; }
+.batch-workbench-preparation .checkbox-row { display: flex; align-items: flex-start; }
+.batch-workbench-preparation input[type="checkbox"] { width: 16px; flex: 0 0 16px; margin-top: 2px; }
+.batch-workbench-controls { padding-block: 10px; display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+.batch-workbench-controls p, .batch-workbench-controls > div { flex-basis: 100%; margin-block: 4px; }
+.batch-workbench-recovery { padding: 12px; border: 1px solid var(--border-strong); border-radius: 7px; overflow-wrap: anywhere; }
+.batch-workbench-preparation button, .batch-workbench-controls button { white-space: normal; }
+.batch-workbench-preparation :is(input, select, textarea):focus-visible { outline: 2px solid var(--prayu-focus); outline-offset: 2px; }
+@media (max-width: 520px) { .batch-workbench-preparation { padding: 12px; } .batch-workbench-preparation .section-heading { align-items: flex-start; flex-wrap: wrap; gap: 8px; } .batch-workbench-preparation fieldset { padding: 10px; } }

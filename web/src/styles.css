@@ -942,6 +942,16 @@ td code { font-size: 11px; }
 .ui-evidence-launch textarea { width: 100%; min-height: 300px; padding: 10px; resize: vertical; border: 1px solid var(--border-strong); border-radius: 5px; background: var(--surface); color: var(--ink); font: 10px/1.5 var(--prayu-font-mono); }
 .ui-evidence-launch label { display: flex; align-items: flex-start; gap: 8px; color: var(--muted); font-size: 11px; line-height: 1.45; }
 .ui-evidence-launch label input { flex: 0 0 auto; width: 15px; height: 15px; margin: 0; accent-color: var(--accent); }
+.ui-evidence-launch fieldset { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; min-width: 0; margin: 12px 0; padding: 0; border: 0; }
+.ui-evidence-launch fieldset label { display: grid; gap: 6px; min-width: 0; }
+.ui-evidence-launch fieldset label:has(textarea), .ui-evidence-launch fieldset p, .ui-evidence-draft-step { grid-column: 1 / -1; }
+.ui-evidence-launch fieldset input, .ui-evidence-launch fieldset select { width: 100%; min-width: 0; height: auto; min-height: 34px; padding: 7px 9px; border: 1px solid var(--border-strong); border-radius: 5px; background: var(--surface); color: var(--ink); font: inherit; }
+.ui-evidence-launch fieldset textarea { min-height: 80px; }
+.ui-evidence-draft-step { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr) auto; gap: 10px; align-items: end; padding: 10px 0; border-top: 1px solid var(--border); }
+.ui-evidence-draft-step label:has(input) { grid-column: auto; }
+.ui-evidence-launch pre, .docker-sandbox-section pre { max-height: 420px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
+.ui-evidence-image-preview { display: block; max-width: 100%; max-height: 560px; object-fit: contain; margin: 12px auto; border: 1px solid var(--border); }
+@media (max-width: 600px) { .ui-evidence-launch fieldset, .ui-evidence-draft-step { grid-template-columns: minmax(0, 1fr); } }
 @media (max-width: 860px) {
   .ui-evidence-layout { grid-template-columns: 1fr; }
   .ui-evidence-attempts { max-height: 220px; border-right: 0; border-bottom: 1px solid var(--border); }

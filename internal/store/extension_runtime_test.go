@@ -279,6 +279,7 @@ func TestPluginUpgradeRollbackAndPublisherRevocationAreFailClosed(t *testing.T) 
 
 func stageHookPluginFixture(t *testing.T, ctx context.Context, service *plugins.Service,
 	pluginID, version, supersedes string, privateKey ed25519.PrivateKey,
+	publisher ...string,
 ) plugins.Installation {
 	t.Helper()
 	manifest := plugins.Manifest{ProtocolVersion: plugins.ProtocolVersion,
@@ -288,6 +289,9 @@ func stageHookPluginFixture(t *testing.T, ctx context.Context, service *plugins.
 		Hooks: []hooks.Declaration{{ProtocolVersion: hooks.ProtocolVersion,
 			ID: "record-run-start", Event: hooks.RunStarted, Action: hooks.ActionRecord,
 			FailurePolicy: hooks.FailureContinue, TimeoutMillis: 100}}}
+	if len(publisher) != 0 {
+		manifest.Publisher = publisher[0]
+	}
 	var raw []byte
 	var err error
 	if len(privateKey) == ed25519.PrivateKeySize {

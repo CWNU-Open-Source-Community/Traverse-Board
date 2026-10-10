@@ -473,7 +473,7 @@ export function RunWorkspace({ client, runID, onOpenPlugins, onOpenRun, initialT
           <ChildTasksPanel client={client} runID={runID} />
           <BatchDeliveriesPanel client={client} runID={runID} />
         </div>}
-        {tab === "sandbox" && <DockerSandboxPanel client={client} />}
+        {tab === "sandbox" && <DockerSandboxPanel client={client} runID={runID} />}
         {tab === "findings" && <FindingsPanel client={client} runID={runID} />}
         {tab === "events" && (
           <CollectionState query={eventsQuery} empty="暂无事件">

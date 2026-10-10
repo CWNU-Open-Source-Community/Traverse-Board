@@ -1520,6 +1520,100 @@
         "x-cyberagent-read-only": true
       }
     },
+    "/api/v1/extensions/hooks": {
+      "get": {
+        "operationId": "getHookDiagnostics",
+        "summary": "Inspect declarative Hook scope and observed decisions",
+        "description": "Read-only projection of local declarations and the newest 200 scoped observations. New observations bind the actual package fingerprint and rejection decision; historical missing decisions remain unknown. Hook payloads and plugin-controlled messages are omitted.",
+        "tags": [
+          "Extensions"
+        ],
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "query",
+            "description": "Optional exact Run scope",
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          },
+          {
+            "name": "workspace_id",
+            "in": "query",
+            "description": "Optional Workspace scope; must match a supplied Run",
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful read",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/HookDiagnosticsView"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
+          }
+        },
+        "x-cyberagent-read-only": true
+      }
+    },
     "/api/v1/extensions/mcp": {
       "post": {
         "operationId": "registerMCPServer",
@@ -2187,6 +2281,201 @@
         "x-cyberagent-read-only": false
       }
     },
+    "/api/v1/extensions/plugins/{installation_id}/history": {
+      "get": {
+        "operationId": "getPluginHistory",
+        "summary": "Inspect installed Plugin versions and publisher trust",
+        "description": "Reads retained installation versions in the same package, protocol and surface, plus redacted publisher trust and the installation identities affected by revocation. Never returns package bytes or publisher keys.",
+        "tags": [
+          "Extensions"
+        ],
+        "parameters": [
+          {
+            "name": "installation_id",
+            "in": "path",
+            "description": "Plugin installation identity",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful read",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/PluginHistoryView"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
+          }
+        },
+        "x-cyberagent-read-only": true
+      }
+    },
+    "/api/v1/extensions/plugins/{installation_id}/publisher-revocation": {
+      "post": {
+        "operationId": "revokePluginPublisher",
+        "summary": "Revoke one Plugin publisher trust record",
+        "description": "Revokes the exact publisher fingerprint and trust generation bound to the selected signed installation, atomically revoking that publisher's nonterminal installations across packages.",
+        "tags": [
+          "Extensions"
+        ],
+        "parameters": [
+          {
+            "name": "installation_id",
+            "in": "path",
+            "description": "Signed Plugin installation identity",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Control request accepted or idempotently replayed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/PluginPublisherRevocationView"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "412": {
+            "$ref": "#/components/responses/FailedPrecondition"
+          },
+          "413": {
+            "$ref": "#/components/responses/RequestEntityTooLarge"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
+          }
+        },
+        "security": [
+          {
+            "ControlBearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PluginPublisherRevocationRequestView"
+              }
+            }
+          }
+        },
+        "x-cyberagent-read-only": false
+      }
+    },
     "/api/v1/extensions/plugins/{installation_id}/review": {
       "post": {
         "operationId": "reviewPluginInstallation",
@@ -2291,6 +2580,117 @@
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/ExtensionPluginReviewRequestView"
+              }
+            }
+          }
+        },
+        "x-cyberagent-read-only": false
+      }
+    },
+    "/api/v1/extensions/plugins/{installation_id}/rollback": {
+      "post": {
+        "operationId": "rollbackPluginInstallation",
+        "summary": "Switch to a retained Plugin version",
+        "description": "Atomically retires the enabled version and enables the selected retained version with explicit capabilities. Both package fingerprints and generations must match. Existing publisher trust gates apply.",
+        "tags": [
+          "Extensions"
+        ],
+        "parameters": [
+          {
+            "name": "installation_id",
+            "in": "path",
+            "description": "Currently enabled Plugin installation identity",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Control request accepted or idempotently replayed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/PluginRollbackView"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "412": {
+            "$ref": "#/components/responses/FailedPrecondition"
+          },
+          "413": {
+            "$ref": "#/components/responses/RequestEntityTooLarge"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
+          }
+        },
+        "security": [
+          {
+            "ControlBearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PluginRollbackRequestView"
               }
             }
           }
@@ -7144,6 +7544,129 @@
         "x-cyberagent-read-only": false
       }
     },
+    "/api/v1/runs/{run_id}/batch-deliveries/prepare-workbench": {
+      "post": {
+        "operationId": "prepareBatchWorkbench",
+        "summary": "Prepare admitted tasks for isolated delivery",
+        "description": "Copies admitted budgets, dependencies and artifacts in Go, materializes independent worktrees, and retains narrowed owner tokens inside the process. Preparation does not start model work.",
+        "tags": [
+          "Control"
+        ],
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "description": "Run identity",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "description": "Opaque batch delivery retry key; only a domain-separated digest is persisted",
+            "required": true,
+            "schema": {
+              "maxLength": 224,
+              "minLength": 16,
+              "pattern": "^\\S+$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Resource created or idempotently replayed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/BatchWorkbenchView"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "412": {
+            "$ref": "#/components/responses/FailedPrecondition"
+          },
+          "413": {
+            "$ref": "#/components/responses/RequestEntityTooLarge"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
+          }
+        },
+        "security": [
+          {
+            "ControlBearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BatchWorkbenchPrepareRequestView"
+              }
+            }
+          }
+        },
+        "x-cyberagent-read-only": false
+      }
+    },
     "/api/v1/runs/{run_id}/batch-deliveries/{batch_delivery_id}": {
       "get": {
         "operationId": "getRunBatchDelivery",
@@ -7655,6 +8178,298 @@
         "x-cyberagent-read-only": false
       }
     },
+    "/api/v1/runs/{run_id}/batch-deliveries/{batch_delivery_id}/children/{ordinal}/workbench-execute": {
+      "post": {
+        "operationId": "executeBatchWorkbenchChild",
+        "summary": "Explicitly execute one isolated child task",
+        "description": "Invokes an installed accounted Go child runtime through narrowed Batch tools, then measures and submits its committed result. A durable intent prevents duplicate model dispatch on replay; uncertain outcomes require inspecting state and explicit recovery.",
+        "tags": [
+          "Control"
+        ],
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "description": "Run identity",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          },
+          {
+            "name": "batch_delivery_id",
+            "in": "path",
+            "description": "Batch delivery identity",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          },
+          {
+            "name": "ordinal",
+            "in": "path",
+            "description": "Batch delivery child ordinal",
+            "required": true,
+            "schema": {
+              "maximum": 2,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "description": "Opaque batch delivery retry key; only a domain-separated digest is persisted",
+            "required": true,
+            "schema": {
+              "maxLength": 224,
+              "minLength": 16,
+              "pattern": "^\\S+$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Control request accepted or idempotently replayed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/BatchWorkbenchView"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "412": {
+            "$ref": "#/components/responses/FailedPrecondition"
+          },
+          "413": {
+            "$ref": "#/components/responses/RequestEntityTooLarge"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
+          }
+        },
+        "security": [
+          {
+            "ControlBearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BatchWorkbenchExecuteRequestView"
+              }
+            }
+          }
+        },
+        "x-cyberagent-read-only": false
+      }
+    },
+    "/api/v1/runs/{run_id}/batch-deliveries/{batch_delivery_id}/children/{ordinal}/workbench-owner": {
+      "post": {
+        "operationId": "recoverBatchWorkbenchOwner",
+        "summary": "Recover or retry an observed child generation",
+        "description": "Explicitly rotates the observed generation with CAS, fences previous owners and records recovery. Replays never rotate a newer generation or restart model work.",
+        "tags": [
+          "Control"
+        ],
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "description": "Run identity",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          },
+          {
+            "name": "batch_delivery_id",
+            "in": "path",
+            "description": "Batch delivery identity",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          },
+          {
+            "name": "ordinal",
+            "in": "path",
+            "description": "Batch delivery child ordinal",
+            "required": true,
+            "schema": {
+              "maximum": 2,
+              "minimum": 1,
+              "type": "integer"
+            }
+          },
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "description": "Opaque batch delivery retry key; only a domain-separated digest is persisted",
+            "required": true,
+            "schema": {
+              "maxLength": 224,
+              "minLength": 16,
+              "pattern": "^\\S+$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Control request accepted or idempotently replayed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/BatchWorkbenchView"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "409": {
+            "$ref": "#/components/responses/Conflict"
+          },
+          "412": {
+            "$ref": "#/components/responses/FailedPrecondition"
+          },
+          "413": {
+            "$ref": "#/components/responses/RequestEntityTooLarge"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "415": {
+            "$ref": "#/components/responses/UnsupportedMediaType"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
+          }
+        },
+        "security": [
+          {
+            "ControlBearerAuth": []
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BatchWorkbenchOwnerRequestView"
+              }
+            }
+          }
+        },
+        "x-cyberagent-read-only": false
+      }
+    },
     "/api/v1/runs/{run_id}/batch-deliveries/{batch_delivery_id}/merge": {
       "post": {
         "operationId": "mergeRunBatchDelivery",
@@ -7911,6 +8726,102 @@
           }
         },
         "x-cyberagent-read-only": false
+      }
+    },
+    "/api/v1/runs/{run_id}/batch-deliveries/{batch_delivery_id}/workbench": {
+      "get": {
+        "operationId": "getBatchWorkbench",
+        "summary": "Inspect child execution readiness and delivery state",
+        "description": "Reads exact delivery state and process-local worker/owner availability without returning secrets or minting authority.",
+        "tags": [
+          "Agents"
+        ],
+        "parameters": [
+          {
+            "name": "run_id",
+            "in": "path",
+            "description": "Run identity",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          },
+          {
+            "name": "batch_delivery_id",
+            "in": "path",
+            "description": "Batch delivery identity",
+            "required": true,
+            "schema": {
+              "maxLength": 256,
+              "minLength": 1,
+              "pattern": "^[^/\\\\\\x00-\\x1f\\x7f]+$",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful read",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/BatchWorkbenchView"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
+          }
+        },
+        "x-cyberagent-read-only": true
       }
     },
     "/api/v1/runs/{run_id}/browser-cdp-permission": {
@@ -19366,6 +20277,76 @@
         "x-cyberagent-read-only": false
       }
     },
+    "/api/v1/sandbox/docker/environment": {
+      "get": {
+        "operationId": "getDockerEnvironment",
+        "summary": "Inspect the fixed Docker coding environment",
+        "description": "Fresh bounded read-only daemon and pinned image observations. Does not pull images, change configuration or grant execution authority.",
+        "tags": [
+          "Sandbox"
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful read",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "data": {
+                      "$ref": "#/components/schemas/DockerEnvironmentView"
+                    },
+                    "request_id": {
+                      "maxLength": 256,
+                      "minLength": 1,
+                      "type": "string"
+                    },
+                    "version": {
+                      "const": "api.v1",
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "version",
+                    "request_id",
+                    "data"
+                  ],
+                  "type": "object"
+                }
+              }
+            }
+          },
+          "400": {
+            "$ref": "#/components/responses/BadRequest"
+          },
+          "401": {
+            "$ref": "#/components/responses/Unauthorized"
+          },
+          "403": {
+            "$ref": "#/components/responses/Forbidden"
+          },
+          "404": {
+            "$ref": "#/components/responses/NotFound"
+          },
+          "414": {
+            "$ref": "#/components/responses/RequestTooLarge"
+          },
+          "429": {
+            "$ref": "#/components/responses/ResourceExhausted"
+          },
+          "500": {
+            "$ref": "#/components/responses/InternalError"
+          },
+          "503": {
+            "$ref": "#/components/responses/Unavailable"
+          },
+          "504": {
+            "$ref": "#/components/responses/GatewayTimeout"
+          }
+        },
+        "x-cyberagent-read-only": true
+      }
+    },
     "/api/v1/sandbox/docker/readiness": {
       "post": {
         "operationId": "evaluateDockerSandboxReadiness",
@@ -30517,6 +31498,169 @@
         ],
         "type": "object"
       },
+      "BatchWorkbenchChildView": {
+        "additionalProperties": false,
+        "properties": {
+          "executing": {
+            "type": "boolean"
+          },
+          "generation": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "ordinal": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "outcome_unresolved": {
+            "type": "boolean"
+          },
+          "owner_available": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "ordinal",
+          "generation",
+          "owner_available",
+          "executing",
+          "outcome_unresolved"
+        ],
+        "type": "object"
+      },
+      "BatchWorkbenchExecuteRequestView": {
+        "additionalProperties": false,
+        "properties": {
+          "confirm": {
+            "type": "boolean"
+          },
+          "expected_generation": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "expected_generation",
+          "confirm"
+        ],
+        "type": "object"
+      },
+      "BatchWorkbenchOwnerRequestView": {
+        "additionalProperties": false,
+        "properties": {
+          "confirm": {
+            "type": "boolean"
+          },
+          "expected_generation": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "retry": {
+            "type": "boolean"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "expected_generation",
+          "retry",
+          "confirm"
+        ],
+        "type": "object"
+      },
+      "BatchWorkbenchPrepareRequestView": {
+        "additionalProperties": false,
+        "properties": {
+          "confirm": {
+            "type": "boolean"
+          },
+          "proposal_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "tasks": {
+            "items": {
+              "$ref": "#/components/schemas/BatchWorkbenchTaskInputView"
+            },
+            "type": "array"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "proposal_id",
+          "tasks",
+          "confirm"
+        ],
+        "type": "object"
+      },
+      "BatchWorkbenchTaskInputView": {
+        "additionalProperties": false,
+        "properties": {
+          "ordinal": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "ownership_hints": {
+            "items": {
+              "$ref": "#/components/schemas/BatchDeliveryOwnershipHint"
+            },
+            "type": "array"
+          },
+          "validations": {
+            "items": {
+              "$ref": "#/components/schemas/BatchDeliveryValidationRequirement"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "ordinal",
+          "ownership_hints",
+          "validations"
+        ],
+        "type": "object"
+      },
+      "BatchWorkbenchView": {
+        "additionalProperties": false,
+        "properties": {
+          "children": {
+            "items": {
+              "$ref": "#/components/schemas/BatchWorkbenchChildView"
+            },
+            "type": "array"
+          },
+          "protocol_version": {
+            "type": "string"
+          },
+          "replayed": {
+            "type": "boolean"
+          },
+          "snapshot": {
+            "$ref": "#/components/schemas/BatchDeliverySnapshotView"
+          },
+          "worker_available": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "protocol_version",
+          "snapshot",
+          "worker_available",
+          "children",
+          "replayed"
+        ],
+        "type": "object"
+      },
       "BoundedCommandGrantView": {
         "additionalProperties": false,
         "properties": {
@@ -34578,6 +35722,36 @@
         ],
         "type": "object"
       },
+      "DockerEnvironmentView": {
+        "additionalProperties": false,
+        "properties": {
+          "feature_enabled": {
+            "type": "boolean"
+          },
+          "image_configured": {
+            "type": "boolean"
+          },
+          "image_digest": {
+            "type": "string"
+          },
+          "protocol_version": {
+            "type": "string"
+          },
+          "readiness": {
+            "$ref": "#/components/schemas/DockerSandboxReadinessView"
+          },
+          "restart_required": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "protocol_version",
+          "feature_enabled",
+          "image_configured",
+          "restart_required"
+        ],
+        "type": "object"
+      },
       "DockerSandboxAdmissionRequestView": {
         "additionalProperties": false,
         "properties": {
@@ -36022,6 +37196,9 @@
       "ExtensionOnboardingCapabilitiesView": {
         "additionalProperties": false,
         "properties": {
+          "hook_diagnostics": {
+            "type": "boolean"
+          },
           "lsp_configuration": {
             "type": "boolean"
           },
@@ -36032,6 +37209,9 @@
             "type": "boolean"
           },
           "plugin_import": {
+            "type": "boolean"
+          },
+          "plugin_lifecycle": {
             "type": "boolean"
           }
         },
@@ -41683,6 +42863,181 @@
         ],
         "type": "object"
       },
+      "HookDeclarationView": {
+        "additionalProperties": false,
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "active": {
+            "type": "boolean"
+          },
+          "event": {
+            "type": "string"
+          },
+          "failure_policy": {
+            "type": "string"
+          },
+          "hook_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "installation_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "installation_state": {
+            "type": "string"
+          },
+          "package_fingerprint": {
+            "type": "string"
+          },
+          "plugin_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "remove_fields": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "scope": {
+            "type": "string"
+          },
+          "timeout_ms": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "tool_names": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "installation_id",
+          "plugin_id",
+          "package_fingerprint",
+          "installation_state",
+          "active",
+          "scope",
+          "hook_id",
+          "event",
+          "action",
+          "failure_policy",
+          "timeout_ms",
+          "tool_names",
+          "remove_fields"
+        ],
+        "type": "object"
+      },
+      "HookDiagnosticsView": {
+        "additionalProperties": false,
+        "properties": {
+          "declarations": {
+            "items": {
+              "$ref": "#/components/schemas/HookDeclarationView"
+            },
+            "type": "array"
+          },
+          "observations": {
+            "items": {
+              "$ref": "#/components/schemas/HookObservationView"
+            },
+            "type": "array"
+          },
+          "omitted_declarations": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "protocol_version": {
+            "type": "string"
+          },
+          "run_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "workspace_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "protocol_version",
+          "declarations",
+          "omitted_declarations",
+          "observations"
+        ],
+        "type": "object"
+      },
+      "HookObservationView": {
+        "additionalProperties": false,
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string"
+          },
+          "decision": {
+            "type": "string"
+          },
+          "event": {
+            "type": "string"
+          },
+          "hook_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "outcome": {
+            "type": "string"
+          },
+          "package_fingerprint": {
+            "type": "string"
+          },
+          "plugin_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "run_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "tool_name": {
+            "type": "string"
+          },
+          "workspace_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "plugin_id",
+          "hook_id",
+          "event",
+          "outcome",
+          "decision",
+          "created_at"
+        ],
+        "type": "object"
+      },
       "HostCommandExecutionReceiptView": {
         "additionalProperties": false,
         "properties": {
@@ -45134,6 +46489,200 @@
           "model_called",
           "tool_called",
           "capability_grant"
+        ],
+        "type": "object"
+      },
+      "PluginHistoryView": {
+        "additionalProperties": false,
+        "properties": {
+          "installation_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "installations": {
+            "items": {
+              "$ref": "#/components/schemas/ExtensionPluginInstallationView"
+            },
+            "type": "array"
+          },
+          "package_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "protocol_version": {
+            "type": "string"
+          },
+          "publisher": {
+            "$ref": "#/components/schemas/PluginPublisherTrustView"
+          },
+          "publisher_installation_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "total_publisher_installations": {
+            "format": "int32",
+            "type": "integer"
+          },
+          "total_versions": {
+            "format": "int32",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "protocol_version",
+          "installation_id",
+          "package_id",
+          "installations",
+          "publisher_installation_ids",
+          "total_versions",
+          "total_publisher_installations"
+        ],
+        "type": "object"
+      },
+      "PluginPublisherRevocationRequestView": {
+        "additionalProperties": false,
+        "properties": {
+          "confirm": {
+            "type": "boolean"
+          },
+          "expected_publisher_fingerprint": {
+            "type": "string"
+          },
+          "expected_publisher_generation": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "expected_publisher_fingerprint",
+          "expected_publisher_generation",
+          "confirm"
+        ],
+        "type": "object"
+      },
+      "PluginPublisherRevocationView": {
+        "additionalProperties": false,
+        "properties": {
+          "installation_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "protocol_version": {
+            "type": "string"
+          },
+          "publisher": {
+            "$ref": "#/components/schemas/PluginPublisherTrustView"
+          }
+        },
+        "required": [
+          "protocol_version",
+          "installation_id",
+          "publisher"
+        ],
+        "type": "object"
+      },
+      "PluginPublisherTrustView": {
+        "additionalProperties": false,
+        "properties": {
+          "fingerprint": {
+            "type": "string"
+          },
+          "generation": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "publisher": {
+            "type": "string"
+          },
+          "reviewed_at": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "fingerprint",
+          "publisher",
+          "state",
+          "generation",
+          "reviewed_at"
+        ],
+        "type": "object"
+      },
+      "PluginRollbackRequestView": {
+        "additionalProperties": false,
+        "properties": {
+          "capabilities": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "confirm_untrusted": {
+            "type": "boolean"
+          },
+          "expected_current_fingerprint": {
+            "type": "string"
+          },
+          "expected_current_generation": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "expected_target_fingerprint": {
+            "type": "string"
+          },
+          "expected_target_generation": {
+            "format": "int64",
+            "type": "integer"
+          },
+          "target_installation_id": {
+            "maxLength": 256,
+            "minLength": 1,
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "target_installation_id",
+          "expected_current_fingerprint",
+          "expected_current_generation",
+          "expected_target_fingerprint",
+          "expected_target_generation",
+          "capabilities",
+          "confirm_untrusted"
+        ],
+        "type": "object"
+      },
+      "PluginRollbackView": {
+        "additionalProperties": false,
+        "properties": {
+          "current": {
+            "$ref": "#/components/schemas/ExtensionPluginInstallationView"
+          },
+          "protocol_version": {
+            "type": "string"
+          },
+          "target": {
+            "$ref": "#/components/schemas/ExtensionPluginInstallationView"
+          }
+        },
+        "required": [
+          "protocol_version",
+          "current",
+          "target"
         ],
         "type": "object"
       },

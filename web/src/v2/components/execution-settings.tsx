@@ -1,14 +1,17 @@
 import { useQuery } from "@tanstack/react-query";
+import { lazy, Suspense, useState } from "react";
 import type { APIClient } from "../../api/client";
 import type { RunDetailView, ThreadDetailView, WorkspaceView } from "../../api/types";
 import { ExecutionInteractionPanel, ExecutionProfilePanel } from "../../components/run-permission-settings";
 import { v2QueryKeys } from "../query-keys";
+const DockerSandboxPanel = lazy(() => import("../../components/docker-sandbox-panel").then((module) => ({ default: module.DockerSandboxPanel })));
 
 export function V2ExecutionSettings({ client, threadID, workspaces }: {
   client: APIClient;
   threadID: string;
   workspaces: WorkspaceView[];
 }) {
+  const [dockerOpen, setDockerOpen] = useState(false);
   const thread = useQuery({
     queryKey: v2QueryKeys.thread(threadID),
     queryFn: ({ signal }) => client.get<ThreadDetailView>(
@@ -55,6 +58,11 @@ export function V2ExecutionSettings({ client, threadID, workspaces }: {
               key={`profile-${runID}`} />
             <ExecutionInteractionPanel client={client} detail={detail.data} readiness={readiness.data}
               key={`interaction-${runID}`} />
+            <details onToggle={(event) => setDockerOpen(event.currentTarget.open)}><summary>准备 Docker 编码环境</summary>
+              {dockerOpen && <Suspense fallback={<p role="status">正在加载 Docker 环境…</p>}>
+                <DockerSandboxPanel client={client} runID={runID} threadID={threadID} />
+              </Suspense>}
+            </details>
           </>}
   </section>;
 }
