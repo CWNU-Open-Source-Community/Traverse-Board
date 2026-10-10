@@ -65,7 +65,7 @@ describe("V2ExecutionSettings", () => {
     const controls = setup();
     render(controls.ui("thread-1"));
     expect(await screen.findByText("项目：指定验收目录")).toBeInTheDocument();
-    expect(screen.getByText(/请求批准、帮我批准、完全访问是审批偏好/u)).toBeInTheDocument();
+    expect(screen.getByText(/审批偏好决定操作如何获批/u)).toBeInTheDocument();
     expect(controls.postControl).not.toHaveBeenCalled();
     await user.click(screen.getByRole("button", { name: /本地工作区/u }));
     await waitFor(() => expect(controls.postControl).toHaveBeenCalledWith(

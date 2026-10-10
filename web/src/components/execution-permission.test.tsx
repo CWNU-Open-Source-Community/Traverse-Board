@@ -239,7 +239,7 @@ describe("StandardCodeReadinessPanel", () => {
     expect(start).toHaveTextContent("暂时锁定");
     await user.click(start);
     expect(await screen.findByText("暂停尚未完成")).toBeInTheDocument();
-    expect(screen.getByText(/执行租约释放前不会提交 Standard Code 配置/))
+    expect(screen.getByText(/正在等待执行静止和租约释放/))
       .toBeInTheDocument();
     expect(fetchMock.mock.calls[0]?.[0])
       .toContain("/runs/run-1/standard-code/pause-and-configure");

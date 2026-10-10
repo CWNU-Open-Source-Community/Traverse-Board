@@ -106,7 +106,9 @@ describe("V2Workbench inspector navigation", () => {
     const user = userEvent.setup();
     await user.type(await screen.findByRole("textbox", { name: "任务草稿 fixture" }), "等待连接设置后继续的草稿");
     await user.click(screen.getByRole("button", { name: "连接与环境" }));
-    await user.click(await screen.findByRole("button", { name: /GitHub 连接与审阅.*run-current/u }));
+    const githubEntry = await screen.findByRole("button", { name: /GitHub 连接与审阅/u });
+    await waitFor(() => expect(githubEntry).toBeEnabled());
+    await user.click(githubEntry);
     expect(await screen.findByLabelText("Requested GitHub review")).toHaveTextContent(`${createdThread.id}:run-current`);
     expect(window.location.hash).toBe(`#/threads/${createdThread.id}`);
     expect(screen.getByRole("textbox", { name: "任务草稿 fixture" })).toHaveValue("等待连接设置后继续的草稿");

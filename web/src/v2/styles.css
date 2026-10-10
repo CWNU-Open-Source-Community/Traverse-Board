@@ -1220,6 +1220,9 @@
 .v2-permission-options > button span { display: grid; gap: 1px; }
 .v2-permission-options > button small { color: var(--v2-muted); font-size: 11px; }
 .v2-permission-popover > p { color: var(--v2-danger); font-size: 12px; margin: 7px 9px; }
+.v2-permission-availability { color: var(--v2-muted); font-size: 12px; line-height: 1.6; margin: 8px 12px; overflow-wrap: anywhere; }
+.v2-permission-availability summary { cursor: pointer; }
+.v2-permission-availability p { margin: 6px 0; }
 .v2-permission-control > .v2-composer-chip.is-risk { color: var(--v2-danger); }
 .v2-permission-network { border-top: 1px solid var(--v2-border); margin-top: 7px; padding-top: 7px; }
 .v2-permission-network > summary { cursor: pointer; font-size: 13px; padding: 9px; }

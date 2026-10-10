@@ -557,7 +557,7 @@ describe("V2ActivityGroup", () => {
 
     expect(await screen.findByText("Full output with a damaged character: \uFFFD")).toBeInTheDocument();
     expect(screen.getByText("部分输出字符无法正确解码，当前文本可能不完整。")).toBeInTheDocument();
-    expect(screen.getByText(/工具输出仅作为数据展示/u)).toBeInTheDocument();
+    expect(screen.getByText(/以下是工具返回的参考数据/u)).toBeInTheDocument();
     expect(threadActivityArtifact).toHaveBeenCalledWith(
       "thread-1", "command-1", "artifact-stdout-1", expect.any(AbortSignal));
   });

@@ -41,7 +41,7 @@ export function V2ApprovalModeControl({ mode, fullActivation, fullUnavailableRea
   const SelectedIcon = selected.icon;
   const coldFull = mode === "full" && fullActivation === "inactive";
   const unavailable = fullUnavailableReason?.trim() ||
-    t("当前环境未提供完全访问权限。", "Full access is not available in the current environment.");
+    t("完全访问需要当前运行环境提供支持，请查看服务的权限配置。", "Full access requires runtime support. Check the service's permission configuration.");
   const status = t(`完全访问${activationLabels[fullActivation]}`, `Full access ${activationLabels[fullActivation]}`);
   const confirmationOpen = confirmation !== null && confirmation.mode === mode &&
     confirmation.activation === fullActivation && !disabled && fullActivation !== "unavailable";
@@ -122,6 +122,10 @@ export function V2ApprovalModeControl({ mode, fullActivation, fullUnavailableRea
         </button>;
       })}
     </div>
+    {fullActivation === "unavailable" && <details className="v2-permission-availability">
+      <summary>{t("查看完全访问的启用条件", "View Full access requirements")}</summary>
+      <p id={`${id}-unavailable`}>{unavailable}</p>
+    </details>}
     {coldFull && <button className="v2-permission-downgrade" disabled={blocked}
       onClick={(event) => choose("full", event.currentTarget)}
       role={variant === "menu" ? "menuitem" : undefined}
@@ -170,7 +174,6 @@ export function V2ApprovalModeControl({ mode, fullActivation, fullUnavailableRea
       ref={settingsRef} tabIndex={-1}>
       <header><div><h2>{t("执行权限", "Execution permissions")}</h2><p>{status}</p></div></header>{options}
     </section>}
-    {fullActivation === "unavailable" && <p className="v2-inline-error" id={`${id}-unavailable`}>{unavailable}</p>}
     {pending && <span role="status">{t("正在更新权限…", "Updating permissions…")}</span>}
     {error && <p className="v2-inline-error" role="alert">{error.trim() || t("权限更新失败", "Failed to update permissions")}</p>}
     {confirmationOpen && createPortal(<V2ConfirmDialog open busy={pending}

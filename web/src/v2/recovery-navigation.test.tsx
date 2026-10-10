@@ -248,7 +248,7 @@ describe("recovery navigation through the real V2 workbench", () => {
     await screen.findByRole("heading", { name: `Goal for ${h.returnedRunID}` });
     expect(window.location.hash).toBe(`#/new/inspector/runs/${h.returnedRunID}`);
     expect(screen.getByLabelText("Activity Run")).toHaveTextContent(h.returnedRunID);
-    expect(screen.getByText(/未绑定对话，任务权限设置不可用/u)).toBeInTheDocument();
+    expect(screen.getByText(/此记录尚未绑定对话，请返回任务观察选择来源任务后设置权限/u)).toBeInTheDocument();
     expect(screen.queryByRole("status", { name: "来源任务的 Agent 活动" })).not.toBeInTheDocument();
     expect(useConnectionStore.getState().selectedThreadID).toBe("");
     expect(h.get).toHaveBeenCalledWith(`/runs/${h.returnedRunID}`, {}, expect.any(AbortSignal));

@@ -294,7 +294,7 @@ describe("V2 permission settings hierarchy", () => {
     expect(screen.queryByRole("group", { name: "执行权限档位" })).not.toBeInTheDocument();
     expect(within(debugGroup).getByRole("button")).toBeDisabled();
     expect(screen.getByText("当前页面没有可验证的桌面运行时能力信息。")).toBeVisible();
-    expect(screen.getByText(/完全访问无需重启，但当前执行需暂停并处于静止边界后才能生效/u))
+    expect(screen.getByText(/在当前任务开启完全访问时，先暂停执行并等待资源释放完成即可/u))
       .toBeInTheDocument();
     expect(getThreadExecutionPermission).not.toHaveBeenCalled();
     expect(get).not.toHaveBeenCalled();

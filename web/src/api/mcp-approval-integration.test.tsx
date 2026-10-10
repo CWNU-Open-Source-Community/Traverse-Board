@@ -52,9 +52,9 @@ describe("MCP approval through the strict HTTP client", () => {
       <V2ApprovalCards client={new APIClient("read", "/api/v1", "control")} runID={data.preview.run_id} threadID="thread-mcp" />
     </QueryClientProvider>);
     expect(await screen.findByText(/exact review intent/)).toBeInTheDocument();
-    expect(screen.getByText(/外部副作用未经验证/)).toBeInTheDocument();
+    expect(screen.getByText(/外部影响仍待核实，请核对服务配置与参数/)).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "允许本对话" })).not.toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: "仅批准一次" }));
+    await userEvent.click(screen.getByRole("button", { name: "批准一次" }));
     expect(await screen.findByText(/Agent 已继续处理/)).toBeInTheDocument();
     await waitFor(() => expect(fetch.mock.calls.filter(([, init]) => init?.method === "POST")).toHaveLength(1));
     const post = fetch.mock.calls.find(([, init]) => init?.method === "POST")!;
