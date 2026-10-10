@@ -221,6 +221,7 @@ func completeDesktopSourceWiringTurn(t *testing.T, plane *ControlPlane,
 		"/api/v1/threads/"+thread.Thread.ID+"/turns", operationKey,
 		fmt.Sprintf(`{"version":"thread_message_submission.v1","content":%q}`, content))
 	if response.Code != http.StatusAccepted {
+		logDesktopSourceWiringTurnFailure(t, plane, thread, operationKey)
 		t.Fatalf("Thread turn status=%d body=%s", response.Code, response.Body.String())
 	}
 	var executed httpapi.ThreadMessageControlView
