@@ -44,6 +44,10 @@ import type {
   ChildTaskProposalView,
   ChildTaskReviewRequestView,
   BatchDeliveriesListView,
+  BatchWorkbenchView,
+  BatchWorkbenchPrepareRequestView,
+  BatchWorkbenchOwnerRequestView,
+  BatchWorkbenchExecuteRequestView,
   BatchDeliverySnapshotView,
   BatchDeliveryReviewRequestView,
   BatchDeliveryReviewControlView,
@@ -8747,6 +8751,51 @@ export class APIClient {
     ), runID, planID);
   }
 
+  async getBatchWorkbench(runID: string, planID: string, signal?: AbortSignal): Promise<BatchWorkbenchView> {
+    if (!boundedIdentity(runID) || !boundedIdentity(planID)) throw new Error("Normalized Run and batch identities are required");
+    return parseBatchWorkbench(await this.get<unknown>(
+      `/runs/${encodeURIComponent(runID)}/batch-deliveries/${encodeURIComponent(planID)}/workbench`, {}, signal), runID, planID);
+  }
+
+  async prepareBatchWorkbench(runID: string, body: BatchWorkbenchPrepareRequestView,
+    idempotencyKey: string, signal?: AbortSignal): Promise<BatchWorkbenchView> {
+    if (new TextEncoder().encode(idempotencyKey).byteLength > 224) throw new Error("Batch workbench operation key is too long");
+    this.requireBatchDeliveryControl(runID, body.proposal_id);
+    if (body.version !== "batch-delivery-workbench.v1" || !body.confirm || !Array.isArray(body.tasks) ||
+      body.tasks.length < 1 || body.tasks.length > 2 || body.tasks.some((task, index) =>
+        task.ordinal !== index + 1 || !Array.isArray(task.ownership_hints) || task.ownership_hints.length < 1 ||
+        task.ownership_hints.length > 32 || task.ownership_hints.some((hint) => !isBatchPath(hint.path) ||
+          (hint.kind !== "file" && hint.kind !== "directory")) || !Array.isArray(task.validations) ||
+        task.validations.length < 1 || task.validations.length > 16 || !task.validations.some((test) => test.kind === "git_diff_check") ||
+        task.validations.some((test) => !boundedIdentity(test.id) || !batchValidationKinds.includes(test.kind) || !isBatchPath(test.scope)))) {
+      throw new Error("Confirmed ownership and validations for the admitted task set are required");
+    }
+    const value = await this.sendControl<unknown>(`/runs/${encodeURIComponent(runID)}/batch-deliveries/prepare-workbench`, body, idempotencyKey, signal);
+    return parseBatchWorkbench(value, runID);
+  }
+
+  async recoverBatchWorkbenchOwner(runID: string, planID: string, ordinal: number,
+    body: BatchWorkbenchOwnerRequestView, idempotencyKey: string, signal?: AbortSignal): Promise<BatchWorkbenchView> {
+    if (new TextEncoder().encode(idempotencyKey).byteLength > 224) throw new Error("Batch workbench operation key is too long");
+    this.requireBatchDeliveryControl(runID, planID, ordinal);
+    if (body.version !== "batch-delivery-workbench.v1" || !body.confirm || !safePositiveInteger(body.expected_generation) ||
+      body.expected_generation >= 8 || typeof body.retry !== "boolean") throw new Error("Confirmed current owner generation is required");
+    return parseBatchWorkbench(await this.sendControl<unknown>(
+      `/runs/${encodeURIComponent(runID)}/batch-deliveries/${encodeURIComponent(planID)}/children/${ordinal}/workbench-owner`,
+      body, idempotencyKey, signal), runID, planID);
+  }
+
+  async executeBatchWorkbenchChild(runID: string, planID: string, ordinal: number,
+    body: BatchWorkbenchExecuteRequestView, idempotencyKey: string, signal?: AbortSignal): Promise<BatchWorkbenchView> {
+    if (new TextEncoder().encode(idempotencyKey).byteLength > 224) throw new Error("Batch workbench operation key is too long");
+    this.requireBatchDeliveryControl(runID, planID, ordinal);
+    if (body.version !== "batch-delivery-workbench.v1" || !body.confirm || !safePositiveInteger(body.expected_generation) ||
+      body.expected_generation > 8) throw new Error("Confirmed current child generation is required");
+    return parseBatchWorkbench(await this.sendControl<unknown>(
+      `/runs/${encodeURIComponent(runID)}/batch-deliveries/${encodeURIComponent(planID)}/children/${ordinal}/workbench-execute`,
+      body, idempotencyKey, signal), runID, planID);
+  }
+
   async reviewRunBatchDeliveryChild(runID: string, planID: string, ordinal: number,
     body: BatchDeliveryReviewRequestView, idempotencyKey: string,
     signal?: AbortSignal): Promise<BatchDeliveryReviewControlView> {
@@ -9425,6 +9474,24 @@ function parseBatchDeliveries(value: unknown, runID: string): BatchDeliveriesLis
   }
   for (const plan of value.items) parseBatchDeliveryPlan(plan, runID);
   return value as unknown as BatchDeliveriesListView;
+}
+
+function parseBatchWorkbench(value: unknown, runID: string, planID = ""): BatchWorkbenchView {
+  if (!isRecord(value) || value.protocol_version !== "batch-delivery-workbench.v1" ||
+    typeof value.worker_available !== "boolean" || typeof value.replayed !== "boolean" ||
+    !Array.isArray(value.children) || batchProjectionContainsPrivateField(value) ||
+    !isRecord(value.snapshot) || !isRecord(value.snapshot.plan) || !boundedIdentity(value.snapshot.plan.id)) {
+    throw new APIRequestError("Batch workbench response is invalid", "INVALID_RESPONSE", 502);
+  }
+  const snapshot = parseBatchDeliverySnapshot(value.snapshot, runID, planID || String(value.snapshot.plan.id));
+  if (value.children.length !== snapshot.children.length || value.children.some((child, index) =>
+    !isRecord(child) || child.ordinal !== snapshot.children[index].workspace.ordinal ||
+    child.generation !== snapshot.children[index].workspace.generation ||
+    typeof child.owner_available !== "boolean" || typeof child.executing !== "boolean" ||
+    typeof child.outcome_unresolved !== "boolean")) {
+    throw new APIRequestError("Batch workbench child binding is invalid", "INVALID_RESPONSE", 502);
+  }
+  return value as unknown as BatchWorkbenchView;
 }
 
 function isGitObjectID(value: unknown): value is string {

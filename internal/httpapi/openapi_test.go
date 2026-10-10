@@ -840,7 +840,7 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 		fixture.store, llm.NewDefaultRouter(), policy.NewDefaultChecker())
 	fixture.api.childTaskControlController = application.NewChildTaskControlService(fixture.store)
 	fixture.api.batchDeliveryControlEnabled = true
-	fixture.api.batchDeliveryController = application.NewBatchDeliveryService(fixture.store)
+	fixture.api.batchDeliveryController = application.NewBatchDeliveryWorkbenchService(application.NewBatchDeliveryService(fixture.store))
 	credentialStore := credential.NewMemoryStore()
 	fixture.api.providerCredentialController = application.NewProviderCredentialService(
 		credentialStore).WithRegistryReload(fixture.api.modelRegistry, fixture.store)
@@ -1272,6 +1272,7 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 				spec.OperationID == "reviewRunChildTaskProposal" ||
 				spec.OperationID == "admitRunChildTaskProposal" ||
 				strings.Contains(spec.OperationID, "RunBatchDelivery") ||
+				strings.Contains(spec.OperationID, "BatchWorkbench") ||
 				spec.OperationID == "prepareRunBatchDelivery" {
 				expectedStatus = http.StatusNotFound
 			} else if spec.OperationID == "getWorkspaceRepositoryCommitFilePreview" {
@@ -1322,7 +1323,9 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 				response = previewConfigurationRequest(fixture.api, testAccessToken, `{"workspace_id":"`+fixture.workspace.ID+`"}`)
 			} else if spec.Control {
 				body := `{"profile":"docker"}`
-				if spec.OperationID == "controlThreadPlan" {
+				if spec.OperationID == "prepareBatchWorkbench" {
+					body = `{"version":"batch-delivery-workbench.v1","proposal_id":"proposal-openapi-missing-0001","tasks":[],"confirm":true}`
+				} else if spec.OperationID == "controlThreadPlan" {
 					body = `{"version":"plan_delivery_control.v1","run_id":"` + openAPIThreadRun.ID + `","action":"enter_plan"}`
 				} else if spec.OperationID == "stopThreadApplicationService" {
 					body = `{"version":"thread_application_services.v1","expected_run_id":"` + threadServiceJob.runID + `"}`
@@ -1786,6 +1789,7 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 					spec.OperationID != "reviewRunChildTaskProposal" &&
 					spec.OperationID != "admitRunChildTaskProposal" &&
 					!strings.Contains(spec.OperationID, "RunBatchDelivery") &&
+					!strings.Contains(spec.OperationID, "BatchWorkbench") &&
 					spec.OperationID != "prepareRunBatchDelivery" {
 					expectedStatus, statusErr = strconv.Atoi(status)
 					if statusErr != nil {

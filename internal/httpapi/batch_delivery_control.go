@@ -315,6 +315,9 @@ func matchBatchDeliveryMutationPath(requestPath string) (runID, planID, action s
 	if len(parts) == 2 && parts[0] != "" && parts[1] == "batch-deliveries" {
 		return parts[0], "", "prepare", 0, true
 	}
+	if len(parts) == 3 && parts[0] != "" && parts[1] == "batch-deliveries" && parts[2] == "prepare-workbench" {
+		return parts[0], "", "prepare-workbench", 0, true
+	}
 	if len(parts) == 4 && parts[0] != "" && parts[1] == "batch-deliveries" &&
 		parts[2] != "" && (parts[3] == "merge" || parts[3] == "cancel" ||
 		parts[3] == "reconcile") {
@@ -322,7 +325,7 @@ func matchBatchDeliveryMutationPath(requestPath string) (runID, planID, action s
 	}
 	if len(parts) == 6 && parts[0] != "" && parts[1] == "batch-deliveries" &&
 		parts[2] != "" && parts[3] == "children" &&
-		(parts[5] == "review" || parts[5] == "renew-owner") {
+		(parts[5] == "review" || parts[5] == "renew-owner" || parts[5] == "workbench-owner" || parts[5] == "workbench-execute") {
 		parsed, err := strconv.Atoi(parts[4])
 		if err != nil || parsed < 1 || parsed > domain.MaxBatchDeliveryTasks {
 			return "", "", "", 0, false
@@ -343,11 +346,15 @@ func (a *API) serveBatchDeliveryControl(writer http.ResponseWriter, request *htt
 		a.writeError(writer, requestID, err, http.StatusUnsupportedMediaType)
 		return
 	}
-	if action != "prepare" {
+	if action != "prepare" && action != "prepare-workbench" {
 		if _, err := a.batchDeliverySnapshotForRun(request.Context(), runID, planID); err != nil {
 			a.writeError(writer, requestID, err, 0)
 			return
 		}
+	}
+	if action == "prepare-workbench" || action == "workbench-owner" || action == "workbench-execute" {
+		a.serveBatchWorkbenchControl(writer, request, requestID, runID, planID, action, ordinal)
+		return
 	}
 	if action == "renew-owner" || action == "reconcile" {
 		a.serveNonIdempotentBatchDeliveryControl(writer, request, requestID,

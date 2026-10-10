@@ -661,7 +661,7 @@ func (a *App) apiServeCommand(ctx context.Context, args []string) (resultErr err
 		ThreadGitController:                 threadGit,
 		ThreadPullRequestController:         application.NewThreadPullRequestService(a.store, githubReviewService, threadGit),
 		GitHubReviewController:              githubReviewService,
-		BatchDeliveryController:             batchDelivery,
+		BatchDeliveryController:             application.NewBatchDeliveryWorkbenchService(batchDelivery),
 		ExtensionController:                 extensionControl,
 		CodeIntelSource:                     a.codeIntel,
 		CodeIntelController:                 codeIntelControl,

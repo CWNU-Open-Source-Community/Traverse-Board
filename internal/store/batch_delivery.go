@@ -1107,6 +1107,12 @@ func (s *SQLiteStore) RecordBatchDeliveryReview(ctx context.Context,
 		return domain.BatchDeliveryReview{}, false, apperror.New(apperror.CodeConflict,
 			"batch delivery workspace changed during review")
 	}
+	if review.Verdict == domain.BatchReviewAccepted {
+		if _, err := settleBatchDeliveryDependenciesTx(ctx, tx, review.PlanID, review.Ordinal,
+			review.Generation, review.ReceiptID, review.ID); err != nil {
+			return domain.BatchDeliveryReview{}, false, err
+		}
+	}
 	if err := tx.Commit(); err != nil {
 		return domain.BatchDeliveryReview{}, false, err
 	}

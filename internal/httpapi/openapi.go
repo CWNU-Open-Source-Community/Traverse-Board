@@ -319,6 +319,9 @@ func openAPIOperationSpecs() []openAPIOperationSpec {
 	batchDeliveryIdempotencyKey := dockerSandboxIdempotencyKey
 	batchDeliveryIdempotencyKey.Description =
 		"Opaque batch delivery retry key; only a domain-separated digest is persisted"
+	batchWorkbenchIdempotencyKey := batchDeliveryIdempotencyKey
+	batchWorkbenchIdempotencyKey.Schema = map[string]any{"type": "string",
+		"minLength": domain.MinAgentOperationKeyBytes, "maxLength": domain.MaxAgentOperationKeyBytes - 32, "pattern": `^\S+$`}
 	return []openAPIOperationSpec{
 		{Path: "/api/v1/memories", OperationID: "listContextMemories",
 			Summary: "List explicit long-term memories", Tag: "Memory",
@@ -1450,6 +1453,29 @@ func openAPIOperationSpecs() []openAPIOperationSpec {
 			Description: "Returns the plan, closed child tool profiles, mailbox, receipts, independent reviews, and ordered merge state while omitting filesystem roots and private operation identities.",
 			DataType:    reflect.TypeOf(BatchDeliverySnapshotView{}), NotFound: true,
 			Parameters: []openAPIParameter{runID, batchDeliveryID}},
+		{Path: BatchWorkbenchPreparePathTemplate, Method: http.MethodPost,
+			OperationID: "prepareBatchWorkbench", Summary: "Prepare admitted tasks for isolated delivery",
+			Tag: "Control", Description: "Copies admitted budgets, dependencies and artifacts in Go, materializes independent worktrees, and retains narrowed owner tokens inside the process. Preparation does not start model work.",
+			DataType: reflect.TypeOf(BatchWorkbenchView{}), RequestType: reflect.TypeOf(BatchWorkbenchPrepareRequestView{}),
+			Control: true, NotFound: true, SuccessStatus: http.StatusCreated,
+			Parameters: []openAPIParameter{runID, batchWorkbenchIdempotencyKey}},
+		{Path: BatchWorkbenchPathTemplate, OperationID: "getBatchWorkbench",
+			Summary: "Inspect child execution readiness and delivery state", Tag: "Agents",
+			Description: "Reads exact delivery state and process-local worker/owner availability without returning secrets or minting authority.",
+			DataType:    reflect.TypeOf(BatchWorkbenchView{}), NotFound: true,
+			Parameters: []openAPIParameter{runID, batchDeliveryID}},
+		{Path: BatchWorkbenchOwnerPathTemplate, Method: http.MethodPost,
+			OperationID: "recoverBatchWorkbenchOwner", Summary: "Recover or retry an observed child generation",
+			Tag: "Control", Description: "Explicitly rotates the observed generation with CAS, fences previous owners and records recovery. Replays never rotate a newer generation or restart model work.",
+			DataType: reflect.TypeOf(BatchWorkbenchView{}), RequestType: reflect.TypeOf(BatchWorkbenchOwnerRequestView{}),
+			Control: true, NotFound: true, SuccessStatus: http.StatusOK,
+			Parameters: []openAPIParameter{runID, batchDeliveryID, batchDeliveryOrdinal, batchWorkbenchIdempotencyKey}},
+		{Path: BatchWorkbenchExecutePathTemplate, Method: http.MethodPost,
+			OperationID: "executeBatchWorkbenchChild", Summary: "Explicitly execute one isolated child task",
+			Tag: "Control", Description: "Invokes an installed accounted Go child runtime through narrowed Batch tools, then measures and submits its committed result. A durable intent prevents duplicate model dispatch on replay; uncertain outcomes require inspecting state and explicit recovery.",
+			DataType: reflect.TypeOf(BatchWorkbenchView{}), RequestType: reflect.TypeOf(BatchWorkbenchExecuteRequestView{}),
+			Control: true, NotFound: true, SuccessStatus: http.StatusOK,
+			Parameters: []openAPIParameter{runID, batchDeliveryID, batchDeliveryOrdinal, batchWorkbenchIdempotencyKey}},
 		{Path: BatchDeliveryReviewPathTemplate, Method: http.MethodPost,
 			OperationID: "reviewRunBatchDeliveryChild", Summary: "Review one complete child delivery",
 			Tag: "Control", Description: "Re-inspects the exact merge-base diff, call-chain digest, lifecycle state, and required tests before recording an independent accepted or changes-requested verdict.",

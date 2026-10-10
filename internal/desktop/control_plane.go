@@ -873,7 +873,7 @@ func OpenControlPlane(config ControlPlaneConfig) (*ControlPlane, error) {
 		ThreadGitController:                 threadGit,
 		ThreadPullRequestController:         application.NewThreadPullRequestService(stateStore, githubReview, threadGit),
 		GitHubReviewController:              githubReview,
-		BatchDeliveryController:             batchDelivery,
+		BatchDeliveryController:             application.NewBatchDeliveryWorkbenchService(batchDelivery),
 		ExtensionController:                 extensionControl,
 		CodeIntelSource:                     codeIntelManager,
 		CodeIntelController:                 codeIntelControl,

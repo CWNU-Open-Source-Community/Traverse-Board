@@ -30,6 +30,10 @@ export type ChildTaskReviewRequestView = components["schemas"]["ChildTaskReviewR
 export type ChildTaskAdmitRequestView = components["schemas"]["ChildTaskAdmitRequestView"];
 export type BatchDeliveriesListView = components["schemas"]["BatchDeliveriesListView"];
 export type BatchDeliverySnapshotView = components["schemas"]["BatchDeliverySnapshotView"];
+export type BatchWorkbenchView = components["schemas"]["BatchWorkbenchView"];
+export type BatchWorkbenchPrepareRequestView = components["schemas"]["BatchWorkbenchPrepareRequestView"];
+export type BatchWorkbenchOwnerRequestView = components["schemas"]["BatchWorkbenchOwnerRequestView"];
+export type BatchWorkbenchExecuteRequestView = components["schemas"]["BatchWorkbenchExecuteRequestView"];
 export type BatchDeliveryReviewRequestView =
   components["schemas"]["BatchDeliveryReviewRequestView"];
 export type BatchDeliveryReviewControlView =

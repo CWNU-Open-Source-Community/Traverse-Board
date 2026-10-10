@@ -593,6 +593,9 @@ func (a *API) routeRuns(request *http.Request, segments []string) (any, *Page, e
 			return a.runFileEditProposalRecovery(request, segments[1], segments[3])
 		}
 	case 5:
+		if segments[2] == "batch-deliveries" && segments[4] == "workbench" {
+			return a.getBatchWorkbench(request, segments[1], segments[3])
+		}
 		if segments[2] == "approvals" && segments[4] == "preview" {
 			return a.runApprovalPreview(request, segments[1], segments[3])
 		}

@@ -1376,6 +1376,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/runs/{run_id}/batch-deliveries/prepare-workbench": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Prepare admitted tasks for isolated delivery
+         * @description Copies admitted budgets, dependencies and artifacts in Go, materializes independent worktrees, and retains narrowed owner tokens inside the process. Preparation does not start model work.
+         */
+        post: operations["prepareBatchWorkbench"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/runs/{run_id}/batch-deliveries/{batch_delivery_id}": {
         parameters: {
             query?: never;
@@ -1456,6 +1476,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/runs/{run_id}/batch-deliveries/{batch_delivery_id}/children/{ordinal}/workbench-execute": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Explicitly execute one isolated child task
+         * @description Invokes an installed accounted Go child runtime through narrowed Batch tools, then measures and submits its committed result. A durable intent prevents duplicate model dispatch on replay; uncertain outcomes require inspecting state and explicit recovery.
+         */
+        post: operations["executeBatchWorkbenchChild"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/runs/{run_id}/batch-deliveries/{batch_delivery_id}/children/{ordinal}/workbench-owner": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Recover or retry an observed child generation
+         * @description Explicitly rotates the observed generation with CAS, fences previous owners and records recovery. Replays never rotate a newer generation or restart model work.
+         */
+        post: operations["recoverBatchWorkbenchOwner"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/runs/{run_id}/batch-deliveries/{batch_delivery_id}/merge": {
         parameters: {
             query?: never;
@@ -1490,6 +1550,26 @@ export interface paths {
          * @description Converges durable worktree and merge-queue intent after restart without minting tokens, trusting completion text, or deleting uncertain state.
          */
         post: operations["reconcileRunBatchDelivery"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/runs/{run_id}/batch-deliveries/{batch_delivery_id}/workbench": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Inspect child execution readiness and delivery state
+         * @description Reads exact delivery state and process-local worker/owner availability without returning secrets or minting authority.
+         */
+        get: operations["getBatchWorkbench"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -5582,6 +5662,47 @@ export interface components {
             tool_profile: components["schemas"]["BatchDeliveryToolProfile"];
             /** Format: date-time */
             updated_at: string;
+        };
+        BatchWorkbenchChildView: {
+            executing: boolean;
+            /** Format: int64 */
+            generation: number;
+            /** Format: int64 */
+            ordinal: number;
+            outcome_unresolved: boolean;
+            owner_available: boolean;
+        };
+        BatchWorkbenchExecuteRequestView: {
+            confirm: boolean;
+            /** Format: int64 */
+            expected_generation: number;
+            version: string;
+        };
+        BatchWorkbenchOwnerRequestView: {
+            confirm: boolean;
+            /** Format: int64 */
+            expected_generation: number;
+            retry: boolean;
+            version: string;
+        };
+        BatchWorkbenchPrepareRequestView: {
+            confirm: boolean;
+            proposal_id: string;
+            tasks: components["schemas"]["BatchWorkbenchTaskInputView"][];
+            version: string;
+        };
+        BatchWorkbenchTaskInputView: {
+            /** Format: int32 */
+            ordinal: number;
+            ownership_hints: components["schemas"]["BatchDeliveryOwnershipHint"][];
+            validations: components["schemas"]["BatchDeliveryValidationRequirement"][];
+        };
+        BatchWorkbenchView: {
+            children: components["schemas"]["BatchWorkbenchChildView"][];
+            protocol_version: string;
+            replayed: boolean;
+            snapshot: components["schemas"]["BatchDeliverySnapshotView"];
+            worker_available: boolean;
         };
         BoundedCommandGrantView: {
             /** @enum {boolean} */
@@ -17292,6 +17413,54 @@ export interface operations {
             504: components["responses"]["GatewayTimeout"];
         };
     };
+    prepareBatchWorkbench: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Opaque batch delivery retry key; only a domain-separated digest is persisted */
+                "Idempotency-Key": string;
+            };
+            path: {
+                /** @description Run identity */
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BatchWorkbenchPrepareRequestView"];
+            };
+        };
+        responses: {
+            /** @description Resource created or idempotently replayed */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["BatchWorkbenchView"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            412: components["responses"]["FailedPrecondition"];
+            413: components["responses"]["RequestEntityTooLarge"];
+            414: components["responses"]["RequestTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
+        };
+    };
     getRunBatchDelivery: {
         parameters: {
             query?: never;
@@ -17482,6 +17651,110 @@ export interface operations {
             504: components["responses"]["GatewayTimeout"];
         };
     };
+    executeBatchWorkbenchChild: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Opaque batch delivery retry key; only a domain-separated digest is persisted */
+                "Idempotency-Key": string;
+            };
+            path: {
+                /** @description Run identity */
+                run_id: string;
+                /** @description Batch delivery identity */
+                batch_delivery_id: string;
+                /** @description Batch delivery child ordinal */
+                ordinal: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BatchWorkbenchExecuteRequestView"];
+            };
+        };
+        responses: {
+            /** @description Control request accepted or idempotently replayed */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["BatchWorkbenchView"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            412: components["responses"]["FailedPrecondition"];
+            413: components["responses"]["RequestEntityTooLarge"];
+            414: components["responses"]["RequestTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
+        };
+    };
+    recoverBatchWorkbenchOwner: {
+        parameters: {
+            query?: never;
+            header: {
+                /** @description Opaque batch delivery retry key; only a domain-separated digest is persisted */
+                "Idempotency-Key": string;
+            };
+            path: {
+                /** @description Run identity */
+                run_id: string;
+                /** @description Batch delivery identity */
+                batch_delivery_id: string;
+                /** @description Batch delivery child ordinal */
+                ordinal: number;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["BatchWorkbenchOwnerRequestView"];
+            };
+        };
+        responses: {
+            /** @description Control request accepted or idempotently replayed */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["BatchWorkbenchView"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            412: components["responses"]["FailedPrecondition"];
+            413: components["responses"]["RequestEntityTooLarge"];
+            414: components["responses"]["RequestTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
+        };
+    };
     mergeRunBatchDelivery: {
         parameters: {
             query?: never;
@@ -17573,6 +17846,45 @@ export interface operations {
             413: components["responses"]["RequestEntityTooLarge"];
             414: components["responses"]["RequestTooLarge"];
             415: components["responses"]["UnsupportedMediaType"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
+        };
+    };
+    getBatchWorkbench: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Run identity */
+                run_id: string;
+                /** @description Batch delivery identity */
+                batch_delivery_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful read */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["BatchWorkbenchView"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            414: components["responses"]["RequestTooLarge"];
             429: components["responses"]["ResourceExhausted"];
             500: components["responses"]["InternalError"];
             503: components["responses"]["Unavailable"];
