@@ -95,4 +95,18 @@ describe("AgentComposerControls", () => {
     expect(screen.getByText("高").closest("button")).toBeDisabled();
     expect(screen.getByText("最高").closest("button")).toBeDisabled();
   });
+
+  it("refreshes the selected model after an uncertain switch without repeating the write", async () => {
+    const user = userEvent.setup();
+    const client = modelClient({ selectModelRoute: vi.fn().mockRejectedValue(new Error("connection lost")) });
+    renderControls(client);
+    await user.click(screen.getByRole("button", { name: "选择模型，当前 code" }));
+    await user.click(await screen.findByRole("menuitemradio", { name: /mock-fast/ }));
+    const refresh = await screen.findByRole("menuitem", { name: "重新读取模型" });
+    await user.click(refresh);
+    await waitFor(() => expect(screen.queryByRole("menuitem", { name: "重新读取模型" })).not.toBeInTheDocument());
+    expect(client.modelAvailability).toHaveBeenCalledTimes(2);
+    expect(client.selectModelRoute).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("button", { name: "选择模型，当前 mock-code" })).toBeInTheDocument();
+  });
 });

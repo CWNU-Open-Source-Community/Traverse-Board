@@ -75,15 +75,15 @@ function ComposerAddMenu({ planMode, targetMode, onPlanModeChange, onTargetModeC
     <button aria-expanded={open} aria-haspopup="menu" aria-label={t("添加", "Add")}
       className="composer-icon-button" onClick={() => setOpen((current) => !current)}
       title={t("添加", "Add")} type="button"><Plus aria-hidden="true" size={19} /></button>
-    {open && <div aria-label={t("添加到 Thread", "Add to Thread")} className="composer-popover composer-add-popover" role="menu">
+    {open && <div aria-label={t("添加到任务", "Add to task")} className="composer-popover composer-add-popover" role="menu">
       <span className="composer-popover-heading">{t("添加", "Add")}</span>
       <button disabled={!onOpenFiles} onClick={() => select(onOpenFiles)} role="menuitem" type="button">
         <Paperclip aria-hidden="true" size={16} /><span><strong>{t("文件和文件夹", "Files and folders")}</strong>
-          <small>{onOpenFiles ? t("浏览当前工作区", "Browse current workspace") : t("创建或选择 Thread 后可用", "Available after selecting a Thread")}</small></span>
+          <small>{onOpenFiles ? t("浏览当前工作区", "Browse current workspace") : t("先打开一个任务，再浏览它的文件", "Open a task to browse its files")}</small></span>
       </button>
       <button aria-pressed={targetMode} disabled={!onTargetModeChange}
         onClick={() => select(() => onTargetModeChange?.(!targetMode))} role="menuitem" type="button">
-        <Target aria-hidden="true" size={16} /><span><strong>{t("目标", "Goal")}</strong><small>{t("设置持续追求的 Thread 目标", "Set a persistent Thread goal")}</small></span>
+        <Target aria-hidden="true" size={16} /><span><strong>{t("目标", "Goal")}</strong><small>{t("设定任务要持续完成的目标", "Set the goal for this task")}</small></span>
         {targetMode && <Check aria-hidden="true" size={15} />}
       </button>
       <button aria-pressed={planMode} disabled={!onPlanModeChange}
@@ -94,7 +94,7 @@ function ComposerAddMenu({ planMode, targetMode, onPlanModeChange, onTargetModeC
       <span className="composer-popover-heading">{t("插件", "Plugins")}</span>
       <button disabled={!onOpenPlugins} onClick={() => select(onOpenPlugins)} role="menuitem" type="button">
         <PackageSearch aria-hidden="true" size={16} /><span><strong>{t("已安装插件", "Installed plugins")}</strong>
-          <small>{t("打开由 Go 管理的插件与 Skill", "Open Go-managed plugins and Skills")}</small></span>
+          <small>{t("选择任务需要的插件与技能", "Choose plugins and skills for your task")}</small></span>
       </button>
     </div>}
   </div>;
@@ -141,6 +141,10 @@ function ModelQuickPicker({ client, route }: { client: APIClient; route: string 
     },
   });
   const selected = query.data?.routes.find((candidate) => candidate.name === route);
+  const refresh = async () => {
+    const result = await query.refetch();
+    if (!result.isError) mutation.reset();
+  };
   const options = useMemo(() => query.data?.providers
     .filter((provider) => provider.status === "available")
     .flatMap((provider) => provider.models.map((model) => ({ provider: provider.name, model }))) ?? [],
@@ -157,7 +161,7 @@ function ModelQuickPicker({ client, route }: { client: APIClient; route: string 
     {open && <div aria-label={t("选择模型", "Select model")} className="composer-popover composer-model-popover" role="menu">
       <span className="composer-popover-heading">{t("模型", "Model")} · {route}</span>
       {query.isLoading && <small className="composer-popover-note">{t("正在读取可用模型...", "Loading available models...")}</small>}
-      {query.isError && <small className="composer-popover-error">{t("模型列表暂时不可用", "Model list unavailable")}</small>}
+      {query.isError && <small className="composer-popover-error">{t("模型列表读取失败，请重新读取。", "Model list could not be loaded. Refresh it to continue.")}</small>}
       {options.map((option) => {
         const active = selected?.provider === option.provider && selected.model === option.model;
         return <button disabled={!client.hasModelControl || mutation.isPending}
@@ -169,9 +173,11 @@ function ModelQuickPicker({ client, route }: { client: APIClient; route: string 
         </button>;
       })}
       {!query.isLoading && !query.isError && options.length === 0 &&
-        <small className="composer-popover-note">{t("当前没有可用模型", "No models are currently available")}</small>}
-      {!client.hasModelControl && <small className="composer-popover-note">{t("当前启动未开启模型控制", "Model control was not enabled at startup")}</small>}
-      {mutation.isError && <small className="composer-popover-error">{t("模型切换失败", "Model switch failed")}</small>}
+        <small className="composer-popover-note">{t("到模型设置中连接一个供应商，验证通过后在这里选择模型。", "Connect and verify a provider in model settings, then select a model here.")}</small>}
+      {!client.hasModelControl && <small className="composer-popover-note">{t("当前可查看模型。切换模型需要服务启用模型管理功能。", "You can view models here. Switching requires model management to be enabled on the service.")}</small>}
+      {mutation.isError && <small className="composer-popover-error">{t("模型切换结果需要确认，请重新读取当前状态。", "Refresh the current model to confirm the switch result.")}</small>}
+      {(query.isError || mutation.isError) && <button disabled={query.isFetching} onClick={() => void refresh()} role="menuitem" type="button">
+        {t("重新读取模型", "Refresh models")}</button>}
     </div>}
   </div>;
 }
@@ -190,10 +196,10 @@ function ReasoningPicker() {
     {open && <div aria-label={t("推理强度", "Reasoning effort")} className="composer-popover composer-reasoning-popover" role="menu">
       <span className="composer-popover-heading">{t("推理强度", "Reasoning effort")}</span>
       <button aria-checked="true" role="menuitemradio" type="button"><span><strong>{t("标准", "Standard")}</strong>
-        <small>{t("当前 Provider 合同", "Current Provider contract")}</small></span><Check aria-hidden="true" size={15} /></button>
-      <button disabled role="menuitemradio" title="Provider 协议尚未声明 reasoning_effort" type="button">
+        <small>{t("使用供应商默认推理设置", "Use the provider's default reasoning settings")}</small></span><Check aria-hidden="true" size={15} /></button>
+      <button disabled role="menuitemradio" title={t("当前供应商使用默认推理强度", "The current provider uses its default reasoning effort")} type="button">
         <span><strong>{t("高", "High")}</strong><small>{t("待 Provider 适配", "Provider support pending")}</small></span></button>
-      <button disabled role="menuitemradio" title="Provider 协议尚未声明 reasoning_effort" type="button">
+      <button disabled role="menuitemradio" title={t("当前供应商使用默认推理强度", "The current provider uses its default reasoning effort")} type="button">
         <span><strong>{t("最高", "Maximum")}</strong><small>{t("待 Provider 适配", "Provider support pending")}</small></span></button>
     </div>}
   </div>;

@@ -5,6 +5,22 @@ Baseline: main `71ede3053b1d71f4c6e4f7053b355ebe301c1a1b`, checked on
 the first recovery/connection fixes; #286 contributes scoped journey fixes.
 Passing those slices does not establish complete product or platform acceptance.
 
+## Product guidance revision in progress — 2026-10-10
+
+The user's latest direction treats language and information architecture as part
+of the rebuild. Everyday screens should lead with the current state, the action
+available to the user and the next step. Replace defensive explanations and
+chains of negations with concise guidance tied to real controls. Keep decision
+information, such as the effect of deleting a credential or an unresolved write,
+at the relevant action; put implementation details in expandable diagnostics.
+
+Three parallel lanes cover task/recovery flows, connections/extensions and
+review/diagnostic tools. Integration owns the settings structure and consistent
+language. Existing identity, approval, recovery and capability checks remain the
+behavioral acceptance criteria. Chinese and existing English translations are
+updated together. This revision is under implementation and awaits integrated
+tests and a real-browser check.
+
 ## Current parallel implementation
 
 All implementation worktrees start from the same baseline. Commits use Qiyuanqiii.

@@ -13,16 +13,20 @@ afterEach(() => {
 
 it("routes connection and environment tasks directly without inspecting or changing a resource", async () => {
   const onSelectSection = vi.fn();
+  const onOpenTask = vi.fn();
   const get = vi.fn(); const postControl = vi.fn();
   render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
     <V2Settings client={{ get, postControl } as unknown as APIClient} section="connections"
-    threadID="" workspaces={[]} onSelectSection={onSelectSection} onOpenInspector={vi.fn()} /></QueryClientProvider>);
+    threadID="" workspaces={[]} onSelectSection={onSelectSection} onOpenInspector={vi.fn()}
+    onOpenTask={onOpenTask} /></QueryClientProvider>);
   const nav = screen.getByRole("navigation", { name: "连接与环境设置" });
   const user = userEvent.setup();
-  for (const label of ["模型连接", "扩展与代码智能", "任务权限与执行环境", "应用连接与诊断"]) {
+  for (const label of ["模型连接", "任务预算与项目配置", "扩展与代码智能", "任务权限与执行环境", "应用连接与诊断"]) {
     await user.click(within(nav).getByRole("button", { name: new RegExp(label) }));
   }
-  expect(onSelectSection.mock.calls).toEqual([["models"], ["extensions"], ["permissions"], ["about"]]);
+  expect(onSelectSection.mock.calls).toEqual([["models"], ["task-configuration"], ["extensions"], ["permissions"], ["about"]]);
+  await user.click(screen.getByRole("button", { name: "开始任务" }));
+  expect(onOpenTask).toHaveBeenCalledExactlyOnceWith();
   expect(get).not.toHaveBeenCalled(); expect(postControl).not.toHaveBeenCalled();
   expect(within(nav).getByRole("button", { name: /GitHub 连接与审阅/ })).toBeDisabled();
 });
@@ -38,12 +42,16 @@ it("opens GitHub tools for the explicit historical Run and never substitutes an 
     threadID="thread-current" sourceRunID={sourceRunID} workspaces={[]} onSelectSection={vi.fn()}
     onOpenInspector={vi.fn()} onOpenGithubReview={onOpenGithubReview} /></QueryClientProvider>;
   const view = render(draw("run-history"));
-  const entry = await screen.findByRole("button", { name: /GitHub 连接与审阅.*run-history/u });
+  const entry = screen.getByRole("button", { name: /GitHub 连接与审阅/u });
+  await waitFor(() => expect(entry).toBeEnabled());
+  expect(screen.getByText("run-history")).not.toBeVisible();
+  await userEvent.click(screen.getByText("查看任务记录"));
+  expect(screen.getByText("run-history")).toBeVisible();
   await userEvent.click(entry);
   expect(onOpenGithubReview).toHaveBeenCalledExactlyOnceWith("run-history");
   view.rerender(draw("run-missing"));
   expect(screen.getByRole("button", { name: /GitHub 连接与审阅/ })).toBeDisabled();
-  expect(screen.getByText(/来源执行尚未找到/)).toBeInTheDocument();
+  expect(screen.getByText(/选择一条执行记录后进入 GitHub 审阅/)).toBeInTheDocument();
   expect(onOpenGithubReview).toHaveBeenCalledTimes(1);
 });
 
@@ -195,7 +203,7 @@ describe("V2 general permission summary", () => {
     const defaultPermissions = screen.getByRole("button", { name: "管理当前任务权限" });
     expect(defaultPermissions).not.toHaveAttribute("aria-pressed");
     expect(screen.queryByRole("button", { name: "管理完整访问权限" })).not.toBeInTheDocument();
-    expect(screen.getByText(/完整双语界面尚未提供/)).toBeInTheDocument();
+    expect(screen.getByText(/语言选项用于已提供双语内容的高级面板/)).toBeInTheDocument();
     const licenseButton = screen.getByRole("button", { name: "查看许可" });
     await user.click(licenseButton);
     const dialog = screen.getByRole("dialog", { name: "HarmonyOS Sans Fonts 许可" });
@@ -248,12 +256,11 @@ describe("V2 model provider catalog", () => {
 
     const copilot = screen.getByRole("button", { name: /^GitHub Copilot，/u });
     await user.click(copilot);
-    const dialog = screen.getByRole("dialog", { name: "GitHub Copilot 需要账户连接" });
-    expect(within(dialog).getByText(/不是通用 API Key 接口/u)).toBeInTheDocument();
-    expect(within(dialog).getByText(/尚未完成 Copilot SDK 登录/u)).toBeInTheDocument();
+    const dialog = screen.getByRole("dialog", { name: "GitHub Copilot 账户登录" });
+    expect(within(dialog).getByText(/账户登录待接入/u)).toBeInTheDocument();
     expect(screen.queryByLabelText("API Key")).not.toBeInTheDocument();
-    await user.click(within(dialog).getByRole("button", { name: "知道了" }));
-    expect(screen.queryByRole("dialog", { name: "GitHub Copilot 需要账户连接" }))
+    await user.click(within(dialog).getByRole("button", { name: "返回模型列表" }));
+    expect(screen.queryByRole("dialog", { name: "GitHub Copilot 账户登录" }))
       .not.toBeInTheDocument();
     expect(copilot).toHaveFocus();
   });

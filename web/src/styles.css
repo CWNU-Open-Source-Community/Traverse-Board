@@ -439,6 +439,7 @@ td code { font-size: 11px; }
 .connection-heading { margin: 42px 0 23px; }
 .connection-heading h1 { margin: 0 0 6px; font-size: 22px; }
 .connection-heading p { margin: 0; color: var(--muted); font-size: 12px; }
+.connection-token-help { color: var(--muted); font-size: 12px; line-height: 1.6; margin: 7px 0 16px; }
 .field-label { display: block; margin-bottom: 7px; color: #455463; font-size: 12px; font-weight: 600; }
 .token-row { display: grid; grid-template-columns: minmax(0, 1fr) 42px; gap: 8px; }
 .token-row input { min-width: 0; height: 42px; padding: 0 11px; border: 1px solid var(--border-strong); border-radius: 5px; }
