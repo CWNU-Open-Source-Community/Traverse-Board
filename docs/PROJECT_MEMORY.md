@@ -1,5 +1,12 @@
 # Prayu Project Memory
 
+> 2026-10-10 neutral glass follow-up: after #294 merged, the user requested removal
+> of purple, yellow/orange and other independent decorative palettes. Shared
+> light/dark/glass tokens now use neutral high-opacity surfaces, white filled
+> primary controls and dark foregrounds. V2 and legacy components share these
+> roles; danger, code diffs and terminal ANSI output retain their content meaning.
+> See [palette inventory and conventions](branding/neutral-glass-palette.md).
+
 > 2026-10-10 product guidance revision: the frontend rebuild includes user-facing
 > language and information hierarchy. The connection hub groups task preparation,
 > tools/collaboration and runtime settings; MCP/Plugin/LSP show actual setup stages.

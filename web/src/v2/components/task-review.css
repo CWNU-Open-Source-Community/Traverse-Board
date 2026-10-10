@@ -1,5 +1,5 @@
 
-.v2-review-drawer.v2-inspector-drawer { width: min(1080px, 100vw); color: var(--v2-ink); background: var(--prayu-panel-strong, #fff); min-height: 0; box-sizing: border-box; }
+.v2-review-drawer.v2-inspector-drawer { width: min(1080px, 100vw); color: var(--v2-ink); background: var(--prayu-surface-solid); min-height: 0; box-sizing: border-box; }
 .v2-review-drawer > header { min-height: 68px; flex-shrink: 0; }
 .v2-review-drawer > header .v2-review-title { display: grid; gap: 3px; }
 .v2-review-title > strong { font-size: 16px; font-weight: 600; }

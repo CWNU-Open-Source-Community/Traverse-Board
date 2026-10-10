@@ -1,5 +1,5 @@
 .v2-file-attachments { display: flex; flex-wrap: wrap; gap: 8px; padding: 12px 16px 0; min-width: 0; }
-.v2-file-attachment { box-sizing: border-box; display: flex; align-items: center; gap: 8px; padding: 10px 12px; max-width: 100%; min-width: 0; width: 350px; border: 1px solid var(--v2-border, #d8dce2); border-radius: 12px; background: var(--v2-control); color: inherit; }
+.v2-file-attachment { box-sizing: border-box; display: flex; align-items: center; gap: 8px; padding: 10px 12px; max-width: 100%; min-width: 0; width: 350px; border: 1px solid var(--v2-border); border-radius: 12px; background: var(--v2-control); color: inherit; }
 .v2-file-attachment > svg { flex: 0 0 auto; opacity: .7; }
 .v2-file-attachment-info { flex: 1; min-width: 0; display: grid; gap: 3px; }
 .v2-file-attachment-info strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; font-weight: 600; }
@@ -10,6 +10,6 @@
 .v2-attachment-pending { padding: 8px 12px; font-size: 13px; }
 .v2-attachment-pending > div { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 4px 0; }
 .v2-attachment-pending span { min-width: 0; overflow-wrap: anywhere; }
-.v2-attachment-pending button { color: inherit; background: transparent; border: 1px solid var(--v2-border, #d8dce2); border-radius: 8px; padding: 4px 8px; cursor: pointer; font: inherit; }
+.v2-attachment-pending button { color: inherit; background: transparent; border: 1px solid var(--v2-border); border-radius: 8px; padding: 4px 8px; cursor: pointer; font: inherit; }
 .v2-attachment-pending button:disabled { cursor: default; opacity: .5; }
 @media (max-width: 520px) { .v2-file-attachments { padding: 10px 10px 0; } .v2-file-attachment { width: 100%; } }

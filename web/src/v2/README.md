@@ -37,9 +37,9 @@
 - 字体：**全部英文（UI 与代码）使用 JetBrains Mono Variable**；中文使用内置 HarmonyOS Sans SC（四字重 400/500/600/700）。字体栈 `"JetBrains Mono Variable", "JetBrains Mono", "HarmonyOS Sans SC", "Microsoft YaHei UI", sans-serif`。四个 TTF 均从华为官方归档逐字节复制，不做转码或子集化；归档、文件哈希、许可文本与产品内使用声明必须一起提交。
 - 内容最大宽度 48rem；toolbar padding 16px；Composer overhang 24px；消息间隔 16px，组内 4px。
 - 圆角基值 2/4/6/8/10/12/16/20/24px；支持时采用 `superellipse(1.5)`。
-- 模糊层级 4/8/12/16/24/40/64px。项目材质继续使用 titlebar 28px、sidebar/panel 34px、glass 46px 的高斯模糊与 145–185% saturation。
+- 模糊层级 4/8/12/16/24/40/64px。项目材质继续使用 titlebar 28px、sidebar/panel 34px、glass 46px 的高斯模糊；2026-10-10 用户要求收敛为中性白色填充，背景使用原始饱和度。
 - prominent elevation：0.5px hairline、`0 3px 7.5px #0000000a`、`0 0 20px #0000000d`；Composer 另叠加项目液态玻璃的高光和柔和阴影。
-- light 主表面 `#FFFFFF`，主文字 `#1B1C1F`，边框 `#EDEDED`；选中侧栏约 `#DDEBEC`；发送按钮 `#1B1C1F`。
+- light 主表面使用白色与浅灰，dark/glass 使用中性深灰。主按钮使用不透明白底与深色文字，选中状态、焦点、普通提示复用共享中性色。颜色盘点与最新材质规则见 [中性玻璃规范](../../../docs/branding/neutral-glass-palette.md)。
 - 原生 Windows 层保留 Wails 透明窗体/Acrylic；React 层使用半透明 surface、Gaussian blur、hairline、双层阴影。两层材质缺一不可。
 
 ## 架构判断（GPT Pro 意见的实施版）
@@ -157,7 +157,7 @@ Inspector（旧 Run/Session/Event 页面，用户主动进入）
 
 ## 自定义模型供应商与 Harness
 
-- 模型页使用两列小卡片，第一张固定为齿轮图标的“自定义配置”，其余卡片可见内容严格只有供应商名称与预设模型名；卡片左侧使用白色单色品牌图标和轻量玻璃材质。窄窗改为单列，并覆盖 reduced motion、reduced transparency、high contrast 与 Windows forced colors。
+- 模型页使用两列小卡片，第一张固定为齿轮图标的“自定义配置”，其余卡片可见内容严格只有供应商名称与预设模型名；卡片左侧使用白色填充图标槽与深色单色品牌图形。窄窗改为单列，并覆盖 reduced motion、reduced transparency、high contrast 与 Windows forced colors。
 - 预设依次提供 Claude、OpenAI、DeepSeek、Gemini、Grok、MiniMax、MiMo、Kimi、Kimi for Coding、OpenCode Go 和 GitHub Copilot。API 预设只提供可编辑的官方端点、协议、模型和搜索策略初值，不是锁死模板；进入编辑器后用户仍可修改模型列表、请求地址与高级 JSON。
 - Kimi 开放平台与 Kimi for Coding 必须使用独立卡片、供应商 ID、域名、Key 和配额，不能互换。OpenCode Go 明确标为订阅网关，不冒充模型厂商。GitHub Copilot 是 GitHub/Copilot 账号与订阅席位连接器，不得把 PAT、Base URL 或普通 API Key 表单伪装成 Copilot 推理接口；在 SDK 登录链完成前应如实显示“尚未接通”。
 - 模型模块中的“自定义配置”允许用户持久新增供应商；“集成”下不再保留重复的“智能伙伴”分类。供应商定义和 API 凭证必须分离：名称、协议、端点、模型映射和能力策略写入 SQLite；API Key 只进入操作系统凭证管理器，任何 GET、事件、日志或导出均不得回传明文。

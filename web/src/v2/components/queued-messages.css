@@ -5,10 +5,10 @@
   width: 100%;
   max-width: var(--v2-composer-width, 738px);
   min-width: 0;
-  border: 1px solid color-mix(in srgb, var(--v2-border-strong) 66%, rgb(255 255 255 / 38%));
+  border: 1px solid var(--v2-border-strong);
   border-radius: 22px;
-  backdrop-filter: blur(32px) saturate(170%);
-  background: color-mix(in srgb, var(--v2-floating-surface) 92%, transparent);
+  backdrop-filter: blur(32px) saturate(100%);
+  background: var(--prayu-glass-fill-strong);
   color: var(--v2-ink);
   font-size: 13px;
   line-height: 1.5;
@@ -50,8 +50,8 @@
 .v2-queue-thumbnail .v2-image-caption { display: none; }
 .v2-queue-thumbnail .v2-image-retry { position: absolute; inset: 0; font-size: 0; padding: 0; background: var(--v2-control); }
 .v2-queue-thumbnail .v2-image-retry::after { content: "↻"; font-size: 16px; }
-.v2-queue-details-overlay { position: fixed; inset: 0; z-index: 1200; display: grid; place-items: center; padding: 24px; background: rgb(18 23 30 / 42%); }
-.v2-queue-details-dialog { box-sizing: border-box; display: flex; flex-direction: column; width: min(720px, 100%); max-height: min(720px, calc(100dvh - 48px)); min-width: 0; border: 1px solid var(--v2-border-strong); border-radius: 20px; background: var(--prayu-panel-strong, #fff); background: rgb(from var(--prayu-panel-strong, #fff) r g b / 1); color: var(--v2-ink); box-shadow: 0 20px 70px #0004; font: 13px/1.6 var(--prayu-font-ui, system-ui); overflow: hidden; }
+.v2-queue-details-overlay { position: fixed; inset: 0; z-index: 1200; display: grid; place-items: center; padding: 24px; background: color-mix(in srgb, var(--prayu-primary-fg) 42%, transparent); }
+.v2-queue-details-dialog { box-sizing: border-box; display: flex; flex-direction: column; width: min(720px, 100%); max-height: min(720px, calc(100dvh - 48px)); min-width: 0; border: 1px solid var(--v2-border-strong); border-radius: 20px; background: var(--prayu-surface-solid); color: var(--v2-ink); box-shadow: 0 20px 70px var(--prayu-glass-shadow); font: 13px/1.6 var(--prayu-font-ui, system-ui); overflow: hidden; }
 .v2-queue-details-dialog > header { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 14px 18px; border-bottom: 1px solid var(--v2-border); flex-shrink: 0; }
 .v2-queue-details-dialog h2 { margin: 0; font-size: 14px; font-weight: 600; }
 .v2-queue-details-dialog header small { color: var(--v2-muted); font-size: 11px; }
@@ -66,7 +66,7 @@
 .v2-promoted-message-history > summary:hover { background: var(--v2-control-hover); }
 .v2-promoted-message-history > summary:focus-visible { outline: 2px solid var(--v2-accent); outline-offset: 2px; }
 .v2-promoted-message-content { margin-top: 6px; padding: 8px 11px; border: 1px solid var(--v2-border); border-radius: 12px; color: var(--v2-ink); background: var(--v2-control); font-size: 13px; line-height: 1.5; white-space: pre-wrap; overflow-wrap: anywhere; }
-.v2-queue-menu { position: fixed; z-index: 100; width: 196px; max-width: calc(100vw - 16px); max-height: calc(100dvh - 16px); overflow-y: auto; overscroll-behavior: contain; padding: 6px; border: 1px solid var(--v2-border-strong); border-radius: 13px; background: var(--prayu-panel-strong, #fff); background: rgb(from var(--prayu-panel-strong, #fff) r g b / 1); color: var(--v2-ink); font: 13px/1.5 var(--prayu-font-ui, system-ui); box-shadow: 0 8px 28px #0002; }
+.v2-queue-menu { position: fixed; z-index: 100; width: 196px; max-width: calc(100vw - 16px); max-height: calc(100dvh - 16px); overflow-y: auto; overscroll-behavior: contain; padding: 6px; border: 1px solid var(--v2-border-strong); border-radius: 13px; background: var(--prayu-surface-solid); color: var(--v2-ink); font: 13px/1.5 var(--prayu-font-ui, system-ui); box-shadow: 0 8px 28px var(--prayu-glass-shadow); }
 .v2-queue-menu button { display: flex; align-items: center; gap: 9px; width: 100%; min-height: 34px; padding: 6px 9px; text-align: left; }
 .v2-queue-menu svg { flex-shrink: 0; }
 .v2-queue-editor, .v2-queued-message-pending { margin-top: 6px; padding: 10px 6px 6px; border-top: 1px solid var(--v2-border); overflow-wrap: anywhere; }
@@ -83,7 +83,7 @@
   .v2-queue-details-dialog > header, .v2-queue-details-body { padding-inline: 12px; }
 }
 @media (prefers-reduced-transparency: reduce) {
-  .v2-queued-messages { backdrop-filter: none; background: var(--prayu-panel-strong, #fff); }
+  .v2-queued-messages { backdrop-filter: none; background: var(--prayu-surface-solid); }
 }
 @media (forced-colors: active) {
   .v2-queued-messages, .v2-queue-details-dialog { background: Canvas; border-color: CanvasText; color: CanvasText; }

@@ -15,8 +15,6 @@ export type V2ModelProviderPreset = {
   setup?:
     | { kind: "api_key"; configured: boolean }
     | { kind: "account"; connected: boolean; accountName?: string };
-  /** Static palette hint. CSP-safe product CSS maps the preset ID to the actual icon-well tint. */
-  accent?: string;
 };
 
 export type V2ModelSettingsProps = {
