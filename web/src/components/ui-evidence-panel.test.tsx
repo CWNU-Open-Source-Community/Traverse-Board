@@ -124,10 +124,10 @@ describe("UIEvidencePanel", () => {
       uiEvidence } as unknown as APIClient;
     const user = userEvent.setup();
     renderPanel(client);
-    await screen.findByText("还没有浏览器验证。展开下方启动表单，载入模板并核对步骤后开始。");
+    await screen.findByText("还没有浏览器验证。先按上方「配置浏览器验证」完成连接与启动配置。");
     await user.click(screen.getByRole("button", { name: "刷新 UI 证据" }));
     await screen.findByText(/历史证据状态待确认/);
-    expect(screen.queryByText("还没有浏览器验证。展开下方启动表单，载入模板并核对步骤后开始。")).not.toBeInTheDocument();
+    expect(screen.queryByText(/还没有浏览器验证/)).not.toBeInTheDocument();
   });
 
   it("requires exact-manifest review before starting", async () => {
@@ -140,6 +140,7 @@ describe("UIEvidencePanel", () => {
     const user = userEvent.setup();
     renderPanel(client);
 
+    await screen.findByText("还没有浏览器验证。展开下方启动表单，载入模板并核对步骤后开始。");
     await user.click(screen.getByText("准备并启动浏览器验证"));
     await user.click(screen.getByRole("button", { name: "载入本仓库模板" }));
     const startButton = screen.getByRole("button", { name: "启动真实浏览器验证" });
@@ -176,6 +177,10 @@ describe("UIEvidencePanel", () => {
     expect(container.textContent).toContain("--enable-run-execution");
     expect(container.textContent).toContain("--enable-browser-cdp-control");
     expect(container.textContent).not.toContain("当前连接为只读");
+    await screen.findByText("还没有浏览器验证。先按上方「配置浏览器验证」完成连接与启动配置。");
+    expect(screen.queryByText("还没有浏览器验证。展开下方启动表单，载入模板并核对步骤后开始。")).not.toBeInTheDocument();
+    await user.click(screen.getByText("配置浏览器验证"));
+    expect(screen.getByText(/在 Windows Desktop 连接控制凭证/)).toBeVisible();
     await user.click(screen.getByText("准备并启动浏览器验证"));
     expect(screen.getByRole("button", { name: "载入本仓库模板" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "启动真实浏览器验证" })).toBeDisabled();

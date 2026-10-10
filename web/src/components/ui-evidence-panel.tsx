@@ -226,7 +226,9 @@ export function UIEvidencePanel({ client, runID }: {
         "Historical evidence needs confirmation. Check the selected execution, or read it through a Windows Desktop connection that supports UI evidence.",
       )}</p>
       : <ErrorState error={attempts.error} />)}
-    {attempts.isSuccess && attempts.data.length === 0 && <EmptyState>{t("还没有浏览器验证。展开下方启动表单，载入模板并核对步骤后开始。", "No browser verification yet. Expand the launch form below, load a template, and review its steps to begin.")}</EmptyState>}
+    {attempts.isSuccess && attempts.data.length === 0 && <EmptyState>{client.hasUIEvidence
+      ? t("还没有浏览器验证。展开下方启动表单，载入模板并核对步骤后开始。", "No browser verification yet. Expand the launch form below, load a template, and review its steps to begin.")
+      : t("还没有浏览器验证。先按上方「配置浏览器验证」完成连接与启动配置。", "No browser verification yet. Complete connection and startup settings in Configure browser verification above.")}</EmptyState>}
 
     {attempts.data && attempts.data.length > 0 && <div className="ui-evidence-layout">
       <section className="ui-evidence-attempts" aria-label={t("UI 证据 Attempts", "UI evidence attempts")}>

@@ -20,6 +20,13 @@ type ApplyAttempt = { runID: string; editID: string; path: string; operationKey:
   state: "pending" | "unknown"; error?: string };
 type ApplyAttempts = Record<string, ApplyAttempt>;
 const applyAttemptsKey = (runID: string) => ["run", runID, "file-apply-attempts"] as const;
+const inverseGuidance: Record<FileEditPreviewView["status"], [string, string]> = {
+  proposed: ["这是待审的撤销差异。核对后批准，再应用到文件。", "This revert diff is awaiting review. Review and approve it, then apply it to the file."],
+  approved: ["撤销提案已批准，等待应用后写入文件。", "The revert proposal is approved and awaits application to the file."],
+  applied: ["撤销修改已应用。请结合当前文件核对结果。", "The revert changes were applied. Inspect the current file to confirm the result."],
+  denied: ["撤销提案已拒绝，可查看这份记录。", "The revert proposal was denied. Its record remains available for review."],
+  failed: ["撤销应用失败，文件可能已部分改变。请核对当前文件和操作结果。", "The revert application failed and the file may have partially changed. Inspect the current file and operation result."],
+};
 const metadataOnlyDiff = (edit: FileEditPreviewView, diff: ParsedUnifiedDiff) =>
   (edit.operation === "delete" || edit.operation === "move") && !diff.lines.some((line) => line.kind === "hunk");
 export type FileEditReviewTarget = { runID: string; editID: string; workspaceID: string };
@@ -366,8 +373,7 @@ function FileReviewDrawer({ applyEnabled, applying, client, diff, edit, onApply,
       <time dateTime={edit.updated_at}>{formatDate(edit.updated_at)}</time>
     </div>
     <UnifiedDiffView diff={diff} />
-    {inverse && <p role="status">{t("这是待应用的撤销差异。核对后批准，再应用到文件。",
-      "This revert diff is awaiting application. Review and approve it, then apply it to the file.")}</p>}
+    {inverse && <p role={edit.status === "failed" ? "alert" : "status"}>{t(...inverseGuidance[edit.status])}</p>}
     {edit.status === "applied" && <p>{edit.operation === "move" || edit.secrets_redacted
       ? t("此记录涉及移动或脱敏内容，暂不支持生成单文件撤销提案。", "Revert proposals are unavailable for moves or redacted content.")
       : viewExistingRevert ? t("撤销提案已生成，打开后可核对差异并完成审批。", "A revert proposal is ready. Open it to review the diff and approval steps.")

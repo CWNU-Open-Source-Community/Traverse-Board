@@ -212,21 +212,32 @@ describe("FileEditPanel", () => {
     expect(screen.queryByRole("complementary")).not.toBeInTheDocument();
   });
 
-  it("opens the inverse diff without approving or applying and reuses the known proposal until it is denied", async () => {
+  it("opens the inverse diff for review and follows denial, approval, and application states", async () => {
     const source = editFixture("source", "applied");
     let inverse = { ...editFixture("inverse", "proposed"), diff: "--- README.md\n+++ README.md\n-new\n+old" };
     let items = [source];
     const createFileEditRevertProposal = vi.fn(async () => {
+      inverse = { ...inverse, status: "proposed", allowed_actions: ["approve_intent", "deny"], apply_enabled: false };
       items = [source, inverse];
       return { edit: inverse, file_written: false };
     });
-    const reviewFileEdit = vi.fn(async () => {
-      inverse = { ...inverse, status: "denied", allowed_actions: [] };
+    const reviewFileEdit = vi.fn(async (_runID: string, _editID: string, body: { action: string }) => {
+      inverse = { ...inverse, status: body.action === "approve_intent" ? "approved" : "denied",
+        allowed_actions: [], apply_enabled: body.action === "approve_intent" };
       items = [source, inverse];
       return { edit: inverse };
     });
+    const applyFileEdit = vi.fn(async () => {
+      inverse = { ...inverse, status: "applied", apply_enabled: false };
+      items = [source, inverse];
+      return { edit: inverse, status: "applied", receipt: {
+        protocol_version: "operation_receipt.v1", kind: "file_edit_apply", outcome: "applied",
+        durable: true, replayed: false, retry_safe: true, cleanup_state: "complete",
+        retry_strategy: "same_operation_key", recovery_action: "none",
+      } };
+    });
     const client = { hasFileEditReview: true, hasFileEditApply: true, createFileEditRevertProposal, reviewFileEdit,
-      applyFileEdit: vi.fn(), fileEdit: vi.fn(async () => inverse),
+      applyFileEdit, fileEdit: vi.fn(async () => inverse),
       fileEditQueue: vi.fn(async () => ({ items, apply_enabled: true })),
       fileEditChangeSet: vi.fn().mockResolvedValue(changeSetFor(source)) } as unknown as APIClient;
     const user = userEvent.setup();
@@ -234,7 +245,7 @@ describe("FileEditPanel", () => {
     renderPanel(client, "running", undefined, { onRequestRevert });
     await user.click(await screen.findByRole("button", { name: /README.md/ }));
     await user.click(screen.getByRole("button", { name: "Preview revert of this edit" }));
-    expect(await screen.findByText(/This revert diff is awaiting application/)).toBeInTheDocument();
+    expect(await screen.findByText(/This revert diff is awaiting review/)).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Approve intent README.md" })).toBeInTheDocument();
     expect(reviewFileEdit).not.toHaveBeenCalled();
     expect(client.applyFileEdit).not.toHaveBeenCalled();
@@ -245,10 +256,23 @@ describe("FileEditPanel", () => {
     expect(createFileEditRevertProposal).toHaveBeenCalledTimes(1);
     await user.click(screen.getByRole("button", { name: "Deny README.md" }));
     await waitFor(() => expect(reviewFileEdit).toHaveBeenCalledTimes(1));
+    expect(await screen.findByText(/The revert proposal was denied/)).toBeInTheDocument();
+    expect(screen.queryByText(/This revert diff is awaiting review/)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Approve intent README.md" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Apply README.md" })).not.toBeInTheDocument();
     await user.click(screen.getByRole("button", { name: /README.md.*applied/ }));
     await user.click(screen.getByRole("button", { name: "Preview revert of this edit" }));
     await waitFor(() => expect(createFileEditRevertProposal).toHaveBeenCalledTimes(2));
     expect(createFileEditRevertProposal.mock.calls[1]).not.toEqual(createFileEditRevertProposal.mock.calls[0]);
+    await user.click(await screen.findByRole("button", { name: "Approve intent README.md" }));
+    expect(await screen.findByText(/The revert proposal is approved/)).toBeInTheDocument();
+    expect(applyFileEdit).not.toHaveBeenCalled();
+    await user.click(await screen.findByRole("button", { name: "Apply README.md" }));
+    expect(await screen.findByText(/The revert changes were applied/)).toBeInTheDocument();
+    expect(screen.queryByText(/awaiting review|awaits application/)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Approve intent README.md" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Apply README.md" })).not.toBeInTheDocument();
+    expect(applyFileEdit).toHaveBeenCalledTimes(1);
   });
 
   it("retains an unknown inverse request across unmount and confirms it even after the task ends", async () => {
@@ -298,7 +322,7 @@ describe("FileEditPanel", () => {
     await user.click(screen.getByRole("button", { name: /other.txt/ }));
     await act(async () => resolve({ edit: inverse, file_written: false }));
     expect(screen.getByRole("complementary", { name: "Review other.txt" })).toBeInTheDocument();
-    expect(screen.queryByText(/This revert diff is awaiting application/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/This revert diff is awaiting review/)).not.toBeInTheDocument();
   });
 
   it("reads the selected deletion's exact content without letting a late detail replace another selection", async () => {
