@@ -61,7 +61,7 @@ describe("TaskConfiguration presentation fixtures", () => {
     render(<TaskConfiguration client={client as unknown as APIClient} workspaceID="workspace-1" onValidityChange={validity} />);
     expect(validity).not.toHaveBeenCalled();
     await screen.findByText("项目配置已拒绝，无法创建任务。");
-    expect(validity).toHaveBeenLastCalledWith(false);
+    await waitFor(() => expect(validity).toHaveBeenLastCalledWith(false));
     validity.mockClear();
     client.previewTaskConfiguration.mockRejectedValueOnce(new Error("transport unavailable"));
     fireEvent.click(screen.getByRole("button", { name: "重新读取" }));
