@@ -41,7 +41,7 @@ Drydock 和审批机制。Docker 安装、登录、镜像构建与下载由用�
 
 官方 `sbx` 是独立微虚拟机工具，安装要求见
 [Docker Sandboxes 安装文档](https://docs.docker.com/ai/sandboxes/install/)。
-本适配器统一使用 `sbx --app-name traverse-command-runtime`。
+本适配器统一使用 `sbx --app-name traverse-runtime`（16 个字符，符合 sbx 的 20 字符上限）。
 Docker 的[第一方测试脚本](https://github.com/docker/sbx-kits-contrib/blob/main/scripts/test-kit-e2e.sh)
 说明 `--app-name` 隔离 daemon、sandbox、策略、缓存和凭据存储。
 因此该环境需要单独登录和准备模板，默认 sbx 环境中的登录及缓存不作为本适配器的就绪依据。
@@ -49,7 +49,7 @@ Docker 的[第一方测试脚本](https://github.com/docker/sbx-kits-contrib/blo
 
 当前生产探测返回 `mcp_isolation_unverified`。官方文档说明，每个 sandbox
 会启动 MCP 网关；动态模式可加载宿主机注册的服务，本地 stdio 服务在宿主机执行。
-现有公开合同没有证明本适配器能彻底封闭此通道。
+官方静态模式支持固定服务集合；本适配器还需验证自有零工具服务能否封闭此通道。
 参见 [MCP gateway](https://docs.docker.com/ai/sandboxes/mcp-gateway/)。
 清空进程环境、设置网络拒绝规则、读取 SSH 转发配置，都不足以独立证明
 `credentials=none`。SSH 与 MCP 的配置还涉及 daemon 缓存，需验证实际生效状态，
@@ -57,7 +57,8 @@ Docker 的[第一方测试脚本](https://github.com/docker/sbx-kits-contrib/blo
 
 后续启用生产执行需要补齐：
 
-- 官方支持的 MCP 关闭方式，或可验证且固定的空服务权限边界；同时覆盖本地与托管网关。
+- 验证固定零工具 MCP 服务与强制本地网关组合，覆盖静态集合外的服务发现、
+  调用与配置，以及网关自带工具的权限。
 - 真实 sbx 环境中的网络、SSH、凭据、主机文件和命令退出验收；文件同步还需
   覆盖工作目录内指向宿主外部的 symlink / reparse，以及 `.git` 写入拒绝。
 - 本地 `stop` / `rm` 的不可变身份选择或等价条件式删除合同。当前调用前后的
@@ -67,10 +68,15 @@ Docker 的[第一方测试脚本](https://github.com/docker/sbx-kits-contrib/blo
 创建结果不明确且不可变 ID 尚未保存时，记录保持待处理；恢复只处理身份可核对的资源。
 清理未确认时，Command Runtime 保留 `stopping` 与不确定结果，确认清理后才写入终态。
 sbx 的可执行身份摘要表示「固定模板与来宾路径绑定」，界面与输出会标明该含义。
+创建前还会扫描工作目录，拒绝多链接文件、符号链接、Windows reparse point
+和特殊文件。扫描支持取消并限制目录项数量；检查范围是派发前已有的工作目录。
+宿主随后修改目录的行为仍需纳入实际挂载验收。
 
 ## 验证范围
 
 设置保存、权限分离、原请求恢复、后端显式选择、桌面固定重启、SQLite v188
 升级与旧数据保留均有回归测试。sbx 生命周期测试使用受控 CLI transport，
-界面截图使用标明模拟数据的真实 React 组件。当前开发机未安装 sbx，
-本次没有把这些测试视作真实微虚拟机执行验收。
+界面截图使用标明模拟数据的真实 React 组件。开发机现已安装官方 sbx 0.47.0，
+CLI 和虚拟化检测通过；专用 daemon 的重启被残留通信文件阻断，实际微虚拟机
+执行仍待验收。本机 Docker Desktop 通信目录修复后，Linux Engine 29.6.2
+已恢复响应。各阶段结果见[验收记录](acceptance/2026-10-10-sandbox-selection.md)。

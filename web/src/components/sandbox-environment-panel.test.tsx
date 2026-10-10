@@ -34,8 +34,8 @@ it("shows three observed backends, defaults to Local and saves without claiming 
   expect(within(picker).getByRole("button", { name: /^Local/u })).toHaveAttribute("aria-pressed", "true");
   expect(within(picker).getAllByRole("button")).toHaveLength(3);
   expect(screen.getByRole("button", { name: "保存执行环境设置" })).toBeDisabled();
-  expect(screen.getByText(/专用 traverse-command-runtime 命名空间/u)).toHaveTextContent("MCP 隔离仍需验证");
-  expect(screen.getByText(/专用 traverse-command-runtime 命名空间/u)).toHaveTextContent("通过后再启用和重启");
+  expect(screen.getByText(/专用 traverse-runtime 命名空间/u)).toHaveTextContent("MCP 隔离仍需验证");
+  expect(screen.getByText(/专用 traverse-runtime 命名空间/u)).toHaveTextContent("通过后再启用和重启");
   await user.click(screen.getByRole("checkbox", { name: "启用 Docker Engine" }));
   await user.type(screen.getByLabelText("Docker 固定镜像摘要"), `sha256:${"a".repeat(64)}`);
   await user.click(within(picker).getByRole("button", { name: /^Docker Engine/u }));

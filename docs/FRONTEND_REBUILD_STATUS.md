@@ -2,6 +2,15 @@
 
 ## Sandbox environment selection — 2026-10-10
 
+Remote CI at `39349b3b` is green across all 22 jobs, including Windows operator
+pagination and 1,920 frontend tests. The earlier SQLite delay remains an
+intermittent observation, with no production deadline or assertion change.
+PR #297 has merged at main `accd4c47`; the runtime compatibility follow-up starts
+from that exact tree. Native host preparation restored Docker Engine 29.6.2 and installed official
+sbx 0.47.0. SBX exposed an app-name length incompatibility, now corrected to
+`traverse-runtime`; daemon restart and real VM isolation acceptance remain
+open in the [acceptance record](acceptance/2026-10-10-sandbox-selection.md).
+
 The follow-up starts from main `6a4402e7` after #296 merged. The desktop now
 separates Local, Docker Engine and official Docker Sandboxes preferences from
 task approval modes, with Local as the default and revision-bound settings

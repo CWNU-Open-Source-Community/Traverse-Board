@@ -105,7 +105,7 @@ export function SandboxEnvironmentPanel({ client }: { client: APIClient }) {
           <label className="sandbox-environment-toggle"><input checked={draft.sbx_enabled} onChange={(event) => change({ ...draft, sbx_enabled: event.currentTarget.checked })} type="checkbox" />启用 Docker Sandboxes (sbx)</label>
           <label>sbx 固定模板<input autoComplete="off" maxLength={512} onChange={(event) => change({ ...draft, sbx_template: event.currentTarget.value })}
             placeholder="registry/repository@sha256:…" spellCheck={false} value={draft.sbx_template} /></label>
-          <p>填写专用 traverse-command-runtime 命名空间可读取的固定 OCI 模板与 SHA-256 摘要。当前 sbx 的 MCP 隔离仍需验证；先检测并核对阻塞项，通过后再启用和重启。准备期间可选 Local 或 Docker Engine。</p>
+          <p>填写专用 traverse-runtime 命名空间可读取的固定 OCI 模板与 SHA-256 摘要。当前 sbx 的 MCP 隔离仍需验证；先检测并核对阻塞项，通过后再启用和重启。准备期间可选 Local 或 Docker Engine。</p>
         </div>
         {!valid && <p role="alert">请启用选作默认的后端，并核对固定镜像摘要或 sbx 模板格式。</p>}
         <button className="command-button primary" disabled={!dirty || !valid || locked || !client.hasControl}

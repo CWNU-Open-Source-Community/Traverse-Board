@@ -347,3 +347,41 @@ func TestSBXTemplateRejectsUnpinnedTagsAndHostFlags(t *testing.T) {
 		t.Fatal("rejected pinned registry template")
 	}
 }
+
+func TestSBXBackendConfigValidatesAppNamespace(t *testing.T) {
+	config := SBXBackendConfig{Enabled: true, TemplateReference: "example/toolchain@sha256:" + strings.Repeat("a", 64)}
+	for _, tc := range []struct {
+		name, appName string
+		valid         bool
+	}{
+		{"fixed product namespace", SBXAppName, true},
+		{"maximum length", strings.Repeat("a", 20), true},
+		{"CLI allowed characters", "App_9-test", true},
+		{"default user namespace", "", false},
+		{"over maximum length", strings.Repeat("a", 21), false},
+		{"previous oversized namespace", "traverse-command-runtime", false},
+		{"path separator", "traverse/runtime", false},
+		{"dot", "traverse.runtime", false},
+		{"space", "traverse runtime", false},
+		{"non ASCII", "traverse-运行", false},
+		{"control character", "traverse-runtime\n", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := config.validate(tc.appName)
+			if tc.valid && err != nil || !tc.valid && !errors.Is(err, ErrSBXBoundary) {
+				t.Fatalf("config validation for namespace %q = %v; valid=%v", tc.appName, err, tc.valid)
+			}
+		})
+	}
+	// Exercise the normal constructor as well: a future invalid fixed namespace
+	// must fail before any CLI dispatch or resource initialization.
+	b, err := NewSBXBackend(config)
+	if err != nil {
+		t.Fatalf("fixed namespace rejected during backend initialization: %v", err)
+	}
+	t.Cleanup(func() { _ = b.Close() })
+	config.TemplateReference = "example/toolchain:latest"
+	if _, err := NewSBXBackend(config); !errors.Is(err, ErrSBXBoundary) {
+		t.Fatalf("unpinned configuration was accepted: %v", err)
+	}
+}

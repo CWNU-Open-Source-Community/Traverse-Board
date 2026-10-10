@@ -96,9 +96,9 @@ func newDesktopSandboxEnvironmentController(home string, config ControlPlaneConf
 			if proof.Ready {
 				return environmentObservation(true, false, "SBX_ADAPTER_RESTART_REQUIRED", "Docker Sandboxes 已准备好，重新启动应用以接入执行后端。"), nil
 			}
-			message := "安装官方 sbx，在 traverse-command-runtime 环境完成本地虚拟化准备与登录，然后填写固定模板并重新检测。"
+			message := "安装官方 sbx，在 traverse-runtime 环境完成本地虚拟化准备与登录，然后填写固定模板并重新检测。"
 			if proof.ReasonCode == "ssh_forwarding_not_disabled" {
-				message = "在 traverse-command-runtime 环境关闭 ssh.agentForwardingEnabled，并重启对应 sandboxd 后重新检测。"
+				message = "在 traverse-runtime 环境关闭 ssh.agentForwardingEnabled，并重启对应 sandboxd 后重新检测。"
 			}
 			if proof.ReasonCode == "mcp_isolation_unverified" {
 				message = "Docker Sandboxes 的 MCP 网关隔离仍需验证。当前任务可选择 Local 或 Docker Engine；sbx 选择会保留。"

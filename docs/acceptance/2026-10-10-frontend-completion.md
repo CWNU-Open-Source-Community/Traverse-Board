@@ -67,10 +67,12 @@ journey completes.
   twice, including a retry with reduced capabilities. No detailed reason was
   returned. Explicit user confirmation is pending; no real model call has been
   dispatched in this completion pass.
-- Docker Desktop could not start its Secrets Engine because the existing
-  `docker-secrets-engine/engine.sock` was inaccessible. A reversible rename also
-  failed. The test-owned startup processes were stopped; no Docker data was
-  deleted or reset. Real Docker execution remains unverified on this host.
+- Docker Desktop initially failed on its Secrets Engine communication file.
+  The later sandbox-selection follow-up preserved the stale IPC directories and
+  restored Engine 29.6.2. Real lifecycle, four-toolchain and application
+  output/exit/cancellation checks then passed; see the
+  [sandbox acceptance record](2026-10-10-sandbox-selection.md). Full native
+  UI-to-model Docker acceptance remains in the P5 scope.
 - This host is Windows. Darwin cross-compilation and controlled Docker assembly
   tests do not establish interactive macOS or real macOS Docker acceptance.
 - Read-only inspection also confirms that this process is not elevated. A new

@@ -24,7 +24,7 @@ const SBXReadinessProtocolVersion = "sbx-readiness.v1"
 // A fixed product namespace prevents use of the user's everyday daemon,
 // template cache and credential store. The user installs/logs in themselves.
 // Contract: docker/sbx-kits-contrib/scripts/test-kit-e2e.sh, lines 10-38.
-const SBXAppName = "traverse-command-runtime"
+const SBXAppName = "traverse-runtime"
 
 var (
 	ErrSBXBoundary    = errors.New("Docker Sandboxes boundary is invalid")
@@ -38,6 +38,11 @@ var (
 
 var sbxTemplate = regexp.MustCompile(`^[a-z0-9][a-z0-9._:/-]*@sha256:[0-9a-f]{64}$`)
 
+// sbx v0.47 accepts an app-name suffix of at most 20 ASCII letters, digits,
+// hyphens or underscores. Empty selects the user's default namespace, so it
+// cannot provide this adapter's fixed isolation boundary.
+var sbxAppName = regexp.MustCompile(`^[A-Za-z0-9_-]{1,20}$`)
+
 func ValidSBXTemplateReference(value string) bool {
 	return len(value) <= 512 && sbxTemplate.MatchString(value) &&
 		!strings.Contains(value, "://") && !strings.Contains(value, "..") &&
@@ -50,6 +55,15 @@ type SBXBackendConfig struct {
 	TemplateReference string
 	JournalRoot       string
 }
+
+func (config SBXBackendConfig) validate(appName string) error {
+	if !sbxAppName.MatchString(appName) ||
+		(config.TemplateReference != "" && !ValidSBXTemplateReference(config.TemplateReference)) {
+		return ErrSBXBoundary
+	}
+	return nil
+}
+
 type SBXBackendOption func(*SBXBackend)
 
 func WithSBXProcessTransport(transport SBXProcessTransport) SBXBackendOption {
@@ -121,8 +135,8 @@ type SBXBackend struct {
 }
 
 func NewSBXBackend(config SBXBackendConfig, options ...SBXBackendOption) (*SBXBackend, error) {
-	if config.TemplateReference != "" && !ValidSBXTemplateReference(config.TemplateReference) {
-		return nil, ErrSBXBoundary
+	if err := config.validate(SBXAppName); err != nil {
+		return nil, err
 	}
 	b := &SBXBackend{config: config, transport: sbxProcessTransport{}}
 	b.lifetime, b.cancel = context.WithCancel(context.Background())
@@ -325,6 +339,14 @@ func (b *SBXBackend) Run(ctx context.Context, request SBXRunRequest, stdin io.Re
 		return result, errors.Join(cause, cleanupErr)
 	}
 	if err := request.AuthorityCheck(ctx); err != nil {
+		record.Phase = "unused"
+		_ = b.save(record)
+		return result, err
+	}
+	// SBX shares the actual host workspace. An existing hard link could alias
+	// an inode outside the granted workspace even when path checks succeed.
+	// Check after the last authority callback, immediately before VM creation.
+	if err := sbxValidateWorkspace(ctx, record.Workspace); err != nil {
 		record.Phase = "unused"
 		_ = b.save(record)
 		return result, err

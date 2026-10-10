@@ -3,6 +3,11 @@
 Base: main `6a4402e7ddae2e3159c792f1eda4d29da1002088`, after #296.
 Branch: `codex/sandbox-backend-selection` in an isolated worktree.
 
+The original change merged as #297 at main
+`accd4c47dd7b882064e98f030e15e4c737237a00`. Its tree matches the verified
+`39349b3b` head. The native-host compatibility follow-up continues from that
+latest main in the same isolated worktree on `codex/sandbox-runtime-compatibility`.
+
 The requested design has three explicit environments with Local as the default.
 Local and Docker Engine reuse the existing executable backends. Settings, task
 selection, fixed native restart and SBX lifecycle integration are implemented.
@@ -11,6 +16,15 @@ supported boundary and remaining proof are in [execution environments](../sandbo
 
 ## Verification
 
+- Full remote [CI at `39349b3b`](https://github.com/CWNU-Open-Source-Community/Universal-Code/actions/runs/38040097864)
+  completed successfully: all 22 jobs passed. TypeScript covered 193 files /
+  1,920 tests; repository Go vet and 75 tested packages passed, together with all
+  eight Store shards, authority race checks, Windows/macOS Desktop and Edge.
+  Windows actually ran and passed all six added Local process/cleanup proof
+  tests and all seven fixed-operator subcases, including pagination. Five
+  child-only helpers skipped their top-level invocation as intended. Two
+  Analyzer conformance tests still skipped because the hosted service session
+  rejected their low-integrity helper with `STATUS_DLL_INIT_FAILED`.
 - Frontend remote CI at `d30fd001`: 193 files / 1,917 tests passed, including
   the final selected-backend presentation corrections. The local focused run
   also passed 5 files / 246 tests, covering current four-profile and historical
@@ -91,8 +105,10 @@ showed a lease renewal occupying the sole SQLite connection for 2.84 seconds;
 the ownership `GetRun` exhausted its existing 2-second deadline while waiting
 for that connection. No output had been persisted at that point. The log does
 not identify the slow transaction phase, so disk flush latency is not an
-established cause. `native-timeout` passed on this run. The Windows failure
-remains under investigation, with its original assertions and deadlines intact.
+established cause. `native-timeout` passed on this run. Both subcases passed on
+the subsequent `39349b3b` CI run with unchanged backend code, assertions and
+deadlines. That success establishes the latest run's result; the intermittent
+database delay still needs phase-level evidence if it recurs.
 
 The same CI run exposed two model-menu focus failures. Deterministic local
 regressions reproduced restoration depending on a menu item's disabled flag
@@ -100,8 +116,8 @@ after asynchronous completion, and a delayed opening frame taking focus from
 the composer. The fix retains the original focus owner through pending-state
 changes, relinquishes it when focus moves elsewhere, and focuses an opened menu
 at DOM commit. All 20 focused tests and 69 app/composer integration tests passed;
-the production frontend build passed. These focused results do not replace the
-next complete frontend CI run.
+the production frontend build passed. The subsequent complete frontend CI at
+`39349b3b` also passed all 1,920 tests.
 
 The first Docker start-provenance regression attempt exposed a test fixture
 that had not yet created its host mask, and exceeded its 90-second package
@@ -141,8 +157,89 @@ console error during the static preview was its missing favicon.
 
 ## Remaining acceptance
 
-This host has no installed SBX. No SBX installation, login, image pull or real
-microVM execution was performed. The SBX production gate remains closed pending
-the official MCP, effective daemon settings, workspace synchronization and
-resource-identity evidence described in the environment guide. Real user-owned
-Docker/SBX acceptance is separate from deterministic integration coverage.
+### Native host preparation
+
+Docker Desktop 4.85.0 initially stopped while creating its Inference manager
+socket. The stale `Docker/run/dockerInference` entry was a zero-byte Windows
+reparse point that returned error 1920. After preserving its parent directory,
+startup reached a second stale socket, `docker-secrets-engine/engine.sock`.
+The affected IPC directories were renamed and retained after an official
+Desktop shutdown. The original images, containers, volumes and WSL disk were
+preserved. The fixed local named-pipe endpoint then returned Docker Engine
+29.6.2, Linux/amd64, API 1.55. This proves that the local daemon recovered;
+application container execution has its own acceptance below.
+
+Official Docker Sandboxes v0.47.0 was installed from the Docker.sbx winget
+package. Its Docker Inc. signature and installer digest were verified. The CLI
+and hypervisor capability checks pass. Real CLI probing exposed the adapter's
+original overlong app-name: sbx accepts at most 20 characters. The fixed
+`traverse-runtime` namespace passes the installed CLI; configuration regressions
+cover the length and character boundaries.
+
+The dedicated daemon initially started. Its namespace settings now persist
+`ssh.agentForwardingEnabled=false` and `mcp.forceLocalGateway=true`. The required
+restart encountered a stale `containerd.sock.ttrpc` reparse point. The daemon
+is currently unreachable, so effective settings and authentication have not
+been verified. Automatic approval review rejected the attempted state-directory
+backup/restart command with `blocked by policy`; that command did not execute.
+No namespace reset or alternative repair was attempted after that rejection.
+
+SBX now scans the granted workspace after the final authority callback and
+before creating a VM. Multi-link regular files, symlinks, Windows reparse
+points and special files are refused; the scan has an entry limit and observes
+cancellation. Real Windows filesystem regressions cover an outside hard link,
+a hard-linked `.git`, junctions, and a link inserted by the authority callback.
+They confirm the outside file is unchanged and no VM lifecycle mutation is
+dispatched. Ordinary nested files still pass the controlled transport lifecycle.
+All SBX race tests passed locally (3.829 seconds), and Linux amd64 / Darwin arm64
+test binaries cross-compiled. Windows CI now includes the SBX suite explicitly.
+These are pre-dispatch checks; they do not establish VM isolation under later
+host-side concurrent mutations.
+The final Windows CI command passed locally for sandbox and desktop; the
+existing desktop symlink-privilege test skipped on this unelevated host, while
+the new junction tests ran successfully. The application SBX integration suite
+also passed (13.036 seconds). Namespace UI tests passed 7/7, the production
+frontend build passed, and release/documentation contract tests passed.
+The Linux test binary also ran successfully in an owned restricted Linux
+container, including actual Unix hard-link and symlink regressions with no
+skips. An initial command-argument quoting error exited before test execution;
+the corrected invocation passed. This verifies the Unix preflight code, while
+SBX lifecycle calls in that binary still use the controlled transport.
+
+No SBX login, template pull or real microVM execution has completed. The
+production gate remains closed pending the MCP, effective daemon settings,
+workspace synchronization and resource-identity evidence in the environment
+guide. The candidate MCP probe is a separately tested, zero-tool local fixture;
+it has not been registered with a daemon or exercised from a VM.
+
+### Real Docker Engine acceptance
+
+The restored fixed local Engine ran the existing opt-in lifecycle, network,
+readiness, read-only observation and Standard Code tests successfully (24.780
+seconds, no skips). The four real toolchains were Go, Node, Python and Rust.
+Checks also exercised denied DNS/IPv4/IPv6/host routes, forced-timeout cleanup,
+the 16 MiB single-file limit and the 4,096-entry workspace growth limit.
+
+An ignored Go test overlay then exercised the application Standard Code service
+with a real SQLite store, owned Git/Drydock fixtures, the real local lifecycle
+and I/O transports, and existing pinned images. All three cases passed (86.722
+seconds): successful output returned exit 0; failed output retained exit 7;
+running cancellation returned `cancelled` with exit 143. Each case verified
+stdout/stderr, a new checkpoint, confirmed cleanup and exact-request replay
+without a second container start. The guest also checked absence of selected
+host credential environment names, host paths and Docker socket, and the fixed
+read-only `.git` mask. No model call or native UI journey was involved.
+
+The local Standard Code image was
+`sha256:5f5fea90318d0b0a0e4bbbe66e167e59851158d96557b5b5993792b64ff5b7c1`;
+the lifecycle fixture was
+`sha256:a7036de5fb3b5d40324f877d09b3c8c62d56ea9928dd697238785a97d41a9edd`.
+No image pull or rebuild was required. Comparing identical inventory scopes
+before and after shows the same nine container IDs and 29 listed image IDs,
+with no additions or removals. An intermediate `image ls --all` listing used a
+different scope and is retained separately, outside that comparison.
+
+These Windows runs do not include the three write/handoff tests guarded by
+`!windows`, and do not establish real macOS Docker or SBX execution. Detailed
+commands and raw evidence are retained locally in
+`build/sandbox-backend-selection/docker-real-20261010/`.
