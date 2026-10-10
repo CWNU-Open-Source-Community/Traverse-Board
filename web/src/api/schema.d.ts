@@ -284,6 +284,26 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/extensions/hooks": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Inspect declarative Hook scope and observed decisions
+         * @description Read-only projection of local declarations and the newest 200 scoped observations. New observations bind the actual package fingerprint and rejection decision; historical missing decisions remain unknown. Hook payloads and plugin-controlled messages are omitted.
+         */
+        get: operations["getHookDiagnostics"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/extensions/mcp": {
         parameters: {
             query?: never;
@@ -388,6 +408,46 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/extensions/plugins/{installation_id}/history": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Inspect installed Plugin versions and publisher trust
+         * @description Reads retained installation versions in the same package, protocol and surface, plus redacted publisher trust and the installation identities affected by revocation. Never returns package bytes or publisher keys.
+         */
+        get: operations["getPluginHistory"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/extensions/plugins/{installation_id}/publisher-revocation": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Revoke one Plugin publisher trust record
+         * @description Revokes the exact publisher fingerprint and trust generation bound to the selected signed installation, atomically revoking that publisher's nonterminal installations across packages.
+         */
+        post: operations["revokePluginPublisher"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/extensions/plugins/{installation_id}/review": {
         parameters: {
             query?: never;
@@ -402,6 +462,26 @@ export interface paths {
          * @description Applies an explicit capability review or immediately disables, quarantines, or revokes one inert Plugin installation using a pinned package fingerprint and generation.
          */
         post: operations["reviewPluginInstallation"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/extensions/plugins/{installation_id}/rollback": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Switch to a retained Plugin version
+         * @description Atomically retires the enabled version and enables the selected retained version with explicit capabilities. Both package fingerprints and generations must match. Existing publisher trust gates apply.
+         */
+        post: operations["rollbackPluginInstallation"];
         delete?: never;
         options?: never;
         head?: never;
@@ -6890,10 +6970,12 @@ export interface components {
             workspace_id: string;
         };
         ExtensionOnboardingCapabilitiesView: {
+            hook_diagnostics?: boolean;
             lsp_configuration: boolean;
             mcp_credentials?: boolean;
             mcp_registration: boolean;
             plugin_import: boolean;
+            plugin_lifecycle?: boolean;
         };
         ExtensionPluginImportRequestView: {
             archive_base64: string;
@@ -8370,6 +8452,45 @@ export interface components {
             /** @enum {string} */
             status: "ok";
         };
+        HookDeclarationView: {
+            action: string;
+            active: boolean;
+            event: string;
+            failure_policy: string;
+            hook_id: string;
+            installation_id: string;
+            installation_state: string;
+            package_fingerprint: string;
+            plugin_id: string;
+            remove_fields: string[];
+            scope: string;
+            /** Format: int32 */
+            timeout_ms: number;
+            tool_names: string[];
+        };
+        HookDiagnosticsView: {
+            declarations: components["schemas"]["HookDeclarationView"][];
+            observations: components["schemas"]["HookObservationView"][];
+            /** Format: int32 */
+            omitted_declarations: number;
+            protocol_version: string;
+            run_id?: string;
+            workspace_id?: string;
+        };
+        HookObservationView: {
+            action?: string;
+            created_at: string;
+            decision: string;
+            event: string;
+            hook_id: string;
+            id: string;
+            outcome: string;
+            package_fingerprint?: string;
+            plugin_id: string;
+            run_id?: string;
+            tool_name?: string;
+            workspace_id?: string;
+        };
         HostCommandExecutionReceiptView: {
             /** Format: int32 */
             active_process_limit: number;
@@ -9210,6 +9331,55 @@ export interface components {
             tool_called: boolean;
             /** @enum {string} */
             version: "plan_delivery_control.v1";
+        };
+        PluginHistoryView: {
+            installation_id: string;
+            installations: components["schemas"]["ExtensionPluginInstallationView"][];
+            package_id: string;
+            protocol_version: string;
+            publisher?: components["schemas"]["PluginPublisherTrustView"];
+            publisher_installation_ids: string[];
+            /** Format: int32 */
+            total_publisher_installations: number;
+            /** Format: int32 */
+            total_versions: number;
+        };
+        PluginPublisherRevocationRequestView: {
+            confirm: boolean;
+            expected_publisher_fingerprint: string;
+            /** Format: int64 */
+            expected_publisher_generation: number;
+            version: string;
+        };
+        PluginPublisherRevocationView: {
+            installation_id: string;
+            protocol_version: string;
+            publisher: components["schemas"]["PluginPublisherTrustView"];
+        };
+        PluginPublisherTrustView: {
+            fingerprint: string;
+            /** Format: int64 */
+            generation: number;
+            publisher: string;
+            reviewed_at: string;
+            state: string;
+        };
+        PluginRollbackRequestView: {
+            capabilities: string[];
+            confirm_untrusted: boolean;
+            expected_current_fingerprint: string;
+            /** Format: int64 */
+            expected_current_generation: number;
+            expected_target_fingerprint: string;
+            /** Format: int64 */
+            expected_target_generation: number;
+            target_installation_id: string;
+            version: string;
+        };
+        PluginRollbackView: {
+            current: components["schemas"]["ExtensionPluginInstallationView"];
+            protocol_version: string;
+            target: components["schemas"]["ExtensionPluginInstallationView"];
         };
         PluginSkillInstallView: {
             installation: components["schemas"]["ExtensionPluginInstallationView"];
@@ -14615,6 +14785,45 @@ export interface operations {
             504: components["responses"]["GatewayTimeout"];
         };
     };
+    getHookDiagnostics: {
+        parameters: {
+            query?: {
+                /** @description Optional exact Run scope */
+                run_id?: string;
+                /** @description Optional Workspace scope; must match a supplied Run */
+                workspace_id?: string;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful read */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["HookDiagnosticsView"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            414: components["responses"]["RequestTooLarge"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
+        };
+    };
     registerMCPServer: {
         parameters: {
             query?: never;
@@ -14882,6 +15091,88 @@ export interface operations {
             504: components["responses"]["GatewayTimeout"];
         };
     };
+    getPluginHistory: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Plugin installation identity */
+                installation_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful read */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["PluginHistoryView"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            414: components["responses"]["RequestTooLarge"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
+        };
+    };
+    revokePluginPublisher: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Signed Plugin installation identity */
+                installation_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PluginPublisherRevocationRequestView"];
+            };
+        };
+        responses: {
+            /** @description Control request accepted or idempotently replayed */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["PluginPublisherRevocationView"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            412: components["responses"]["FailedPrecondition"];
+            413: components["responses"]["RequestEntityTooLarge"];
+            414: components["responses"]["RequestTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
+        };
+    };
     reviewPluginInstallation: {
         parameters: {
             query?: never;
@@ -14906,6 +15197,51 @@ export interface operations {
                 content: {
                     "application/json": {
                         data: components["schemas"]["ExtensionPluginInstallationView"];
+                        request_id: string;
+                        /** @constant */
+                        version: "api.v1";
+                    };
+                };
+            };
+            400: components["responses"]["BadRequest"];
+            401: components["responses"]["Unauthorized"];
+            403: components["responses"]["Forbidden"];
+            404: components["responses"]["NotFound"];
+            409: components["responses"]["Conflict"];
+            412: components["responses"]["FailedPrecondition"];
+            413: components["responses"]["RequestEntityTooLarge"];
+            414: components["responses"]["RequestTooLarge"];
+            415: components["responses"]["UnsupportedMediaType"];
+            429: components["responses"]["ResourceExhausted"];
+            500: components["responses"]["InternalError"];
+            503: components["responses"]["Unavailable"];
+            504: components["responses"]["GatewayTimeout"];
+        };
+    };
+    rollbackPluginInstallation: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Currently enabled Plugin installation identity */
+                installation_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["PluginRollbackRequestView"];
+            };
+        };
+        responses: {
+            /** @description Control request accepted or idempotently replayed */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": {
+                        data: components["schemas"]["PluginRollbackView"];
                         request_id: string;
                         /** @constant */
                         version: "api.v1";

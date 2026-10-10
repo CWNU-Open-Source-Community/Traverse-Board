@@ -1110,6 +1110,14 @@ func (a *API) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
 		a.serveContextContinuityMutation(tracked, request, requestID)
 		return
 	}
+	if request.URL.Path == ExtensionHookDiagnosticsPath {
+		a.servePluginLifecycle(tracked, request, requestID, "", "hooks")
+		return
+	}
+	if id, action, matched := matchPluginLifecyclePath(request.URL.Path); matched {
+		a.servePluginLifecycle(tracked, request, requestID, id, action)
+		return
+	}
 	if request.URL.Path == ExtensionMCPRegistrationPath || request.URL.Path == ExtensionPluginImportPath {
 		a.serveExtensionOnboarding(tracked, request, requestID)
 		return

@@ -45,6 +45,8 @@ type ExtensionOnboardingCapabilitiesView struct {
 	MCPCredentials   bool `json:"mcp_credentials,omitempty"`
 	PluginImport     bool `json:"plugin_import"`
 	LSPConfiguration bool `json:"lsp_configuration"`
+	PluginLifecycle  bool `json:"plugin_lifecycle,omitempty"`
+	HookDiagnostics  bool `json:"hook_diagnostics,omitempty"`
 }
 
 type ExtensionSourceView struct {
@@ -263,12 +265,15 @@ func (a *API) extensionInventory(request *http.Request) (any, *Page, error) {
 
 func (a *API) extensionOnboardingCapabilities() *ExtensionOnboardingCapabilitiesView {
 	_, onboarding := a.extensionController.(ExtensionOnboardingController)
+	_, lifecycle := a.extensionController.(PluginLifecycleController)
 	credentials, credentialsPresent := a.extensionController.(MCPCredentialController)
 	return &ExtensionOnboardingCapabilitiesView{
 		MCPRegistration:  a.extensionControlEnabled && onboarding,
 		MCPCredentials:   credentialsPresent && credentials.HasMCPCredentialControl(),
 		PluginImport:     a.extensionControlEnabled && onboarding,
 		LSPConfiguration: a.extensionControlEnabled && a.codeIntelController != nil,
+		PluginLifecycle:  lifecycle,
+		HookDiagnostics:  lifecycle,
 	}
 }
 

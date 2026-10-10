@@ -191,6 +191,13 @@ export type ExtensionPluginInstallationView =
   components["schemas"]["ExtensionPluginInstallationView"];
 export type ExtensionPluginReviewRequestView =
   components["schemas"]["ExtensionPluginReviewRequestView"];
+export type PluginHistoryView = components["schemas"]["PluginHistoryView"];
+export type PluginRollbackRequestView = components["schemas"]["PluginRollbackRequestView"];
+export type PluginRollbackView = components["schemas"]["PluginRollbackView"];
+export type PluginPublisherRevocationRequestView = components["schemas"]["PluginPublisherRevocationRequestView"];
+export type PluginPublisherRevocationView = components["schemas"]["PluginPublisherRevocationView"];
+export type PluginPublisherTrustView = components["schemas"]["PluginPublisherTrustView"];
+export type HookDiagnosticsView = components["schemas"]["HookDiagnosticsView"];
 export type CodeIntelInventoryView = components["schemas"]["CodeIntelInventoryView"];
 export type CodeIntelServerView = components["schemas"]["CodeIntelServerView"];
 export type CodeIntelQualificationView =

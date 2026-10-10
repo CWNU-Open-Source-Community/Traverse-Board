@@ -82,6 +82,13 @@ import type {
   ExtensionMCPServerView,
   ExtensionPluginInstallationView,
   ExtensionPluginReviewRequestView,
+  PluginHistoryView,
+  PluginRollbackRequestView,
+  PluginRollbackView,
+  PluginPublisherRevocationRequestView,
+  PluginPublisherRevocationView,
+  PluginPublisherTrustView,
+  HookDiagnosticsView,
   EvidenceAttachmentRequestView,
   EvidenceAttachmentView,
   EvidenceInventoryView,
@@ -6233,7 +6240,7 @@ function parseExtensionInventory(value: unknown, hiddenLocalSource = false): Ext
     throw new APIRequestError("Extension inventory response is invalid", "INVALID_RESPONSE", 502);
   }
   if (value.onboarding !== undefined && (!hasExactKeys(value.onboarding,
-    ["mcp_registration", "plugin_import", "lsp_configuration", ...(isRecord(value.onboarding) && value.onboarding.mcp_credentials !== undefined ? ["mcp_credentials"] : [])]) ||
+    ["mcp_registration", "plugin_import", "lsp_configuration", ...["mcp_credentials", "plugin_lifecycle", "hook_diagnostics"].filter((key) => isRecord(value.onboarding) && value.onboarding[key] !== undefined)]) ||
     Object.values(value.onboarding).some((flag) => typeof flag !== "boolean"))) {
     throw new APIRequestError("Extension onboarding capabilities are invalid", "INVALID_RESPONSE", 502);
   }
@@ -6314,6 +6321,81 @@ function validExtensionMCPTarget(item: Record<string, unknown>): boolean {
 function parseExtensionPlugin(value: unknown): ExtensionPluginInstallationView {
   return parseExtensionInventory({ protocol_version: "extension-inventory.v1",
     mcp_servers: [], mcp_calls: [], plugins: [value] }).plugins[0];
+}
+
+const pluginStates = ["staged", "approved", "enabled", "disabled", "rolled_back", "revoked", "quarantined"];
+const pluginCapabilities = ["skills", "mcp", "ui", "hooks"];
+const hookEvents = ["pre_tool", "post_tool", "run_started", "run_completed", "session_opened", "session_closed", "compaction", "subagent", "checkpoint"];
+const hookActions = ["deny", "annotate", "narrow", "record"];
+
+function parsePluginPublisher(value: unknown): PluginPublisherTrustView {
+  if (!hasExactKeys(value, ["fingerprint", "publisher", "state", "generation", "reviewed_at"]) ||
+    !isSHA256(value.fingerprint) || !boundedText(value.publisher, 256) ||
+    !["trusted", "revoked"].includes(String(value.state)) || !safePositiveInteger(value.generation) || !validDate(value.reviewed_at)) {
+    throw new APIRequestError("Plugin publisher projection is invalid", "INVALID_RESPONSE", 502);
+  }
+  return value as PluginPublisherTrustView;
+}
+
+function parsePluginHistory(value: unknown, installationID: string): PluginHistoryView {
+  if (!hasExactKeys(value, ["protocol_version", "installation_id", "package_id", "installations", "publisher_installation_ids", "total_versions", "total_publisher_installations",
+    ...(isRecord(value) && value.publisher !== undefined ? ["publisher"] : [])]) || value.protocol_version !== "plugin-lifecycle.v1" ||
+    value.installation_id !== installationID || !boundedIdentity(value.package_id) ||
+    !Array.isArray(value.installations) || value.installations.length === 0 || value.installations.length > 1000 ||
+    !safeBoundedCount(value.total_versions, Number.MAX_SAFE_INTEGER) || value.total_versions < value.installations.length ||
+    !safeBoundedCount(value.total_publisher_installations, Number.MAX_SAFE_INTEGER) ||
+    !boundedStringArray(value.publisher_installation_ids, 1000, 256) || !value.publisher_installation_ids.every(boundedIdentity) ||
+    new Set(value.publisher_installation_ids).size !== value.publisher_installation_ids.length || value.total_publisher_installations < value.publisher_installation_ids.length) {
+    throw new APIRequestError("Plugin version history is invalid", "INVALID_RESPONSE", 502);
+  }
+  const installations = value.installations.map(parseExtensionPlugin);
+  const current = installations.find((item) => item.id === installationID);
+  if (!current || new Set(installations.map((item) => item.id)).size !== installations.length ||
+    installations.some((item) => item.manifest.id !== value.package_id || !pluginStates.includes(item.state) ||
+      item.protocol_version !== current.protocol_version || (item.snapshot?.surface ?? "") !== (current.snapshot?.surface ?? ""))) {
+    throw new APIRequestError("Plugin version history binding is invalid", "INVALID_RESPONSE", 502);
+  }
+  const publisher = value.publisher === undefined ? undefined : parsePluginPublisher(value.publisher);
+  if (publisher && (!current.signature_valid || publisher.fingerprint !== current.publisher_fingerprint || publisher.publisher !== current.manifest.publisher)) {
+    throw new APIRequestError("Plugin publisher binding is invalid", "INVALID_RESPONSE", 502);
+  }
+  return { ...value, installations, ...(publisher ? { publisher } : {}) } as PluginHistoryView;
+}
+
+function parseHookDiagnostics(value: unknown, runID: string, workspaceID: string): HookDiagnosticsView {
+  if (!isRecord(value) || !hasOnlyKeys(value, ["protocol_version", "run_id", "workspace_id", "declarations", "omitted_declarations", "observations"]) ||
+    value.protocol_version !== "hook-diagnostics.v1" || !Array.isArray(value.declarations) || value.declarations.length > 1000 ||
+    !Array.isArray(value.observations) || value.observations.length > 200 || !safeBoundedCount(value.omitted_declarations, 64000) ||
+    (value.run_id !== undefined && !boundedIdentity(value.run_id)) || (value.workspace_id !== undefined && !boundedIdentity(value.workspace_id)) ||
+    (runID && (value.run_id !== runID || !boundedIdentity(value.workspace_id))) || (!runID && value.run_id !== undefined) ||
+    (workspaceID && value.workspace_id !== workspaceID) || (!runID && !workspaceID && value.workspace_id !== undefined)) {
+    throw new APIRequestError("Hook diagnostic scope is invalid", "INVALID_RESPONSE", 502);
+  }
+  for (const item of value.declarations) {
+    if (!hasExactKeys(item, ["installation_id", "plugin_id", "package_fingerprint", "installation_state", "active", "scope", "hook_id", "event", "action", "failure_policy", "timeout_ms", "tool_names", "remove_fields"]) ||
+      !boundedIdentity(item.installation_id) || !boundedIdentity(item.plugin_id) || !isSHA256(item.package_fingerprint) ||
+      !pluginStates.includes(String(item.installation_state)) || typeof item.active !== "boolean" || (item.active && item.installation_state !== "enabled") ||
+      item.scope !== "local" || !boundedIdentity(item.hook_id) || !hookEvents.includes(String(item.event)) || !hookActions.includes(String(item.action)) ||
+      !["continue", "deny"].includes(String(item.failure_policy)) || !safePositiveInteger(item.timeout_ms) || item.timeout_ms > 2000 ||
+      !boundedStringArray(item.tool_names, 64, 256) || !boundedStringArray(item.remove_fields, 32, 256)) {
+      throw new APIRequestError("Hook declaration projection is invalid", "INVALID_RESPONSE", 502);
+    }
+  }
+  for (const item of value.observations) {
+    if (!isRecord(item) || !hasOnlyKeys(item, ["id", "plugin_id", "hook_id", "package_fingerprint", "event", "action", "run_id", "workspace_id", "tool_name", "outcome", "decision", "created_at"]) ||
+      !boundedIdentity(item.id) || !boundedIdentity(item.plugin_id) || !boundedIdentity(item.hook_id) || !hookEvents.includes(String(item.event)) ||
+      !["completed", "failed_closed", "failed_continue"].includes(String(item.outcome)) || !["rejected", "continued", "unknown"].includes(String(item.decision)) ||
+      !validDate(item.created_at) || (item.run_id !== undefined && !boundedIdentity(item.run_id)) || (item.workspace_id !== undefined && !boundedIdentity(item.workspace_id)) ||
+      (item.tool_name !== undefined && !boundedText(item.tool_name, 256)) || (runID && item.run_id !== runID) ||
+      ((runID || workspaceID) && item.workspace_id !== value.workspace_id) ||
+      (item.package_fingerprint !== undefined && !isSHA256(item.package_fingerprint)) ||
+      (item.action !== undefined && (!hookActions.includes(String(item.action)) || !isSHA256(item.package_fingerprint))) ||
+      (item.action !== undefined && item.decision !== (item.outcome === "failed_closed" || item.action === "deny" && item.outcome === "completed" ? "rejected" : "continued")) ||
+      (item.action === undefined && item.decision !== (item.outcome === "failed_closed" ? "rejected" : "unknown"))) {
+      throw new APIRequestError("Hook observation projection is invalid", "INVALID_RESPONSE", 502);
+    }
+  }
+  return value as unknown as HookDiagnosticsView;
 }
 
 function validCanonicalBase64(value: unknown, maximumBytes: number): value is string {
@@ -7039,6 +7121,44 @@ export class APIClient {
     return parseExtensionPlugin(await this.sendControlRequest<unknown>(
       `/extensions/plugins/${encodeURIComponent(installationID)}/review`, body, signal,
     ));
+  }
+
+  async pluginHistory(installationID: string, signal?: AbortSignal): Promise<PluginHistoryView> {
+    if (!boundedIdentity(installationID)) throw new Error("A Plugin installation identity is required");
+    return parsePluginHistory(await this.get<unknown>(`/extensions/plugins/${encodeURIComponent(installationID)}/history`, {}, signal), installationID);
+  }
+
+  async rollbackPluginInstallation(installationID: string, body: PluginRollbackRequestView, signal?: AbortSignal): Promise<PluginRollbackView> {
+    if (!this.hasExtensionControl || !boundedIdentity(installationID) || !boundedIdentity(body.target_installation_id) || body.target_installation_id === installationID ||
+      body.version !== "plugin-lifecycle.v1" || !isSHA256(body.expected_current_fingerprint) || !isSHA256(body.expected_target_fingerprint) ||
+      !safePositiveInteger(body.expected_current_generation) || !safePositiveInteger(body.expected_target_generation) || typeof body.confirm_untrusted !== "boolean" ||
+      !boundedStringArray(body.capabilities, 4, 32) || body.capabilities.length === 0 || new Set(body.capabilities).size !== body.capabilities.length ||
+      body.capabilities.some((capability) => !pluginCapabilities.includes(capability))) throw new Error("Exact Plugin version bindings and selected capabilities are required");
+    const value = await this.sendControlRequest<unknown>(`/extensions/plugins/${encodeURIComponent(installationID)}/rollback`, body, signal);
+    if (!hasExactKeys(value, ["protocol_version", "current", "target"]) || value.protocol_version !== "plugin-lifecycle.v1") throw new APIRequestError("Plugin rollback projection is invalid", "INVALID_RESPONSE", 502);
+    const current = parseExtensionPlugin(value.current), target = parseExtensionPlugin(value.target);
+    if (current.id !== installationID || target.id !== body.target_installation_id || current.manifest.id !== target.manifest.id ||
+      current.protocol_version !== target.protocol_version || (current.snapshot?.surface ?? "") !== (target.snapshot?.surface ?? "") ||
+      current.package_fingerprint !== body.expected_current_fingerprint || target.package_fingerprint !== body.expected_target_fingerprint ||
+      current.generation !== body.expected_current_generation + 1 || target.generation !== body.expected_target_generation + 1 ||
+      current.state !== "rolled_back" || current.enabled_capabilities.length !== 0 || target.state !== "enabled" ||
+      [...target.enabled_capabilities].sort().join(",") !== [...body.capabilities].sort().join(",")) throw new APIRequestError("Plugin rollback result differs from its version bindings", "INVALID_RESPONSE", 502);
+    return { protocol_version: "plugin-lifecycle.v1", current, target };
+  }
+
+  async revokePluginPublisher(installationID: string, body: PluginPublisherRevocationRequestView, signal?: AbortSignal): Promise<PluginPublisherRevocationView> {
+    if (!this.hasExtensionControl || !boundedIdentity(installationID) || body.version !== "plugin-lifecycle.v1" || body.confirm !== true ||
+      !isSHA256(body.expected_publisher_fingerprint) || !safePositiveInteger(body.expected_publisher_generation)) throw new Error("An exact publisher trust binding and confirmation are required");
+    const value = await this.sendControlRequest<unknown>(`/extensions/plugins/${encodeURIComponent(installationID)}/publisher-revocation`, body, signal);
+    if (!hasExactKeys(value, ["protocol_version", "installation_id", "publisher"]) || value.protocol_version !== "plugin-lifecycle.v1" || value.installation_id !== installationID) throw new APIRequestError("Publisher revocation projection is invalid", "INVALID_RESPONSE", 502);
+    const publisher = parsePluginPublisher(value.publisher);
+    if (publisher.fingerprint !== body.expected_publisher_fingerprint || publisher.generation !== body.expected_publisher_generation + 1 || publisher.state !== "revoked") throw new APIRequestError("Publisher revocation binding is invalid", "INVALID_RESPONSE", 502);
+    return { ...value, publisher } as PluginPublisherRevocationView;
+  }
+
+  async hookDiagnostics(runID = "", workspaceID = "", signal?: AbortSignal): Promise<HookDiagnosticsView> {
+    if ((runID && !boundedIdentity(runID)) || (workspaceID && !boundedIdentity(workspaceID))) throw new Error("An exact Hook diagnostic scope is required");
+    return parseHookDiagnostics(await this.get<unknown>("/extensions/hooks", { run_id: runID || undefined, workspace_id: workspaceID || undefined }, signal), runID, workspaceID);
   }
 
   async safeWebReadiness(product: string, signal?: AbortSignal): Promise<BrowserSafeWebReadiness> {

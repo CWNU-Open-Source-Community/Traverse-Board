@@ -199,7 +199,8 @@ export function PluginReviewControls({ client, installation }: {
     {!client.hasExtensionControl && <p role="status">{t("当前连接为只读。连接具备控制权限的服务后可审查并启用此包。", "This connection is read-only. Connect with control access to review and enable this package.")}</p>}
     <p>{approve ? t("包已暂存。核对来源、签名、声明能力和指纹后审查。", "Package staged. Review its source, signature, declared capabilities, and fingerprint.")
       : enable ? t("包已审查。选择当前需要的能力并启用，再到任务中使用相应贡献。", "Package reviewed. Select and enable the capabilities you need, then use their contributions in a task.")
-      : installation.state !== "enabled" ? t("此安装已停用或撤销。核对当前状态；重新接入时导入并审查新的包。", "This installation is inactive or revoked. Check its current state; import and review a new package to reconnect.")
+      : installation.state === "rolled_back" ? t("此版本已保留。展开“版本与发布者”查看当前启用版本与版本记录。", "This version is retained. Open Versions and publisher to inspect the enabled version and version records.")
+      : installation.state !== "enabled" ? t("此安装已撤销。核对版本记录与发布者信任后，导入并审查要接入的包。", "This installation is revoked. Inspect version records and publisher trust, then import and review the package to connect.")
       : t("已启用的贡献可由任务加载。MCP 贡献请继续完成服务器发现和能力审查；使用结果在任务中查看。", "Tasks can load enabled contributions. Complete server discovery and capability review for MCP contributions; inspect usage results in the task.")}</p>
     <p>{t("声明能力", "Declared capabilities")}: {installation.manifest.capabilities.join(", ") || "—"}</p>
     {(approve || enable) && <>

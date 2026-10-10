@@ -381,11 +381,16 @@ func (s *SQLiteStore) RecordHookAudit(ctx context.Context, audit hooks.AuditReco
 		audit.Outcome != "failed_continue") || audit.CreatedAt.IsZero() {
 		return apperror.New(apperror.CodeInvalidArgument, "plugin hook audit is invalid")
 	}
+	if (audit.PluginFingerprint != "" || audit.Action != "" || audit.Rejected != nil) &&
+		(len(audit.PluginFingerprint) != 64 || strings.Trim(audit.PluginFingerprint, "0123456789abcdef") != "" || !audit.Action.Valid() || audit.Rejected == nil ||
+			*audit.Rejected != (audit.Outcome == "failed_closed" || audit.Action == hooks.ActionDeny && audit.Outcome == "completed")) {
+		return apperror.New(apperror.CodeInvalidArgument, "plugin hook decision binding is invalid")
+	}
 	_, err := s.db.ExecContext(ctx, `INSERT INTO plugin_hook_audits
-		(id, plugin_id, hook_id, event, run_id, workspace_id, tool_name, outcome, created_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`, idgen.New("hook-audit"), audit.PluginID,
+		(id, plugin_id, hook_id, event, run_id, workspace_id, tool_name, outcome, created_at, plugin_fingerprint, declared_action, rejected)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`, idgen.New("hook-audit"), audit.PluginID,
 		audit.HookID, audit.Event, audit.RunID, audit.WorkspaceID, audit.ToolName,
-		audit.Outcome, ts(audit.CreatedAt))
+		audit.Outcome, ts(audit.CreatedAt), audit.PluginFingerprint, audit.Action, audit.Rejected)
 	return err
 }
 

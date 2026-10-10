@@ -1,0 +1,23 @@
+.plugin-lifecycle summary, .hook-diagnostics summary { cursor: pointer; font-weight: 600; }
+.extension-card:has(> .plugin-lifecycle[open]) { grid-column: 1 / -1; }
+.plugin-lifecycle input[type="checkbox"] { accent-color: var(--prayu-accent); }
+.plugin-version-actions, .hook-records { display: grid; gap: 12px; min-width: 0; }
+.plugin-version-history, .hook-records ul, .hook-records ol { display: grid; gap: 0; margin: 0; padding: 0; list-style: none; }
+.plugin-version-history > li, .hook-records li { padding: 12px 0; border-bottom: 1px solid var(--prayu-border); min-width: 0; overflow-wrap: anywhere; }
+.plugin-version-history li > div, .hook-records li > div { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 6px 16px; }
+.plugin-version-history time, .plugin-version-history li > div > span, .hook-records li > div > span { color: var(--prayu-muted); font-size: 12px; }
+.plugin-version-actions fieldset { display: grid; gap: 10px; margin: 0; padding: 12px; border: 1px solid var(--prayu-border); border-radius: 10px; min-width: 0; }
+.plugin-version-actions fieldset > label { display: grid; gap: 6px; }
+.plugin-version-actions select { min-width: 0; width: 100%; padding: 8px; color: var(--prayu-text); background: var(--prayu-control); border: 1px solid var(--prayu-border); border-radius: 7px; font: inherit; }
+.plugin-version-actions .plugin-confirmation { display: flex; align-items: flex-start; gap: 7px; line-height: 1.6; }
+.plugin-version-actions input { flex: 0 0 auto; }
+.plugin-publisher { display: grid; gap: 10px; border-top: 1px solid var(--prayu-border); padding-top: 12px; min-width: 0; }
+.plugin-publisher h3, .hook-records h3 { font-size: 14px; margin: 0; }
+.plugin-publisher small { display: block; }
+.plugin-version-actions p, .hook-diagnostics p { line-height: 1.6; overflow-wrap: anywhere; }
+.plugin-lifecycle code, .hook-diagnostics code { white-space: normal; overflow-wrap: anywhere; }
+.plugin-lifecycle dl { margin: 8px 0; }
+.plugin-lifecycle dt { color: var(--prayu-muted); font-size: 12px; }
+.plugin-lifecycle dd { margin: 2px 0 8px; }
+.hook-diagnostics > .settings-action { margin-bottom: 12px; }
+.hook-records details { margin-top: 8px; }

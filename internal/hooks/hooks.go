@@ -214,14 +214,18 @@ func ExecuteBoundary(ctx context.Context, engine *Engine, input Input, payload a
 }
 
 type AuditRecord struct {
-	PluginID    string
-	HookID      string
-	Event       Event
-	RunID       string
-	WorkspaceID string
-	ToolName    string
-	Outcome     string
-	CreatedAt   time.Time
+	ID                string
+	PluginID          string
+	PluginFingerprint string
+	HookID            string
+	Action            Action
+	Rejected          *bool
+	Event             Event
+	RunID             string
+	WorkspaceID       string
+	ToolName          string
+	Outcome           string
+	CreatedAt         time.Time
 }
 
 type AuditSink interface {
@@ -403,10 +407,14 @@ func (e *Engine) record(ctx context.Context, registration Registration, input In
 	recordCtx, cancel := context.WithTimeout(ctx, time.Second)
 	defer cancel()
 	return e.sink.RecordHookAudit(recordCtx, AuditRecord{PluginID: registration.PluginID,
-		HookID: registration.Declaration.ID, Event: input.Event, RunID: input.RunID,
+		PluginFingerprint: registration.PluginFingerprint, Action: registration.Declaration.Action,
+		Rejected: boolPointer(outcome == "failed_closed" || registration.Declaration.Action == ActionDeny && outcome == "completed"),
+		HookID:   registration.Declaration.ID, Event: input.Event, RunID: input.RunID,
 		WorkspaceID: input.WorkspaceID, ToolName: input.ToolName, Outcome: outcome,
 		CreatedAt: e.now()})
 }
+
+func boolPointer(value bool) *bool { return &value }
 
 func (e *Engine) Generation() string {
 	if e == nil {

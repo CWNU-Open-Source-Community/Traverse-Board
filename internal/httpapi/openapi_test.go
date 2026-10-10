@@ -1652,6 +1652,10 @@ func TestOpenAPIRoutesMatchAuthenticatedLiveHandlers(t *testing.T) {
 						`"expected_descriptor_fingerprint":"` + strings.Repeat("a", 64) + `"}`
 				} else if spec.Path == ExtensionMCPRefreshPath {
 					body = `{"version":"extension-control.v1"}`
+				} else if spec.Path == ExtensionPluginRollbackPath {
+					body = `{"version":"plugin-lifecycle.v1","target_installation_id":"plugin-rollback-target","expected_current_fingerprint":"` + strings.Repeat("b", 64) + `","expected_current_generation":2,"expected_target_fingerprint":"` + strings.Repeat("b", 64) + `","expected_target_generation":2,"capabilities":["hooks"],"confirm_untrusted":true}`
+				} else if spec.Path == ExtensionPluginPublisherRevocationPath {
+					body = extensionJSON(t, PluginPublisherRevocationRequestView{Version: PluginLifecycleProtocol, ExpectedPublisherFingerprint: strings.Repeat("a", 64), ExpectedPublisherGeneration: 1, Confirm: true})
 				} else if spec.Path == ExtensionPluginReviewPath {
 					body = `{"version":"extension-control.v1","action":"disable",` +
 						`"expected_package_fingerprint":"` + strings.Repeat("b", 64) + `",` +
