@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -300,6 +301,57 @@ func TestOperatorCommandStoppedRunRequiresPrivateConsentAndPreservesState(t *tes
 	}
 }
 
+// Retain the exact authority and ownership checks, but preserve their timings
+// when a native Windows Job is interrupted before its command timeout.
+type fixedOperatorDiagnosticStore struct {
+	*commandApprovalPrepareStore
+	mu      sync.Mutex
+	entries []string
+}
+
+func (s *fixedOperatorDiagnosticStore) record(ctx context.Context, operation string, started time.Time, detail string, err error) {
+	remaining := "none"
+	if deadline, ok := ctx.Deadline(); ok {
+		remaining = time.Until(deadline).String()
+	}
+	entry := fmt.Sprintf("%s %s elapsed=%s deadline_remaining=%s context_error=%v error=%v %s",
+		time.Now().UTC().Format(time.RFC3339Nano), operation, time.Since(started), remaining, ctx.Err(), err, detail)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.entries = append(s.entries, entry)
+	if len(s.entries) > 64 {
+		s.entries = s.entries[len(s.entries)-64:]
+	}
+}
+
+func (s *fixedOperatorDiagnosticStore) GetRun(ctx context.Context, id string) (domain.Run, error) {
+	started := time.Now()
+	run, err := s.SQLiteStore.GetRun(ctx, id)
+	s.record(ctx, "GetRun", started, "status="+string(run.Status), err)
+	return run, err
+}
+
+func (s *fixedOperatorDiagnosticStore) GetRunExecutionLease(ctx context.Context, id string) (domain.RunExecutionLease, bool, error) {
+	started := time.Now()
+	lease, found, err := s.SQLiteStore.GetRunExecutionLease(ctx, id)
+	s.record(ctx, "GetRunExecutionLease", started, fmt.Sprintf("found=%t generation=%d status=%s expires_at=%s", found, lease.Generation, lease.Status, lease.ExpiresAt.UTC().Format(time.RFC3339Nano)), err)
+	return lease, found, err
+}
+
+func (s *fixedOperatorDiagnosticStore) GetRunExecutionInteraction(ctx context.Context, id string) (domain.RunExecutionInteractionSnapshot, error) {
+	started := time.Now()
+	interaction, err := s.SQLiteStore.GetRunExecutionInteraction(ctx, id)
+	s.record(ctx, "GetRunExecutionInteraction", started, fmt.Sprintf("revision=%d mode=%s", interaction.Revision, interaction.Mode), err)
+	return interaction, err
+}
+
+func (s *fixedOperatorDiagnosticStore) UpdateCommandRuntimeJob(ctx context.Context, job runner.CommandRuntimeJob, previous int64) (runner.CommandRuntimeJob, error) {
+	started := time.Now()
+	updated, err := s.SQLiteStore.UpdateCommandRuntimeJob(ctx, job, previous)
+	s.record(ctx, "UpdateCommandRuntimeJob", started, fmt.Sprintf("state=%s previous_version=%d renewed_at=%s expires_at=%s", job.State, previous, job.OwnerRenewedAt.UTC().Format(time.RFC3339Nano), job.OwnerExpiresAt.UTC().Format(time.RFC3339Nano)), err)
+	return updated, err
+}
+
 func newFixedOperatorFixture(t *testing.T, status domain.RunStatus, kind runner.ControlledCommandKind, timeout time.Duration) (*operatorCommandFixture, OperatorCommandRequest) {
 	t.Helper()
 	initial := status
@@ -328,13 +380,25 @@ func newFixedOperatorFixture(t *testing.T, status domain.RunStatus, kind runner.
 	if err := f.manager.Shutdown(t.Context()); err != nil {
 		t.Fatal(err)
 	}
+	diagnostics := &fixedOperatorDiagnosticStore{commandApprovalPrepareStore: f.probe}
+	t.Cleanup(func() {
+		if !t.Failed() {
+			return
+		}
+		diagnostics.mu.Lock()
+		entries := append([]string(nil), diagnostics.entries...)
+		diagnostics.mu.Unlock()
+		for _, entry := range entries {
+			t.Log("fixed operator diagnostic:", entry)
+		}
+	})
 	var command runner.CommandRuntimeSpec
-	f.manager, command, err = runner.NewFixedCommandRuntimeManager(f.probe, "fixed-command-owner", plan, f.root)
+	f.manager, command, err = runner.NewFixedCommandRuntimeManager(diagnostics, "fixed-command-owner", plan, f.root)
 	if err != nil {
 		t.Fatal(err)
 	}
 	f.caps.DangerFullAccessEnabled = false
-	f.service, err = NewCommandRuntimeService(f.st, f.manager, f.caps)
+	f.service, err = NewCommandRuntimeService(diagnostics, f.manager, f.caps)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -43,6 +43,11 @@ Verification for this revision:
   connection tests cover missing PAT/OAuth credentials and unavailable storage.
 - TypeScript, production build and generated API/transcript-key checks passed.
   Existing large-chunk build warnings remain.
+- An intermediate CI run interrupted the baseline Windows fixed-command paging
+  test before its command timeout. The same seven native subcases passed locally;
+  the interruption cause remains unconfirmed. Failure-only authority/renewal
+  timing diagnostics now preserve the next failure's evidence, with the existing
+  permissions, time budgets, output and replay assertions unchanged.
 - Production assets served by the real Go API and isolated test database were
   checked at 1280px and 390px. Verified connection navigation, immutable saved
   budgets, staged MCP credential guidance and read-only refresh, model status,
