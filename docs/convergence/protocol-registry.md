@@ -1823,7 +1823,7 @@ These identifiers remain inside the scan. Each exemption is bound to exact files
 
 | Identifier | Kind | Exact sources | Reason |
 | --- | --- | --- | --- |
-| `TraverseBoard.LocalSandbox.Test.Host.v1` | `test-fixture` | `internal/sandboxtest/null_device_windows.go` | Windows Local Sandbox disposable test-host marker. |
+| `TraverseBoard.LocalSandbox.Test.Host.v1` | `test-fixture` | `internal/sandbox/sbx_namespace_windows_test.go`, `internal/sandboxtest/null_device_windows.go` | Windows Local Sandbox disposable test-host marker. |
 | `agent_completion.v2` | `test-fixture` | `internal/domain/agent_completion_test.go` | Test-only or golden/negative-vector identifier; exact source binding prevents production classification. |
 | `analyzer_descriptor.v2` | `test-fixture` | `internal/analyzer/descriptor_test.go` | Test-only or golden/negative-vector identifier; exact source binding prevents production classification. |
 | `analyzer_executable_format.v2` | `test-fixture` | `internal/analyzer/executable_format_test.go` | Test-only or golden/negative-vector identifier; exact source binding prevents production classification. |

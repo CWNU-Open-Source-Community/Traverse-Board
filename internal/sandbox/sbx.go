@@ -13,6 +13,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 	"unicode/utf8"
 )
@@ -24,7 +25,7 @@ const SBXReadinessProtocolVersion = "sbx-readiness.v1"
 // A fixed product namespace prevents use of the user's everyday daemon,
 // template cache and credential store. The user installs/logs in themselves.
 // Contract: docker/sbx-kits-contrib/scripts/test-kit-e2e.sh, lines 10-38.
-const SBXAppName = "traverse-command-runtime"
+const SBXAppName = "traverse-runtime"
 
 var (
 	ErrSBXBoundary    = errors.New("Docker Sandboxes boundary is invalid")
@@ -38,6 +39,11 @@ var (
 
 var sbxTemplate = regexp.MustCompile(`^[a-z0-9][a-z0-9._:/-]*@sha256:[0-9a-f]{64}$`)
 
+// sbx v0.47 accepts an app-name suffix of at most 20 ASCII letters, digits,
+// hyphens or underscores. Empty selects the user's default namespace, so it
+// cannot provide this adapter's fixed isolation boundary.
+var sbxAppName = regexp.MustCompile(`^[A-Za-z0-9_-]{1,20}$`)
+
 func ValidSBXTemplateReference(value string) bool {
 	return len(value) <= 512 && sbxTemplate.MatchString(value) &&
 		!strings.Contains(value, "://") && !strings.Contains(value, "..") &&
@@ -47,15 +53,33 @@ func ValidSBXTemplateReference(value string) bool {
 type SBXBackendConfig struct {
 	Enabled           bool
 	ExecutablePath    string
+	HelperExecutable  string
 	TemplateReference string
 	JournalRoot       string
 }
+
+func (config SBXBackendConfig) validate(appName string) error {
+	if !sbxAppName.MatchString(appName) ||
+		(config.TemplateReference != "" && !ValidSBXTemplateReference(config.TemplateReference)) {
+		return ErrSBXBoundary
+	}
+	return nil
+}
+
 type SBXBackendOption func(*SBXBackend)
 
 func WithSBXProcessTransport(transport SBXProcessTransport) SBXBackendOption {
 	return func(b *SBXBackend) {
 		if transport != nil {
 			b.transport = transport
+		}
+	}
+}
+
+func WithSBXDaemonTransport(transport SBXDaemonTransport) SBXBackendOption {
+	return func(b *SBXBackend) {
+		if transport != nil {
+			b.daemon = transport
 		}
 	}
 }
@@ -107,24 +131,26 @@ func ProbeSBXReadiness(ctx context.Context, enabled bool, executablePath, templa
 type SBXBackend struct {
 	config                    SBXBackendConfig
 	transport                 SBXProcessTransport
+	daemon                    SBXDaemonTransport
 	generation, executableSHA string
 	mu                        sync.Mutex
 	lock                      *os.File
+	namespaceLock             *sbxNamespaceLock
 	ownedJournal              bool
-	// No production setter exists. Until the local CLI supplies a documented
-	// empty/static or disabled gateway contract, isolation cannot be granted.
-	// Package-local fake transports prove the remaining lifecycle separately.
-	mcpIsolationProven bool
-	closed             bool
-	lifetime           context.Context
-	cancel             context.CancelFunc
+	helperSHA, helperName     string
+	helperPrepared            atomic.Bool
+	versionGate               chan struct{}
+	versionOutput             string
+	closed                    bool
+	lifetime                  context.Context
+	cancel                    context.CancelFunc
 }
 
 func NewSBXBackend(config SBXBackendConfig, options ...SBXBackendOption) (*SBXBackend, error) {
-	if config.TemplateReference != "" && !ValidSBXTemplateReference(config.TemplateReference) {
-		return nil, ErrSBXBoundary
+	if err := config.validate(SBXAppName); err != nil {
+		return nil, err
 	}
-	b := &SBXBackend{config: config, transport: sbxProcessTransport{}}
+	b := &SBXBackend{config: config, transport: sbxProcessTransport{}, daemon: newSBXDaemonTransport(), versionGate: make(chan struct{}, 1)}
 	b.lifetime, b.cancel = context.WithCancel(context.Background())
 	for _, option := range options {
 		if option != nil {
@@ -142,11 +168,23 @@ func NewSBXBackend(config SBXBackendConfig, options ...SBXBackendOption) (*SBXBa
 			return nil, ErrSBXBoundary
 		}
 	}
+	if config.HelperExecutable != "" {
+		resolved, err := filepath.EvalSymlinks(config.HelperExecutable)
+		if err != nil {
+			return nil, ErrSBXBoundary
+		}
+		b.config.HelperExecutable = resolved
+		b.helperSHA, err = sbxFileDigest(resolved)
+		if err != nil {
+			return nil, ErrSBXBoundary
+		}
+		b.helperName = "traverse-empty-" + sbxDigest(resolved, b.helperSHA)[:32]
+	}
 	nonce := make([]byte, 32)
 	if _, err := rand.Read(nonce); err != nil {
 		return nil, err
 	}
-	b.generation = sbxDigest(SBXPolicyVersion, SBXAppName, b.executableSHA, config.TemplateReference, hex.EncodeToString(nonce))
+	b.generation = sbxDigest(SBXPolicyVersion, SBXAppName, b.executableSHA, b.helperSHA, b.helperName, config.TemplateReference, hex.EncodeToString(nonce))
 	if config.JournalRoot != "" {
 		if _, err := sbxCanonical(config.JournalRoot, true); err != nil {
 			return nil, err
@@ -217,9 +255,12 @@ func (b *SBXBackend) Readiness(ctx context.Context) (SBXReadiness, error) {
 		return finish("cli_missing", "install_sbx")
 	}
 	r.CLIInstalled = true
-	version, err := b.call(bounded, []string{"version"}, nil, 64*1024)
-	if err != nil || version.ExitCode != 0 || len(version.Stdout) == 0 {
+	version, versionErr := b.compatibleCLI(bounded)
+	if versionErr != nil || version == "" {
 		return finish("cli_unavailable", "check_sbx_installation")
+	}
+	if !sbxCompatibleVersion(version) {
+		return finish("cli_version_unsupported", "install_supported_sbx_version")
 	}
 	if !r.FeatureEnabled {
 		return finish("disabled", "enable_sbx")
@@ -227,27 +268,31 @@ func (b *SBXBackend) Readiness(ctx context.Context) (SBXReadiness, error) {
 	if !r.TemplateConfigured {
 		return finish("template_missing", "configure_pinned_template")
 	}
+	if err := b.daemon.Check(bounded); err != nil {
+		return finish("daemon_protocol_unavailable", "start_supported_sbx_daemon")
+	}
 	if _, err := b.inventory(bounded); err != nil {
 		return finish("daemon_unavailable", "start_and_sign_in_sbx")
 	}
 	r.DaemonReachable = true
-	settings, err := b.call(bounded, []string{"settings", "get", "ssh.agentForwardingEnabled"}, nil, 1024)
-	if err != nil || settings.ExitCode != 0 || strings.TrimSpace(string(settings.Stdout)) != "false" {
+	ssh, sshErr := b.isolationSetting(bounded, "ssh.agentForwardingEnabled")
+	if sshErr != nil || ssh {
 		return finish("ssh_forwarding_not_disabled", "disable_sbx_ssh_forwarding_and_restart_daemon")
 	}
-	// This reads configured SSH policy. The daemon caches settings, so the
-	// scalar alone cannot prove forwarding was disabled in a running daemon.
-	// Every sandbox starts an MCP gateway; omitting --static-mcp selects
-	// dynamic discovery of registered host services. An isolated app-name
-	// proves a separate daemon/credential store, but not a sealed MCP catalog.
-	// https://docs.docker.com/ai/sandboxes/mcp-gateway/#choose-an-mcp-mode
-	if !b.mcpIsolationProven {
-		return finish("mcp_isolation_unverified", "verify_sbx_mcp_isolation")
+	if !b.helperPrepared.Load() {
+		return finish("mcp_helper_unavailable", "restart_application_to_prepare_sbx_helper")
+	}
+	if err := b.verifyMCPHelper(bounded); err != nil {
+		return finish("mcp_helper_unavailable", "restart_application_to_prepare_sbx_helper")
+	}
+	gateway, gatewayErr := b.isolationSetting(bounded, "mcp.forceLocalGateway")
+	if gatewayErr != nil || !gateway {
+		return finish("mcp_local_gateway_required", "enable_sbx_local_gateway_and_restart_daemon")
 	}
 	r.MCPIsolationProven, r.CredentialIsolationProven = true, true
 	r.Ready, r.Status = true, "ready"
 	r.ReasonCode = "ready"
-	r.EvidenceFingerprint = sbxDigest(b.generation, string(version.Stdout), "ssh.agentForwardingEnabled=false", b.config.TemplateReference)
+	r.EvidenceFingerprint = sbxDigest(b.generation, version, "ssh.agentForwardingEnabled=false", "mcp.forceLocalGateway=true", b.helperSHA, b.helperName, b.config.TemplateReference)
 	return r, nil
 }
 
@@ -283,6 +328,9 @@ func (b *SBXBackend) Run(ctx context.Context, request SBXRunRequest, stdin io.Re
 	defer b.mu.Unlock()
 	if b.closed || b.lock == nil {
 		return result, ErrSBXUnavailable
+	}
+	if err := b.acquireNamespace(); err != nil {
+		return result, err
 	}
 	if err := request.AuthorityCheck(ctx); err != nil {
 		return result, err
@@ -329,10 +377,23 @@ func (b *SBXBackend) Run(ctx context.Context, request SBXRunRequest, stdin io.Re
 		_ = b.save(record)
 		return result, err
 	}
+	// SBX shares the actual host workspace. An existing hard link could alias
+	// an inode outside the granted workspace even when path checks succeed.
+	// Check after the last authority callback, immediately before VM creation.
+	if err := sbxValidateWorkspace(ctx, record.Workspace); err != nil {
+		record.Phase = "unused"
+		_ = b.save(record)
+		return result, err
+	}
+	if err := b.verifyMCPHelper(ctx); err != nil {
+		record.Phase = "unused"
+		_ = b.save(record)
+		return result, err
+	}
 	createCtx, cancelCreate := context.WithTimeout(ctx, 2*time.Minute)
 	result.TreeReaped = false
 	created, createErr := b.call(createCtx, []string{"create", "--name", record.Name, "--template", b.config.TemplateReference,
-		"--pull", "never", "--skills", "off", "--deny-network", "**", "--cpus", "2", "--memory", "2g",
+		"--pull", "never", "--skills", "off", "--static-mcp", b.helperName, "--deny-network", "**", "--cpus", "2", "--memory", "2g",
 		"shell", record.Workspace, filepath.Join(record.Workspace, ".git") + ":ro"}, nil, 64*1024)
 	cancelCreate()
 	// A failed/lost create reply never grants execution. Without a successfully
@@ -361,11 +422,22 @@ func (b *SBXBackend) Run(ctx context.Context, request SBXRunRequest, stdin io.Re
 	if err := request.AuthorityCheck(ctx); err != nil {
 		return cleanup(err)
 	}
+	// The namespace owner serializes all cooperating product instances. Check
+	// the saved identity once more immediately before the name-only exec API.
+	all, err = b.inventory(ctx)
+	if err != nil {
+		return cleanup(err)
+	}
+	entry, found, err = sbxFind(all, record.Name)
+	if err != nil || !found || entry.ID != record.ID || !sbxMountsMatch(entry, record) {
+		return cleanup(ErrSBXOwnership)
+	}
 	args := []string{"exec"}
 	if stdin != nil {
 		args = append(args, "--interactive")
 	}
-	args = append(args, record.Name, "/usr/bin/env", "-i")
+	args = append(args, record.Name, "/bin/bash", "--noprofile", "--norc", "-p", "-c",
+		sbxGuestEnvironmentGuard, "traverse-sbx-env")
 	args = append(args, request.Environment...)
 	args = append(args, "/bin/bash", "--noprofile", "--norc", "-c",
 		`cd -- "$1" || exit 125; shift; exec "$@"`, "traverse-sbx", request.WorkingDirectory)
@@ -395,7 +467,8 @@ func (b *SBXBackend) validateRequest(r SBXRunRequest) error {
 	if _, err := sbxCanonical(r.DrydockRoot, true); err != nil {
 		return err
 	}
-	if sbxWithin(r.DrydockRoot, b.config.JournalRoot) || sbxWithin(r.DrydockRoot, b.config.ExecutablePath) {
+	if sbxWithin(r.DrydockRoot, b.config.JournalRoot) || sbxWithin(r.DrydockRoot, b.config.ExecutablePath) ||
+		sbxWithin(r.DrydockRoot, b.config.HelperExecutable) {
 		return ErrSBXBoundary
 	}
 	info, err := os.Lstat(filepath.Join(r.DrydockRoot, ".git"))

@@ -20,6 +20,7 @@ import (
 	"cyberagent-workbench/internal/httpapi"
 	"cyberagent-workbench/internal/packagede2e"
 	"cyberagent-workbench/internal/sandbox"
+	"cyberagent-workbench/internal/sbxmcp"
 	"cyberagent-workbench/internal/webui"
 	webassets "cyberagent-workbench/web"
 
@@ -237,6 +238,9 @@ type desktopBindingError struct {
 }
 
 func main() {
+	if handled, code := sbxmcp.Execute(os.Args[1:], os.Stdin, os.Stdout); handled {
+		os.Exit(code)
+	}
 	restart, restartMode, restartErr := parseRiskRestartHelperOptions(os.Args[1:])
 	if restartErr != nil {
 		reportDesktopStartupFailure(restartErr)
@@ -640,6 +644,11 @@ func runDesktop(config desktopOptions) error {
 	workspaceSandboxAvailable := desktopWorkspaceSandboxRuntimeAvailable(config,
 		localReadiness, dockerReadiness)
 	if sbxBackend != nil {
+		// Native startup owns the opt-in registration. Settings GET remains a
+		// read-only observation; an unavailable daemon is surfaced by readiness.
+		if config.workspaceSandbox && environmentSettings.SBXEnabled {
+			_ = sbxBackend.Prepare(context.Background())
+		}
 		readiness, err := sbxBackend.Readiness(context.Background())
 		if err != nil {
 			return err

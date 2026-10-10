@@ -1,5 +1,15 @@
 # Prayu Project Memory
 
+> 2026-10-11 sandbox integration: Local remains the default; users can explicitly
+> select their own Docker Engine or Windows sbx 0.47.0. The SBX production path
+> now binds a zero-tool helper, owns its fixed namespace, checks guest isolation
+> and deletes the exact VM through the local daemon's UUID condition. Schema
+> v189 repairs SBX Job admission without rewriting historical permissions.
+> Real success/failure/cancellation, checkpoint and replay passed; all owned VMs
+> were removed. See [acceptance](acceptance/2026-10-10-sandbox-selection.md) and
+> [ADR 0172](adr/0172-sbx-owned-namespace-execution.md) for the Windows version
+> contract and separate remaining frontend/platform acceptance work.
+
 > 2026-10-10 neutral glass follow-up: after #294 merged, the user requested removal
 > of purple, yellow/orange and other independent decorative palettes. Shared
 > light/dark/glass tokens now use neutral high-opacity surfaces, white filled

@@ -444,8 +444,10 @@ func migrationPlan() []migration {
 		Statements: controlledTaskConfigurationStatements()})
 	previous = append(previous, migration{Version: 187, Name: "Version-bound observed declarative Hook decisions",
 		Statements: pluginHookDiagnosticsStatements()})
-	return append(previous, migration{Version: 188, Name: "Explicit Local, Docker Engine and Docker Sandboxes selection",
+	previous = append(previous, migration{Version: 188, Name: "Explicit Local, Docker Engine and Docker Sandboxes selection",
 		Statements: sandboxBackendSelectionStatements(previous), DisableForeignKeys: true})
+	return append(previous, migration{Version: 189, Name: "Bind Docker Sandboxes command Jobs to the distinct SBX profile",
+		Statements: sbxCommandRuntimeScopeStatements()})
 }
 
 func (s *SQLiteStore) SaveWorkspace(ctx context.Context, rec WorkspaceRecord) error {

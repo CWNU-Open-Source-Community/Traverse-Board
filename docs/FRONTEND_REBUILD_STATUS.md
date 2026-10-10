@@ -1,16 +1,34 @@
 # Frontend rebuild status
 
-## Sandbox environment selection — 2026-10-10
+## Sandbox environment selection — 2026-10-11
 
-The follow-up starts from main `6a4402e7` after #296 merged. The desktop now
-separates Local, Docker Engine and official Docker Sandboxes preferences from
-task approval modes, with Local as the default and revision-bound settings
-applied through a fixed native restart. Existing CLI startup gates remain explicit.
-The SBX adapter and recovery integration are implemented, but production readiness
-remains blocked on the official MCP isolation contract. See
-[execution environments](sandbox-environments.md) for setup, current support and
-the evidence required to enable SBX execution. This is a recorded implementation
-boundary, not completed real-SBX acceptance.
+PR #297 merged at main `accd4c47`; production compatibility continues in PR #298.
+Local remains the default. The desktop supports explicit Docker Engine and
+Windows sbx 0.47.0 selection, setup observations, saved settings and fixed native
+restart. Docker Engine real lifecycle and application acceptance passed.
+
+The SBX production path now prepares the packaged zero-tool MCP helper, verifies
+its complete registration and executable identity, owns a fixed OS-account
+namespace, checks effective guest isolation and conditionally removes the exact
+VM UUID. Schema v189 fixes the omitted SBX backend/profile branch in persistent
+Job admission while retaining existing authorization predicates.
+
+Real full-application SBX acceptance passed in 115.11 seconds: exit 0, exit 7,
+cancellation with detached-child cleanup, exact UTF-8 output, durable Jobs,
+checkpoints and replay without repeat dispatch. The separate wrong-ID and
+same-name replacement controls passed in 13.62 seconds. Final inspection found
+no test VMs, backend containers, networks or drift; ordinary Docker objects were
+preserved. Current support and reproducible evidence are in the
+[acceptance record](acceptance/2026-10-10-sandbox-selection.md) and
+[setup guide](sandbox-environments.md).
+
+Readiness now reads mutable daemon state through the fixed local API and caches
+only a CLI version result bound to freshly checked executable bytes. This removes
+repeated CLI startup from normal observations while retaining the original
+observation deadline and evidence lifetime. Historical full CI at `0369de60`
+passed all 22 jobs; current-head validation is recorded separately in the PR.
+The earlier Windows operator pagination timeout's cause remains open; it is
+separate from the SBX startup observations fixed here.
 
 ## Completion integration — 2026-10-10
 

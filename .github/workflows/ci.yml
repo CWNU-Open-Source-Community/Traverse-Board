@@ -516,11 +516,14 @@ jobs:
           )
           go test -v -count=1 -timeout 10m ./internal/app -run ('^(' + ($cliTests -join '|') + ')$')
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
-          # Preserve the operator-first launch order and retain both results.
+          # Preserve the operator-first launch order and retain all results.
           go test -v -count=1 -timeout 10m ./internal/application -run '^TestOperatorFixedCommandUsesSharedJobLedger$'
           $fixedOperatorExitCode = $LASTEXITCODE
           go test -v -count=1 -timeout 10m ./internal/runner -run '^TestWindowsFixedCommandRuntimeUsesRestrictedNativeProcess$'
+          $fixedRunnerExitCode = $LASTEXITCODE
+          go test -v -count=1 -timeout 3m ./internal/application -run '^TestFixedOperatorWindowsNativeDiagnostic$'
           if ($fixedOperatorExitCode -ne 0) { exit $fixedOperatorExitCode }
+          if ($fixedRunnerExitCode -ne 0) { exit $fixedRunnerExitCode }
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           go test -v -count=1 -timeout 10m ./internal/sandbox -run '^TestWindowsLocal(Sandbox|Backend|Process|FailedStart|ToolchainPreflight)'
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
@@ -528,6 +531,8 @@ jobs:
           # Run their launch freshness/capability tests on the actual platform.
           go test -v -count=1 -timeout 10m ./internal/application -run '^TestLocalCommand'
           if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+      - name: Verify SBX adapter and workspace boundaries on Windows
+        run: go test -v -count=1 -timeout 3m ./internal/sandbox ./internal/desktop -run '^(TestSBX|TestDesktopSBX)'
       - name: Verify cross-platform Runner receipt vectors
         run: go test -count=1 ./internal/runner -run 'TestEvidenceSetReceipt(Golden|Compatibility).*Vectors'
       - name: Verify command operation authority and cross-turn ownership

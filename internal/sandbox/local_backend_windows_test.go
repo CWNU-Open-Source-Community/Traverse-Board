@@ -42,9 +42,16 @@ func TestMain(m *testing.M) {
 }
 
 func windowsTestIsSandboxChild() bool {
-	return os.Getenv("TRAVERSE_BOARD_LOCAL_CHILD") != "" ||
+	if os.Getenv("TRAVERSE_BOARD_LOCAL_CHILD") != "" ||
 		os.Getenv("TRAVERSE_BOARD_TREE_CHILD") != "" ||
-		os.Getenv("TRAVERSE_BOARD_LIMIT_CHILD") != ""
+		os.Getenv("TRAVERSE_BOARD_LIMIT_CHILD") != "" {
+		return true
+	}
+	// Namespace subprocesses exercise only the OS lock. CI's parent TestMain
+	// already owns the host ACL fixture; the child must not prepare it again.
+	mode := os.Getenv("SBX_NAMESPACE_LOCK_HELPER")
+	return len(os.Args) == 2 && os.Args[1] == "-test.run=^TestSBXNamespaceProcessHelper$" &&
+		(mode == "contend" || mode == "exit-without-close")
 }
 
 func TestWindowsLocalSandboxReadinessUsesRealAppContainerProcess(t *testing.T) {

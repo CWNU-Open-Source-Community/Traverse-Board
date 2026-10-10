@@ -239,8 +239,8 @@ describe("StandardCodeReadinessPanel", () => {
     const user = userEvent.setup();
     const environment = sandboxEnvironmentFixture({ default_backend: backend,
       docker_enabled: backend === "docker", sbx_enabled: backend === "sbx" });
-    if (backend === "sbx") environment.backends[2].blockers = [{ code: "MCP_ISOLATION_UNVERIFIED",
-      message: "sbx 的 MCP 隔离仍需验证，当前可选 Local 或 Docker Engine。" }];
+    if (backend === "sbx") environment.backends[2].blockers = [{ code: "MCP_HELPER_UNAVAILABLE",
+      message: "重启应用以注册内置的沙箱辅助服务，然后重新检测。" }];
     const readiness = standardCodeReadyReadiness();
     readiness.profiles.push({ value: "sbx", selected: false, selectable: false, runtime_available: false,
       blocked_by: ["sbx_unavailable"], remediation: ["install_or_start_sbx"], restart_required: false });
@@ -259,7 +259,7 @@ describe("StandardCodeReadinessPanel", () => {
     expect(within(start).getByText("后端不可用")).toHaveAttribute("data-readiness-state", "backend_unavailable");
     expect(within(start).queryByText("可用")).not.toBeInTheDocument();
     expect(within(start).queryByText("工作区执行与受控沙箱")).not.toBeInTheDocument();
-    if (backend === "sbx") expect(start).toHaveTextContent("MCP 隔离仍需验证");
+    if (backend === "sbx") expect(start).toHaveTextContent("重启应用以注册内置的沙箱辅助服务");
     await user.click(start);
     await waitFor(() => expect(configureStandardCode).toHaveBeenCalledOnce());
     expect(configureStandardCode).toHaveBeenCalledWith("run-1", "configure", {

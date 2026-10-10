@@ -3074,6 +3074,7 @@
       "identifier": "TraverseBoard.LocalSandbox.Test.Host.v1",
       "kind": "test-fixture",
       "sources": [
+        "internal/sandbox/sbx_namespace_windows_test.go",
         "internal/sandboxtest/null_device_windows.go"
       ],
       "reason": "Windows Local Sandbox disposable test-host marker."

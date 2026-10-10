@@ -1,16 +1,20 @@
 package sandbox
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"os"
 	"path/filepath"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
 	"time"
+
+	"cyberagent-workbench/internal/sbxmcp"
 )
 
 type sbxFakeTransport struct {
@@ -18,16 +22,30 @@ type sbxFakeTransport struct {
 	entries           []sbxInventoryEntry
 	calls             []SBXProcessRequest
 	ssh               string
+	helperPath        string
+	helperName        string
+	helperInstalled   bool
+	helperOverride    []byte
+	localGateway      string
+	removeCalls       int
+	beforeRemove      func(*sbxFakeTransport)
 	exec              func(context.Context, *sbxFakeTransport) (SBXProcessResult, error)
 	createError       error
 	rmRetains         bool
 	inventoryOverride []byte
+	inventoryCalls    int
 }
 
 func (f *sbxFakeTransport) Run(ctx context.Context, r SBXProcessRequest) (SBXProcessResult, error) {
 	f.mu.Lock()
 	f.calls = append(f.calls, r)
 	args := r.Arguments
+	if slices.Equal(args, []string{sbxmcp.Arg}) && r.Executable == f.helperPath {
+		f.mu.Unlock()
+		var output bytes.Buffer
+		_, code := sbxmcp.Execute(args, r.Stdin, &output)
+		return SBXProcessResult{ExitCode: code, Stdout: output.Bytes()}, nil
+	}
 	if len(args) < 3 || args[0] != "--app-name" || args[1] != SBXAppName {
 		f.mu.Unlock()
 		return SBXProcessResult{ExitCode: -1}, errors.New("missing fixed sbx namespace")
@@ -38,7 +56,31 @@ func (f *sbxFakeTransport) Run(ctx context.Context, r SBXProcessRequest) (SBXPro
 	case "version":
 		result.Stdout = []byte("sbx version v0.47.0\n")
 	case "settings":
-		result.Stdout = []byte(f.ssh + "\n")
+		if args[2] == "mcp.forceLocalGateway" {
+			result.Stdout = []byte(f.localGateway + "\n")
+		} else {
+			result.Stdout = []byte(f.ssh + "\n")
+		}
+	case "mcp":
+		switch args[1] {
+		case "ls":
+			servers := []map[string]string{}
+			if f.helperInstalled {
+				servers = append(servers, map[string]string{"name": f.helperName})
+			}
+			result.Stdout, _ = json.Marshal(map[string]any{"servers": servers})
+		case "add":
+			f.helperName, f.helperInstalled = args[2], true
+		case "inspect":
+			if !f.helperInstalled {
+				result.ExitCode = 1
+			} else if f.helperOverride != nil {
+				result.Stdout = append([]byte{}, f.helperOverride...)
+			} else {
+				result.Stdout, _ = json.Marshal(map[string]any{"name": f.helperName, "type": "local",
+					"command": []string{f.helperPath, sbxmcp.Arg}, "resolved_command": f.helperPath, "requires_oauth": false})
+			}
+		}
 	case "ls":
 		if f.inventoryOverride != nil {
 			result.Stdout = append([]byte{}, f.inventoryOverride...)
@@ -81,6 +123,12 @@ func (f *sbxFakeTransport) Run(ctx context.Context, r SBXProcessRequest) (SBXPro
 func (f *sbxFakeTransport) count(verb string) int {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if verb == "rm" {
+		return f.removeCalls
+	}
+	if verb == "ls" {
+		return f.inventoryCalls
+	}
 	count := 0
 	for _, r := range f.calls {
 		if len(r.Arguments) > 2 && r.Arguments[2] == verb {
@@ -88,6 +136,56 @@ func (f *sbxFakeTransport) count(verb string) int {
 		}
 	}
 	return count
+}
+
+func (f *sbxFakeTransport) Check(context.Context) error { return nil }
+func (f *sbxFakeTransport) Inventory(context.Context) ([]byte, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.inventoryCalls++
+	if f.inventoryOverride != nil {
+		return append([]byte{}, f.inventoryOverride...), nil
+	}
+	return json.Marshal(append([]sbxInventoryEntry{}, f.entries...))
+}
+func (f *sbxFakeTransport) IsolationSetting(_ context.Context, key string) ([]byte, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	value := f.ssh
+	if key == "mcp.forceLocalGateway" {
+		value = f.localGateway
+	}
+	return []byte(`{"key":` + strconv.Quote(key) + `,"type":"bool","value":` + value + `}`), nil
+}
+func (f *sbxFakeTransport) VerifyHelper(_ context.Context, name, executable, arg string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if !f.helperInstalled {
+		return os.ErrNotExist
+	}
+	data := f.helperOverride
+	if data == nil {
+		metadata := sbxTestMCPMetadata(f.helperPath)
+		metadata["request"]["Name"], metadata["spec"]["Name"] = f.helperName, f.helperName
+		data, _ = json.Marshal(metadata)
+	}
+	return sbxValidateMCPRegistration(data, name, executable, arg)
+}
+func (f *sbxFakeTransport) Remove(_ context.Context, name, id string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.removeCalls++
+	if f.beforeRemove != nil {
+		f.beforeRemove(f)
+	}
+	entry, found, _ := sbxFind(f.entries, name)
+	if !found || entry.ID != id {
+		return ErrSBXOwnership
+	}
+	if !f.rmRetains {
+		f.entries = slices.DeleteFunc(f.entries, func(e sbxInventoryEntry) bool { return e.Name == name && e.ID == id })
+	}
+	return nil
 }
 
 func sbxFixture(t *testing.T) (*SBXBackend, *sbxFakeTransport, SBXRunRequest) {
@@ -109,12 +207,21 @@ func sbxFixture(t *testing.T) (*SBXBackend, *sbxFakeTransport, SBXRunRequest) {
 	if err := os.WriteFile(filepath.Join(drydock, ".git"), []byte("gitdir: /host-owned-metadata\n"), 0600); err != nil {
 		t.Fatal(err)
 	}
-	fake := &sbxFakeTransport{ssh: "false"}
-	b, err := NewSBXBackend(SBXBackendConfig{Enabled: true, ExecutablePath: cli, TemplateReference: "docker.io/example/toolchain@sha256:" + strings.Repeat("a", 64), JournalRoot: journal}, WithSBXProcessTransport(fake), func(b *SBXBackend) { b.mcpIsolationProven = true })
+	helper := filepath.Join(base, "application-fixture.exe")
+	if err := os.WriteFile(helper, []byte("fake packaged helper bytes; transport runs the real protocol"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	fake := &sbxFakeTransport{ssh: "false", localGateway: "true", helperPath: helper}
+	b, err := NewSBXBackend(SBXBackendConfig{Enabled: true, ExecutablePath: cli, HelperExecutable: helper,
+		TemplateReference: "docker.io/example/toolchain@sha256:" + strings.Repeat("a", 64), JournalRoot: journal}, WithSBXProcessTransport(fake), WithSBXDaemonTransport(fake))
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = b.Close() })
+	if err := b.Prepare(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	fake.calls = nil
 	r := SBXRunRequest{OperationKey: "run-1/operation-1", RequestFingerprint: strings.Repeat("b", 64), RuntimeGeneration: b.Generation(),
 		DrydockRoot: drydock, Arguments: []string{"/usr/bin/printf", "literal --cloud %s"}, Environment: []string{"HOME=/home/agent", "PATH=/usr/bin:/bin"},
 		WorkingDirectory: ".", Timeout: time.Second, OutputLimit: 4096, AuthorityCheck: func(context.Context) error { return nil }}
@@ -127,7 +234,7 @@ func TestSBXRunUsesFixedLocalPolicyAndConfirmsCompleteVMRemoval(t *testing.T) {
 	if err != nil || !value.TreeReaped || value.ExitCode != 0 || string(value.Stdout) != "guest-output\n" || !sbxSHA(value.ReceiptFingerprint) {
 		t.Fatalf("result=%+v error=%v", value, err)
 	}
-	if fake.count("stop") != 1 || fake.count("rm") != 1 {
+	if fake.count("stop") != 0 || fake.count("rm") != 1 {
 		t.Fatalf("whole-VM cleanup was not performed: %+v", fake.calls)
 	}
 	for _, call := range fake.calls {
@@ -147,8 +254,9 @@ func TestSBXRunUsesFixedLocalPolicyAndConfirmsCompleteVMRemoval(t *testing.T) {
 					t.Fatalf("missing fixed policy %s", flag)
 				}
 			}
-			if call.Arguments[len(call.Arguments)-1] != filepath.Join(r.DrydockRoot, ".git")+":ro" || slices.Contains(call.Arguments, "--static-mcp") {
-				t.Fatal("host Git mask or empty MCP selection changed")
+			if call.Arguments[len(call.Arguments)-1] != filepath.Join(r.DrydockRoot, ".git")+":ro" ||
+				call.Arguments[slices.Index(call.Arguments, "--static-mcp")+1] != b.helperName {
+				t.Fatal("host Git mask or fixed zero-tool MCP selection changed")
 			}
 		}
 	}
@@ -180,10 +288,10 @@ func TestSBXReadinessIsIndependentOfFeatureAndTemplateConfiguration(t *testing.T
 
 func TestSBXProductionReadinessRefusesUnverifiedMCPIsolation(t *testing.T) {
 	b, fake, r := sbxFixture(t)
-	b.mcpIsolationProven = false
+	fake.helperInstalled = false
 	proof, err := b.Readiness(context.Background())
 	if err != nil || proof.Validate() != nil || proof.Ready || proof.CredentialIsolationProven || proof.MCPIsolationProven ||
-		proof.ReasonCode != "mcp_isolation_unverified" || !proof.CLIInstalled || !proof.DaemonReachable {
+		proof.ReasonCode != "mcp_helper_unavailable" || !proof.CLIInstalled || !proof.DaemonReachable {
 		t.Fatalf("unverified host gateway admitted: %+v error=%v", proof, err)
 	}
 	if _, err := b.Run(context.Background(), r, nil); !errors.Is(err, ErrSBXUnavailable) || fake.count("create") != 0 || fake.count("exec") != 0 {
@@ -206,7 +314,7 @@ func TestSBXCancellationReapsVMWithIndependentContext(t *testing.T) {
 	<-started
 	cancel()
 	value, err := <-completed, <-failures
-	if !errors.Is(err, context.Canceled) || !value.TreeReaped || fake.count("stop") != 1 || fake.count("rm") != 1 {
+	if !errors.Is(err, context.Canceled) || !value.TreeReaped || fake.count("stop") != 0 || fake.count("rm") != 1 {
 		t.Fatalf("result=%+v error=%v", value, err)
 	}
 }
@@ -264,6 +372,43 @@ func TestSBXIdentityReplacementIsNeverStoppedOrDeleted(t *testing.T) {
 	}
 }
 
+func TestSBXReplacementAtTheConditionalDeleteCannotBeRemoved(t *testing.T) {
+	b, fake, request := sbxFixture(t)
+	fake.beforeRemove = func(f *sbxFakeTransport) {
+		f.entries[0].ID = "replacement-after-inventory"
+	}
+	result, err := b.Run(t.Context(), request, nil)
+	if !errors.Is(err, ErrSBXOwnership) || result.TreeReaped || result.ReceiptFingerprint != "" ||
+		fake.count("stop") != 0 || fake.count("rm") != 1 || len(fake.entries) != 1 || fake.entries[0].ID != "replacement-after-inventory" {
+		t.Fatalf("conditional deletion affected replacement: result=%+v err=%v", result, err)
+	}
+	data, err := os.ReadFile(filepath.Join(b.config.JournalRoot, sbxDigest(request.OperationKey)+".json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var record sbxRecord
+	if json.Unmarshal(data, &record) != nil || record.Removed || record.ID == "replacement-after-inventory" {
+		t.Fatal("replacement changed the owned journal or acquired a removal receipt")
+	}
+}
+
+func TestSBXReplacementBeforeExecutionPreventsDispatch(t *testing.T) {
+	b, fake, request := sbxFixture(t)
+	request.AuthorityCheck = func(context.Context) error {
+		if fake.count("create") > 0 {
+			fake.mu.Lock()
+			fake.entries[0].ID = "replacement-before-execution"
+			fake.mu.Unlock()
+		}
+		return nil
+	}
+	result, err := b.Run(t.Context(), request, nil)
+	if !errors.Is(err, ErrSBXOwnership) || result.TreeReaped || fake.count("exec") != 0 ||
+		fake.count("stop") != 0 || fake.count("rm") != 0 || len(fake.entries) != 1 || fake.entries[0].ID != "replacement-before-execution" {
+		t.Fatalf("replaced VM reached execution or cleanup: result=%+v err=%v", result, err)
+	}
+}
+
 func TestSBXRecoveryOnlyCleansJournaledExactIdentity(t *testing.T) {
 	b, fake, r := sbxFixture(t)
 	owned := sbxRecord{AppName: SBXAppName, Version: SBXPolicyVersion, OperationDigest: sbxDigest(r.OperationKey), RequestFingerprint: r.RequestFingerprint,
@@ -278,6 +423,79 @@ func TestSBXRecoveryOnlyCleansJournaledExactIdentity(t *testing.T) {
 	}
 	if fake.count("exec") != 0 || fake.count("rm") != 1 || len(fake.entries) != 1 || fake.entries[0].ID != "foreign-vm" {
 		t.Fatalf("recovery replayed or removed foreign resource: %+v", fake.entries)
+	}
+	path := filepath.Join(b.config.JournalRoot, owned.OperationDigest+".json")
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var removed sbxRecord
+	if err := json.Unmarshal(data, &removed); err != nil || !removed.Removed || removed.Phase != "removed" || removed.ID != owned.ID {
+		t.Fatalf("successful rm did not persist removal: %+v error=%v", removed, err)
+	}
+	// A durable confirmed removal needs no new inventory or destructive calls.
+	queries := fake.count("ls")
+	if err := b.RecoverStartup(context.Background()); err != nil || fake.count("ls") != queries || fake.count("stop") != 0 || fake.count("rm") != 1 {
+		t.Fatalf("confirmed removal was repeated: error=%v calls=%+v", err, fake.calls)
+	}
+	after, err := os.ReadFile(path)
+	if err != nil || string(after) != string(data) {
+		t.Fatalf("confirmed journal changed during repeated recovery: error=%v", err)
+	}
+}
+
+func TestSBXRecoveryPreservesMissingInventoryJournal(t *testing.T) {
+	for _, phase := range []string{"created", "dispatching"} {
+		t.Run(phase, func(t *testing.T) {
+			b, fake, r := sbxFixture(t)
+			owned := sbxRecord{AppName: SBXAppName, Version: SBXPolicyVersion, OperationDigest: sbxDigest(r.OperationKey), RequestFingerprint: r.RequestFingerprint,
+				Name: "traverse-sbx-" + strings.Repeat("c", 32), ID: "exact-owned-id", Workspace: r.DrydockRoot, Phase: phase}
+			if err := b.save(owned); err != nil {
+				t.Fatal(err)
+			}
+			path := filepath.Join(b.config.JournalRoot, owned.OperationDigest+".json")
+			before, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			// A failed daemon backend may omit a VM that still has runtime metadata.
+			fake.entries = []sbxInventoryEntry{{ID: owned.ID, Name: owned.Name, Workspaces: []string{owned.Workspace, filepath.Join(owned.Workspace, ".git") + ":ro"}}}
+			fake.inventoryOverride = []byte(`[]`)
+			for attempt := 1; attempt <= 2; attempt++ {
+				if err := b.RecoverStartup(context.Background()); !errors.Is(err, ErrSBXCleanup) {
+					t.Fatalf("recovery %d confirmed absent inventory as removal: %v", attempt, err)
+				}
+				after, err := os.ReadFile(path)
+				if err != nil || string(after) != string(before) {
+					t.Fatalf("recovery %d changed unresolved journal: error=%v", attempt, err)
+				}
+			}
+			if fake.count("ls") != 2 || fake.count("create") != 0 || fake.count("exec") != 0 || fake.count("stop") != 0 || fake.count("rm") != 0 || len(fake.entries) != 1 || fake.entries[0].ID != owned.ID {
+				t.Fatalf("missing inventory mutated or adopted VM: calls=%+v entries=%+v", fake.calls, fake.entries)
+			}
+		})
+	}
+}
+
+func TestSBXRunDoesNotConfirmCleanupFromMissingInventory(t *testing.T) {
+	b, fake, r := sbxFixture(t)
+	fake.exec = func(_ context.Context, f *sbxFakeTransport) (SBXProcessResult, error) {
+		f.mu.Lock()
+		f.inventoryOverride = []byte(`[]`)
+		f.mu.Unlock()
+		return SBXProcessResult{ExitCode: 0}, nil
+	}
+	value, err := b.Run(context.Background(), r, nil)
+	if !errors.Is(err, ErrSBXCleanup) || value.TreeReaped || value.ReceiptFingerprint != "" || fake.count("stop") != 0 || fake.count("rm") != 0 {
+		t.Fatalf("missing inventory produced a whole-VM cleanup receipt: %+v error=%v", value, err)
+	}
+	data, err := os.ReadFile(filepath.Join(b.config.JournalRoot, sbxDigest(r.OperationKey)+".json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var record sbxRecord
+	if err := json.Unmarshal(data, &record); err != nil || record.Removed || record.Phase != "dispatching" || record.ID == "" {
+		t.Fatalf("missing inventory lost active journal: %+v error=%v", record, err)
 	}
 }
 
@@ -325,15 +543,15 @@ func TestSBXAuthorityRevocationStopsBeforeCommandDispatch(t *testing.T) {
 
 func TestSBXInventoryRejectsAmbiguousOrUndocumentedIdentity(t *testing.T) {
 	b, fake, _ := sbxFixture(t)
-	for _, input := range []string{`[]`, `{"items":[]}`, `{"sandboxes":null}`, `{"sandboxes":[],"sandboxes":[]}`, `{"sandboxes":[{"name":"foo","workspaces":[]}]}`, `{"sandboxes":[]} {}`} {
+	for _, input := range []string{`null`, `{}`, `{"sandboxes":[]}`, `[{"id":"one","id":"two","name":"foo","workspaces":[]}]`, `[{"name":"foo","workspaces":[]}]`, `[] {}`} {
 		fake.inventoryOverride = []byte(input)
 		if _, err := b.inventory(context.Background()); err == nil {
 			t.Fatalf("accepted ambiguous inventory: %s", input)
 		}
 	}
-	fake.inventoryOverride = []byte(`{"sandboxes":[],"future_additive_field":true}`)
+	fake.inventoryOverride = []byte(`[{"id":"one","name":"foo","workspaces":[],"future_additive_field":true}]`)
 	if _, err := b.inventory(context.Background()); err != nil {
-		t.Fatalf("rejected additive CLI field: %v", err)
+		t.Fatalf("rejected additive daemon field: %v", err)
 	}
 }
 
@@ -345,5 +563,43 @@ func TestSBXTemplateRejectsUnpinnedTagsAndHostFlags(t *testing.T) {
 	}
 	if !ValidSBXTemplateReference("registry.example.com:5000/toolchain@sha256:" + strings.Repeat("a", 64)) {
 		t.Fatal("rejected pinned registry template")
+	}
+}
+
+func TestSBXBackendConfigValidatesAppNamespace(t *testing.T) {
+	config := SBXBackendConfig{Enabled: true, TemplateReference: "example/toolchain@sha256:" + strings.Repeat("a", 64)}
+	for _, tc := range []struct {
+		name, appName string
+		valid         bool
+	}{
+		{"fixed product namespace", SBXAppName, true},
+		{"maximum length", strings.Repeat("a", 20), true},
+		{"CLI allowed characters", "App_9-test", true},
+		{"default user namespace", "", false},
+		{"over maximum length", strings.Repeat("a", 21), false},
+		{"previous oversized namespace", "traverse-command-runtime", false},
+		{"path separator", "traverse/runtime", false},
+		{"dot", "traverse.runtime", false},
+		{"space", "traverse runtime", false},
+		{"non ASCII", "traverse-运行", false},
+		{"control character", "traverse-runtime\n", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := config.validate(tc.appName)
+			if tc.valid && err != nil || !tc.valid && !errors.Is(err, ErrSBXBoundary) {
+				t.Fatalf("config validation for namespace %q = %v; valid=%v", tc.appName, err, tc.valid)
+			}
+		})
+	}
+	// Exercise the normal constructor as well: a future invalid fixed namespace
+	// must fail before any CLI dispatch or resource initialization.
+	b, err := NewSBXBackend(config)
+	if err != nil {
+		t.Fatalf("fixed namespace rejected during backend initialization: %v", err)
+	}
+	t.Cleanup(func() { _ = b.Close() })
+	config.TemplateReference = "example/toolchain:latest"
+	if _, err := NewSBXBackend(config); !errors.Is(err, ErrSBXBoundary) {
+		t.Fatalf("unpinned configuration was accepted: %v", err)
 	}
 }

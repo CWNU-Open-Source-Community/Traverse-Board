@@ -7,9 +7,13 @@ import (
 	"syscall"
 
 	"cyberagent-workbench/internal/app"
+	"cyberagent-workbench/internal/sbxmcp"
 )
 
 func main() {
+	if handled, code := sbxmcp.Execute(os.Args[1:], os.Stdin, os.Stdout); handled {
+		os.Exit(code)
+	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	code := app.ExecuteContext(ctx, os.Args[1:], os.Stdout, os.Stderr)
 	stop()

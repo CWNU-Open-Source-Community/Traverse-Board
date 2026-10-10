@@ -305,8 +305,13 @@ func TestOperatorCommandStoppedRunRequiresPrivateConsentAndPreservesState(t *tes
 // when a native Windows Job is interrupted before its command timeout.
 type fixedOperatorDiagnosticStore struct {
 	*commandApprovalPrepareStore
-	mu      sync.Mutex
-	entries []string
+	mu            sync.Mutex
+	entries       []string
+	nativeEntries []string
+	nativeJobs    chan runner.CommandRuntimeJob
+	nativeStop    chan struct{}
+	nativeStopped chan struct{}
+	nativeSampled chan struct{}
 }
 
 func (s *fixedOperatorDiagnosticStore) record(ctx context.Context, operation string, started time.Time, detail string, err error) {
@@ -363,7 +368,74 @@ func (s *fixedOperatorDiagnosticStore) UpdateCommandRuntimeJob(ctx context.Conte
 	started := time.Now()
 	updated, err := s.SQLiteStore.UpdateCommandRuntimeJob(ctx, job, previous)
 	s.record(ctx, "UpdateCommandRuntimeJob", started, fmt.Sprintf("state=%s previous_version=%d renewed_at=%s expires_at=%s", job.State, previous, job.OwnerRenewedAt.UTC().Format(time.RFC3339Nano), job.OwnerExpiresAt.UTC().Format(time.RFC3339Nano)), err)
+	// Kernel queries run in one separate test worker, never under the manager's
+	// heartbeat locks/deadline. A full one-slot queue simply drops this sample.
+	s.enqueueNativeSample(job)
 	return updated, err
+}
+
+func (s *fixedOperatorDiagnosticStore) startNativeSamples() {
+	s.nativeJobs = make(chan runner.CommandRuntimeJob, 1)
+	s.nativeStop = make(chan struct{})
+	s.nativeStopped = make(chan struct{})
+	s.nativeSampled = make(chan struct{}, 1)
+	go func() {
+		defer close(s.nativeStopped)
+		for {
+			select {
+			case <-s.nativeStop:
+				return
+			case job := <-s.nativeJobs:
+				select {
+				case <-s.nativeStop:
+					return
+				default:
+				}
+				if sample := fixedOperatorNativeProcessSample(job); sample != "" {
+					s.mu.Lock()
+					s.nativeEntries = append(s.nativeEntries, sample)
+					if len(s.nativeEntries) > 16 {
+						s.nativeEntries = s.nativeEntries[len(s.nativeEntries)-16:]
+					}
+					s.mu.Unlock()
+					select {
+					case s.nativeSampled <- struct{}{}:
+					default:
+					}
+				}
+			}
+		}
+	}()
+}
+
+func (s *fixedOperatorDiagnosticStore) enqueueNativeSample(job runner.CommandRuntimeJob) {
+	if job.State != runner.CommandRuntimeJobRunning || job.PID <= 0 {
+		return
+	}
+	select {
+	case <-s.nativeStop:
+		return
+	default:
+	}
+	select {
+	case s.nativeJobs <- job:
+	default:
+	}
+}
+
+func (s *fixedOperatorDiagnosticStore) stopNativeSamples() {
+	close(s.nativeStop)
+	timer := time.NewTimer(time.Second)
+	defer timer.Stop()
+	select {
+	case <-s.nativeStopped:
+	case <-timer.C:
+		// A diagnostic cannot delay fixture cleanup indefinitely or change the
+		// original test result. The worker only holds its own query handle.
+		s.mu.Lock()
+		s.nativeEntries = append(s.nativeEntries, "native diagnostic worker did not finish within the cleanup budget")
+		s.mu.Unlock()
+	}
 }
 
 func newFixedOperatorFixture(t *testing.T, status domain.RunStatus, kind runner.ControlledCommandKind, timeout time.Duration) (*operatorCommandFixture, OperatorCommandRequest) {
@@ -395,15 +467,21 @@ func newFixedOperatorFixture(t *testing.T, status domain.RunStatus, kind runner.
 		t.Fatal(err)
 	}
 	diagnostics := &fixedOperatorDiagnosticStore{commandApprovalPrepareStore: f.probe}
+	diagnostics.startNativeSamples()
 	t.Cleanup(func() {
+		diagnostics.stopNativeSamples()
 		if !t.Failed() {
 			return
 		}
 		diagnostics.mu.Lock()
 		entries := append([]string(nil), diagnostics.entries...)
+		nativeEntries := append([]string(nil), diagnostics.nativeEntries...)
 		diagnostics.mu.Unlock()
 		for _, entry := range entries {
 			t.Log("fixed operator diagnostic:", entry)
+		}
+		for _, entry := range nativeEntries {
+			t.Log("fixed operator native diagnostic:", entry)
 		}
 	})
 	var command runner.CommandRuntimeSpec

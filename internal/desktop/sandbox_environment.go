@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 
 	"cyberagent-workbench/internal/application"
 	"cyberagent-workbench/internal/httpapi"
@@ -29,9 +30,30 @@ func NewDesktopSBXBackend(home string, settings application.SandboxEnvironmentSe
 	if err := os.MkdirAll(root, 0o700); err != nil {
 		return nil, err
 	}
-	executable, _ := exec.LookPath("sbx")
+	helper, err := os.Executable()
+	if err != nil {
+		return nil, err
+	}
+	executable := desktopSBXExecutable()
 	return sandbox.NewSBXBackend(sandbox.SBXBackendConfig{Enabled: settings.SBXEnabled,
-		ExecutablePath: executable, TemplateReference: settings.SBXTemplate, JournalRoot: root})
+		ExecutablePath: executable, HelperExecutable: helper, TemplateReference: settings.SBXTemplate, JournalRoot: root})
+}
+
+func desktopSBXExecutable() string {
+	if executable, err := exec.LookPath("sbx"); err == nil {
+		return executable
+	}
+	if runtime.GOOS == "windows" {
+		// The official per-user installer may have run after Desktop inherited
+		// PATH. Resolve its fixed installation location without a renderer path.
+		if home, err := os.UserHomeDir(); err == nil {
+			candidate := filepath.Join(home, "AppData", "Local", "DockerSandboxes", "bin", "sbx.exe")
+			if info, err := os.Stat(candidate); err == nil && info.Mode().IsRegular() {
+				return candidate
+			}
+		}
+	}
+	return ""
 }
 
 func newDesktopSandboxEnvironmentController(home string, config ControlPlaneConfig,
@@ -84,7 +106,7 @@ func newDesktopSandboxEnvironmentController(home string, config ControlPlaneConf
 			if config.SBXBackend != nil {
 				proof, err = config.SBXBackend.Readiness(ctx)
 			} else {
-				executable, _ := exec.LookPath("sbx")
+				executable := desktopSBXExecutable()
 				proof, err = sandbox.ProbeSBXReadiness(ctx, active.SBXEnabled, executable, active.SBXTemplate)
 			}
 			if err != nil {
@@ -96,12 +118,22 @@ func newDesktopSandboxEnvironmentController(home string, config ControlPlaneConf
 			if proof.Ready {
 				return environmentObservation(true, false, "SBX_ADAPTER_RESTART_REQUIRED", "Docker Sandboxes 已准备好，重新启动应用以接入执行后端。"), nil
 			}
-			message := "安装官方 sbx，在 traverse-command-runtime 环境完成本地虚拟化准备与登录，然后填写固定模板并重新检测。"
-			if proof.ReasonCode == "ssh_forwarding_not_disabled" {
-				message = "在 traverse-command-runtime 环境关闭 ssh.agentForwardingEnabled，并重启对应 sandboxd 后重新检测。"
-			}
-			if proof.ReasonCode == "mcp_isolation_unverified" {
-				message = "Docker Sandboxes 的 MCP 网关隔离仍需验证。当前任务可选择 Local 或 Docker Engine；sbx 选择会保留。"
+			message := "安装官方 sbx 0.47.0，在 traverse-runtime 环境完成本地虚拟化准备与登录，然后填写固定模板并重新检测。"
+			switch proof.ReasonCode {
+			case "cli_version_unsupported":
+				message = "安装已验证的 sbx 0.47.0，然后重启应用并重新检测。"
+			case "daemon_protocol_unavailable", "daemon_unavailable":
+				message = "使用 sbx 0.47.0 启动 traverse-runtime 的 daemon 并完成登录，然后重新检测。"
+			case "disabled":
+				message = "启用 Docker Sandboxes，保存设置并重启应用。"
+			case "template_missing":
+				message = "准备固定 OCI 模板，填写完整 SHA-256 摘要后保存并重启应用。"
+			case "ssh_forwarding_not_disabled":
+				message = "在 traverse-runtime 环境关闭 ssh.agentForwardingEnabled，并重启对应 sandboxd 后重新检测。"
+			case "mcp_helper_unavailable", "backend_closed":
+				message = "重启应用以注册内置的沙箱辅助服务，然后重新检测。"
+			case "mcp_local_gateway_required":
+				message = "在 traverse-runtime 环境启用 mcp.forceLocalGateway，并重启对应 sandboxd 后重新检测。"
 			}
 			return environmentObservation(proof.CLIInstalled, false, proof.ReasonCode, message), nil
 		},
