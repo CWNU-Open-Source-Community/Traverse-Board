@@ -20,7 +20,7 @@ type Store interface {
 	GetPluginInstallation(context.Context, string) (Installation, error)
 	ListPluginInstallations(context.Context, string, int) ([]Installation, error)
 	UpdatePluginInstallation(context.Context, Installation, int64) (Installation, error)
-	RollbackPluginInstallation(context.Context, Installation, int64, Installation, int64) (
+	RollbackPluginInstallation(context.Context, Installation, int64, Installation, int64, PublisherAuthority) (
 		Installation, Installation, error)
 	GetPluginPublisherTrust(context.Context, string) (PublisherTrust, bool, error)
 	SetPluginPublisherTrust(context.Context, PublisherTrust, int64) (PublisherTrust, error)
@@ -30,6 +30,13 @@ type Store interface {
 type Service struct {
 	store Store
 	now   func() time.Time
+}
+
+// PublisherAuthority pins the Service's trust decision to the atomic version
+// switch. Zero generation means no publisher trust record was observed.
+type PublisherAuthority struct {
+	ExpectedGeneration int64
+	ConfirmUntrusted   bool
 }
 
 func NewService(store Store) (*Service, error) {
@@ -103,7 +110,7 @@ func (s *Service) Review(ctx context.Context, installationID string,
 		return Installation{}, apperror.New(apperror.CodeConflict,
 			"plugin review does not match the current installation")
 	}
-	trusted, publisherRevoked, err := s.publisherTrust(ctx, installation)
+	trusted, publisherRevoked, publisherGeneration, err := s.publisherTrust(ctx, installation)
 	if err != nil {
 		return Installation{}, err
 	}
@@ -188,7 +195,8 @@ func (s *Service) Review(ctx context.Context, installationID string,
 				return Installation{}, err
 			}
 			_, enabled, err := s.store.RollbackPluginInstallation(ctx,
-				active, activeBefore, installation, before)
+				active, activeBefore, installation, before, PublisherAuthority{
+					ExpectedGeneration: publisherGeneration, ConfirmUntrusted: request.ConfirmUntrusted})
 			return enabled, err
 		}
 	}
@@ -226,7 +234,7 @@ func (s *Service) Rollback(ctx context.Context, currentID, targetID string,
 		return Installation{}, Installation{}, apperror.New(apperror.CodeConflict,
 			"plugin rollback bindings are invalid or stale")
 	}
-	trusted, publisherRevoked, err := s.publisherTrust(ctx, target)
+	trusted, publisherRevoked, publisherGeneration, err := s.publisherTrust(ctx, target)
 	if err != nil {
 		return Installation{}, Installation{}, err
 	}
@@ -257,7 +265,8 @@ func (s *Service) Rollback(ctx context.Context, currentID, targetID string,
 	if err := target.Validate(); err != nil {
 		return Installation{}, Installation{}, err
 	}
-	return s.store.RollbackPluginInstallation(ctx, current, currentBefore, target, targetBefore)
+	return s.store.RollbackPluginInstallation(ctx, current, currentBefore, target, targetBefore,
+		PublisherAuthority{ExpectedGeneration: publisherGeneration, ConfirmUntrusted: request.ConfirmUntrusted})
 }
 
 func (s *Service) TrustPublisher(ctx context.Context, installationID, actor string) (
@@ -375,20 +384,20 @@ func (s *Service) StageMCPServers(ctx context.Context, installationID string,
 }
 
 func (s *Service) publisherTrust(ctx context.Context, installation Installation) (
-	trusted, revoked bool, err error,
+	trusted, revoked bool, generation int64, err error,
 ) {
 	if !installation.SignatureValid {
-		return false, false, nil
+		return false, false, 0, nil
 	}
 	record, found, err := s.store.GetPluginPublisherTrust(ctx,
 		installation.PublisherFingerprint)
 	if err != nil || !found {
-		return false, false, err
+		return false, false, 0, err
 	}
 	bound := record.Publisher == installation.Manifest.Publisher &&
 		record.PublicKey == installation.PublisherPublicKey
 	return bound && record.State == PublisherTrusted,
-		bound && record.State == PublisherRevoked, nil
+		bound && record.State == PublisherRevoked, record.Generation, nil
 }
 
 func (s *Service) activeSibling(ctx context.Context, installation Installation) (
