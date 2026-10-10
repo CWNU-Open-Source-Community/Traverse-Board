@@ -24,6 +24,24 @@ it("reads bounded history and exact Hook scope with the read token and preserved
   expect(fetchMock.mock.calls.every(([, options]) => options.headers.Authorization === "Bearer read")).toBe(true);
 });
 
+it("shows revoked signing-key trust across publisher display names", async () => {
+  const value = pluginHistory();
+  value.installations[0].manifest.publisher = "Renamed publisher";
+  value.publisher!.state = "revoked";
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response(value)));
+  const actual = await new APIClient("read").pluginHistory("plugin-current");
+  expect(actual.publisher?.state).toBe("revoked");
+  expect(actual.publisher?.fingerprint).toBe(actual.installations[0].publisher_fingerprint);
+});
+
+it.each(["trusted-alias", "foreign-key"])("keeps publisher trust bound for %s", async (kind) => {
+  const value = pluginHistory();
+  if (kind === "trusted-alias") value.installations[0].manifest.publisher = "Renamed publisher";
+  else { value.publisher!.state = "revoked"; value.publisher!.fingerprint = "a".repeat(64); }
+  vi.stubGlobal("fetch", vi.fn().mockResolvedValue(response(value)));
+  await expect(new APIClient("read").pluginHistory("plugin-current")).rejects.toThrow();
+});
+
 it("verifies both rollback generations, selected capabilities and publisher revocation fingerprint", async () => {
   const fetchMock = vi.fn().mockResolvedValueOnce(response(rollbackReply())).mockResolvedValueOnce(response({ protocol_version: "plugin-lifecycle.v1", installation_id: "plugin-current",
     publisher: { ...pluginHistory().publisher, state: "revoked", generation: 4 } }));

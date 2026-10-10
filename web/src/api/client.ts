@@ -6361,7 +6361,8 @@ function parsePluginHistory(value: unknown, installationID: string): PluginHisto
     throw new APIRequestError("Plugin version history binding is invalid", "INVALID_RESPONSE", 502);
   }
   const publisher = value.publisher === undefined ? undefined : parsePluginPublisher(value.publisher);
-  if (publisher && (!current.signature_valid || publisher.fingerprint !== current.publisher_fingerprint || publisher.publisher !== current.manifest.publisher)) {
+  if (publisher && (!current.signature_valid || publisher.fingerprint !== current.publisher_fingerprint ||
+    (publisher.state === "trusted" && publisher.publisher !== current.manifest.publisher))) {
     throw new APIRequestError("Plugin publisher binding is invalid", "INVALID_RESPONSE", 502);
   }
   return { ...value, installations, ...(publisher ? { publisher } : {}) } as PluginHistoryView;

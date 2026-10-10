@@ -52,7 +52,7 @@ func (s *Service) History(ctx context.Context, installationID string) (History, 
 		if err != nil {
 			return History{}, err
 		}
-		if found && trust.Publisher == current.Manifest.Publisher && trust.PublicKey == current.PublisherPublicKey {
+		if found && trust.PublicKey == current.PublisherPublicKey && (trust.Publisher == current.Manifest.Publisher || trust.State == PublisherRevoked) {
 			result.Publisher = &trust
 			all, total, err := reader.ListPluginPublisherInstallations(ctx, trust.Fingerprint, 1000)
 			if err != nil {

@@ -396,8 +396,10 @@ func (s *Service) publisherTrust(ctx context.Context, installation Installation)
 	}
 	bound := record.Publisher == installation.Manifest.Publisher &&
 		record.PublicKey == installation.PublisherPublicKey
+	// A revoked signing-key fingerprint stays revoked across publisher display
+	// names. Positive trust additionally binds the reviewed name and public key.
 	return bound && record.State == PublisherTrusted,
-		bound && record.State == PublisherRevoked, record.Generation, nil
+		record.State == PublisherRevoked, record.Generation, nil
 }
 
 func (s *Service) activeSibling(ctx context.Context, installation Installation) (

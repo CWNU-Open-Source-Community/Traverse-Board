@@ -290,7 +290,7 @@ func validateRollbackPublisherTx(ctx context.Context, tx *sql.Tx, target plugins
 		return err
 	}
 	bound := found && trust.Publisher == target.Manifest.Publisher && trust.PublicKey == target.PublisherPublicKey
-	if bound && trust.State == plugins.PublisherRevoked {
+	if found && trust.State == plugins.PublisherRevoked {
 		return apperror.New(apperror.CodePolicyDenied, "plugin publisher was revoked before the version switch")
 	}
 	generation := int64(0)
