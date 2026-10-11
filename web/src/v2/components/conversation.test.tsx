@@ -936,6 +936,39 @@ describe("V2Conversation", () => {
     expect(fileTrigger).toHaveFocus();
   });
 
+  it("docks without trapping Tab when space permits and restores a modal drawer when narrowed", async () => {
+    let width = 1140;
+    let resize = () => {};
+    const clientWidth = vi.spyOn(HTMLElement.prototype, "clientWidth", "get")
+      .mockImplementation(function (this: HTMLElement) { return this.classList.contains("v2-conversation") ? width : 0; });
+    vi.stubGlobal("ResizeObserver", class {
+      constructor(callback: ResizeObserverCallback) { resize = () => callback([], this as unknown as ResizeObserver); }
+      observe() {}
+      disconnect() {}
+    });
+    try {
+      const user = userEvent.setup();
+      renderConversation(baseClient());
+      const trigger = await screen.findByRole("button", { name: "工作区文件" });
+      await user.click(trigger);
+      const dock = await screen.findByRole("complementary", { name: "工作区文件" });
+      expect(dock.closest(".v2-conversation-stage")).not.toBeNull();
+      expect(dock).not.toHaveAttribute("aria-modal");
+      await user.tab({ shift: true });
+      expect(screen.getByRole("button", { name: "发送 thread-a" })).toHaveFocus();
+      await act(async () => { width = 800; resize(); });
+      const modal = screen.getByRole("dialog", { name: "工作区文件" });
+      expect(modal).toHaveAttribute("aria-modal", "true");
+      expect(modal.parentElement?.parentElement).toBe(document.body);
+      expect(document.querySelector(".v2-conversation")?.closest("[inert]")).not.toBeNull();
+      await user.keyboard("{Escape}");
+      expect(screen.queryByRole("dialog", { name: "工作区文件" })).not.toBeInTheDocument();
+      expect(trigger).toHaveFocus();
+    } finally {
+      cleanup(); clientWidth.mockRestore(); vi.unstubAllGlobals();
+    }
+  });
+
   it("intercepts project file links in assistant messages and opens the workspace file drawer", async () => {
     const linkItem = transcriptItem("item-with-link", "请查看 [src/index.ts:42](src/index.ts:42)", 1);
     const client = baseClient({
@@ -1078,7 +1111,7 @@ describe("V2Conversation", () => {
     await user.click(termTrigger);
 
     expect(await screen.findByRole("dialog", { name: "任务终端" })).toBeInTheDocument();
-    expect(screen.getByText("当前运行环境未启用桌面终端。仅在 Universal Code 桌面端运行时支持本机 Debug 终端。")).toBeInTheDocument();
+    expect(screen.getByText("当前运行环境未启用桌面终端。仅在 Universal-Code 桌面端运行时支持本机 Debug 终端。")).toBeInTheDocument();
 
     const collapseBtn = screen.getByRole("button", { name: "收起终端" });
     await user.click(collapseBtn);

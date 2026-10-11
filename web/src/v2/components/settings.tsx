@@ -1,4 +1,5 @@
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ArchiveRestore, ArrowRight, BookOpen, Monitor, Search, Trash2, X } from "lucide-react";
 import type { APIClient } from "../../api/client";
@@ -108,7 +109,7 @@ function FontLicenseControl() {
   return <>
     <button className="v2-setting-link" onClick={() => setOpen(true)} ref={triggerRef}
       type="button">查看许可</button>
-    {open && <div className="v2-overlay" onMouseDown={(event) => {
+    {open && createPortal(<div className="v2-overlay" onMouseDown={(event) => {
       if (event.target === event.currentTarget) close();
     }} role="presentation">
       <section aria-labelledby="v2-font-license-title" aria-modal="true"
@@ -124,7 +125,7 @@ function FontLicenseControl() {
         </div>
         <footer><button onClick={close} type="button">关闭</button></footer>
       </section>
-    </div>}
+    </div>, document.body)}
   </>;
 }
 
