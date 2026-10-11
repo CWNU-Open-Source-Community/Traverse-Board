@@ -1,5 +1,19 @@
 # Frontend rebuild status
 
+## Reading hierarchy and neutral materials — 2026-10-11
+
+The reading pass starts from merged main `e573a600`. It keeps JetBrains Mono,
+the neutral palette and white primary fills. Conversation prose now has separate
+reading, heading and code scales; the file drawer places the complete execution
+ID in a keyboard-accessible disclosure with confirmed clipboard feedback.
+Shared panel elevations, one composer focus outline and short interaction
+transitions complete the material pass. Reduced motion disables animation;
+live activity expansion stays immediate to preserve transcript reading anchors.
+
+Real browser captures use the production frontend served by the Go API and a
+labelled, isolated SQLite fixture. Scope, checks and image inventory are recorded
+in [the reading acceptance record](acceptance/2026-10-11-reading-hierarchy.md).
+
 ## Sandbox environment selection — 2026-10-11
 
 PR #297 merged at main `accd4c47`; production compatibility continues in PR #298.

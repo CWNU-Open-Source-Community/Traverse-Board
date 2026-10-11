@@ -47,6 +47,7 @@ import { WorkspaceExplorer } from "../../components/workspace-explorer";
 import { UserTerminalPanel } from "../../components/user-terminal-panel";
 import { desktopUserTerminalEnabled, closeDesktopUserTerminal } from "../../lib/desktop-bridge";
 import { useModalFocusTrap } from "../../hooks/use-modal-focus-trap";
+import { V2IdentityDisclosure } from "./identity-disclosure";
 
 export { parseProjectFileLink, type FileLinkTarget } from "./narrative";
 
@@ -161,12 +162,15 @@ export function V2FileDrawer({
           <div className="v2-file-drawer-title">
             <FolderTree aria-hidden="true" size={17} />
             <strong>工作区文件</strong>
-            {runID && <small className="v2-file-drawer-run">执行：{runID}</small>}
           </div>
           <button aria-label="关闭文件面板" onClick={onClose} ref={closeButton} type="button">
             <X aria-hidden="true" size={18} />
           </button>
         </header>
+        {runID && <div className="v2-file-drawer-context">
+          <p>查看此执行绑定目录中的文件。</p>
+          <V2IdentityDisclosure identity={runID} identityLabel="执行 ID" summary="执行信息" />
+        </div>}
         <div className="v2-file-drawer-body">
           {workspaceQuery.isLoading ? (
             <div className="v2-file-drawer-loading" role="status">
