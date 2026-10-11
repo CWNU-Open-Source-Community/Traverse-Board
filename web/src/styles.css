@@ -34,6 +34,19 @@
     "Microsoft YaHei UI", "PingFang SC", "Noto Sans CJK SC", "Noto Sans SC", monospace;
   --prayu-font-mono: "JetBrains Mono Variable", "JetBrains Mono", "HarmonyOS Sans SC",
     "Cascadia Code", Consolas, monospace;
+  --prayu-prose-size: 15px;
+  --prayu-prose-leading: 1.7;
+  --prayu-code-size: 13px;
+  --prayu-code-leading: 1.6;
+  --prayu-weight-body: 400;
+  --prayu-weight-heading: 600;
+  --prayu-motion-fast: 120ms;
+  --prayu-motion-disclosure: 180ms;
+  --prayu-ease-out: cubic-bezier(.2, .8, .2, 1);
+  --prayu-elevation-panel: 0 4px 16px color-mix(in srgb, var(--prayu-shadow) 35%, transparent),
+    inset 0 1px 0 var(--prayu-glass-highlight);
+  --prayu-elevation-floating: 0 12px 32px color-mix(in srgb, var(--prayu-shadow) 65%, transparent),
+    inset 0 1px 0 var(--prayu-glass-highlight);
   font-family: var(--prayu-font-ui);
   color: var(--prayu-text);
   background: transparent;

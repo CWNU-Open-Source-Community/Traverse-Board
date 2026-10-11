@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { createPortal } from "react-dom";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Check, ChevronDown, Globe2, LoaderCircle, ShieldCheck } from "lucide-react";
 import type { APIClient } from "../../api/client";
@@ -150,9 +149,9 @@ export function V2RunNetworkAuthorityControl({ client, threadID = "", runID,
   });
   useEffect(() => {
     if (!open || confirmOpen) return;
-    const closeOutside = (event: PointerEvent) => {
+    const closeOutside = (event: MouseEvent) => {
       if (!shellRef.current?.contains(event.target as Node)) {
-        setTimeout(() => setOpen(false), 0);
+        setOpen(false);
       }
     };
     const closeOnEscape = (event: KeyboardEvent) => {
@@ -162,10 +161,10 @@ export function V2RunNetworkAuthorityControl({ client, threadID = "", runID,
         requestAnimationFrame(() => menuTriggerRef.current?.focus());
       }
     };
-    window.addEventListener("pointerdown", closeOutside);
+    window.addEventListener("click", closeOutside);
     window.addEventListener("keydown", closeOnEscape);
     return () => {
-      window.removeEventListener("pointerdown", closeOutside);
+      window.removeEventListener("click", closeOutside);
       window.removeEventListener("keydown", closeOnEscape);
     };
   }, [open, confirmOpen]);

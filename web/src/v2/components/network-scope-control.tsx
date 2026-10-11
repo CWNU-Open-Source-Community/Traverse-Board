@@ -40,18 +40,18 @@ export function V2NetworkScopeControl({ mode, targets, disabled = false, onChang
 
   useEffect(() => {
     if (!open || confirmOpen) return;
-    const closeOutside = (event: PointerEvent) => {
+    const closeOutside = (event: MouseEvent) => {
       if (!shellRef.current?.contains(event.target as Node)) {
-        setTimeout(() => setOpen(false), 0);
+        setOpen(false);
       }
     };
     const closeOnEscape = (event: KeyboardEvent) => {
       if (event.key === "Escape") setOpen(false);
     };
-    window.addEventListener("pointerdown", closeOutside);
+    window.addEventListener("click", closeOutside);
     window.addEventListener("keydown", closeOnEscape);
     return () => {
-      window.removeEventListener("pointerdown", closeOutside);
+      window.removeEventListener("click", closeOutside);
       window.removeEventListener("keydown", closeOnEscape);
     };
   }, [open, confirmOpen]);

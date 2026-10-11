@@ -1,5 +1,4 @@
 import { useEffect, useId, useRef, useState } from "react";
-import { createPortal } from "react-dom";
 import { Check, ChevronDown, ShieldCheck, ShieldOff, UserCheck } from "lucide-react";
 import { useLocale } from "../../lib/locale";
 import type { ApprovalModeControlProps, ExecutionApprovalMode, FullActivationState } from "./approval-mode-contract";
@@ -63,13 +62,13 @@ export function V2ApprovalModeControl({ mode, fullActivation, fullUnavailableRea
     tabbingRef.current = false;
     const items = Array.from(menuRef.current?.querySelectorAll<HTMLButtonElement>("button:not(:disabled)") ?? []);
     (items[focusLastRef.current ? items.length - 1 : 0] ?? menuRef.current)?.focus();
-    const outside = (event: PointerEvent) => {
+    const outside = (event: MouseEvent) => {
       if (!shellRef.current?.contains(event.target as Node)) {
-        setTimeout(() => setOpen(false), 0);
+        setOpen(false);
       }
     };
-    window.addEventListener("pointerdown", outside);
-    return () => window.removeEventListener("pointerdown", outside);
+    window.addEventListener("click", outside);
+    return () => window.removeEventListener("click", outside);
   }, [open]);
 
   const closeMenu = (restoreFocus = false) => {

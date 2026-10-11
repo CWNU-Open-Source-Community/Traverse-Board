@@ -118,7 +118,7 @@ describe("V2ApprovalCards", () => {
 
   it("distinguishes a successful empty queue from an unread queue", async () => {
     const { fetchMock } = renderReadOnlyCards(null);
-    expect(await screen.findByText("没有待处理审批。")).toBeVisible();
+    expect(await screen.findByText("需要你确认的操作会显示在这里。")).toBeVisible();
     expect(screen.queryByRole("region", { name: "待处理审批" })).not.toBeInTheDocument();
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -127,7 +127,7 @@ describe("V2ApprovalCards", () => {
   it("reports a failed queue read and retries with the read token", async () => {
     const { fetchMock, decideApproval, restoreReads } = renderReadOnlyCards(pending(), {}, "queue");
     expect(await screen.findByRole("alert")).toHaveTextContent("无法读取待审批操作");
-    expect(screen.queryByText("没有待处理审批。")).not.toBeInTheDocument();
+    expect(screen.queryByText("需要你确认的操作会显示在这里。")).not.toBeInTheDocument();
     restoreReads();
     await userEvent.click(screen.getByRole("button", { name: "重试审批队列" }));
     expect(await screen.findByText("Read-only exact proposal [REDACTED]")).toBeVisible();

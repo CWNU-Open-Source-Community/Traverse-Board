@@ -6,7 +6,7 @@
 .v2-settings-content { margin: 0 auto; max-width: var(--v2-content-width); padding: 66px 0 78px; width: calc(100% - 40px); }
 .v2-settings-content > h1 { font-size: 24px; font-weight: 600; letter-spacing: -.01em; margin: 0 0 11px; }
 .v2-settings-content > h1:not(:has(+ .v2-settings-lead)) { margin-bottom: 31px; }
-.v2-settings-lead { color: var(--v2-muted); margin: 0 0 31px; }
+.v2-settings-lead { color: var(--v2-muted); font-size: var(--prayu-prose-size); line-height: var(--prayu-prose-leading); max-width: 68ch; margin: 0 0 31px; overflow-wrap: anywhere; }
 .v2-settings-section + .v2-settings-section { margin-top: 49px; }
 .v2-settings-section > h2 { font-size: 16px; font-weight: 600; letter-spacing: -.01em; margin: 0 0 17px; }
 .v2-execution-settings > .permission-control-card { margin-top: 16px; min-width: 0; }
@@ -17,7 +17,7 @@
   background: var(--prayu-glass-fill-strong);
   border: 1px solid var(--v2-border);
   border-radius: 16px;
-  box-shadow: inset 0 1px 0 var(--prayu-glass-highlight);
+  box-shadow: var(--prayu-elevation-panel);
   overflow: hidden;
 }
 .v2-setting-row {
@@ -32,7 +32,7 @@
 .v2-setting-row + .v2-setting-row::before { background: var(--v2-border); content: ""; height: 1px; left: 15px; position: absolute; right: 15px; top: 0; }
 .v2-setting-row > div:first-child { display: grid; flex: 1; gap: 3px; min-width: 0; }
 .v2-setting-row > div:first-child strong { font-weight: 600; }
-.v2-setting-row > div:first-child span { color: var(--v2-muted); font-size: 13px; line-height: 1.35; }
+.v2-setting-row > div:first-child span { color: var(--v2-muted); font-size: 13px; line-height: 1.6; }
 .v2-setting-value { align-items: center; color: var(--v2-muted); display: flex; flex: 0 1 auto; gap: 8px; max-width: 48%; }
 .v2-setting-value code { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .v2-setting-value button,

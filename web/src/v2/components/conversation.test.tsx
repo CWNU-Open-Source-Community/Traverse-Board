@@ -923,7 +923,9 @@ describe("V2Conversation", () => {
     await user.click(fileTrigger);
 
     expect(await screen.findByRole("dialog", { name: "工作区文件" })).toBeInTheDocument();
-    expect(screen.getByText("执行：run-thread-a")).toBeInTheDocument();
+    expect(screen.getByText("run-thread-a")).not.toBeVisible();
+    await user.click(screen.getByText("执行信息"));
+    expect(screen.getByText("run-thread-a")).toBeVisible();
 
     const closeBtn = screen.getByRole("button", { name: "关闭文件面板" });
     await user.click(closeBtn);
@@ -932,6 +934,39 @@ describe("V2Conversation", () => {
       expect(screen.queryByRole("dialog", { name: "工作区文件" })).not.toBeInTheDocument();
     });
     expect(fileTrigger).toHaveFocus();
+  });
+
+  it("docks without trapping Tab when space permits and restores a modal drawer when narrowed", async () => {
+    let width = 1140;
+    let resize = () => {};
+    const clientWidth = vi.spyOn(HTMLElement.prototype, "clientWidth", "get")
+      .mockImplementation(function (this: HTMLElement) { return this.classList.contains("v2-conversation") ? width : 0; });
+    vi.stubGlobal("ResizeObserver", class {
+      constructor(callback: ResizeObserverCallback) { resize = () => callback([], this as unknown as ResizeObserver); }
+      observe() {}
+      disconnect() {}
+    });
+    try {
+      const user = userEvent.setup();
+      renderConversation(baseClient());
+      const trigger = await screen.findByRole("button", { name: "工作区文件" });
+      await user.click(trigger);
+      const dock = await screen.findByRole("complementary", { name: "工作区文件" });
+      expect(dock.closest(".v2-conversation-stage")).not.toBeNull();
+      expect(dock).not.toHaveAttribute("aria-modal");
+      await user.tab({ shift: true });
+      expect(screen.getByRole("button", { name: "发送 thread-a" })).toHaveFocus();
+      await act(async () => { width = 800; resize(); });
+      const modal = screen.getByRole("dialog", { name: "工作区文件" });
+      expect(modal).toHaveAttribute("aria-modal", "true");
+      expect(modal.parentElement?.parentElement).toBe(document.body);
+      expect(document.querySelector(".v2-conversation")?.closest("[inert]")).not.toBeNull();
+      await user.keyboard("{Escape}");
+      expect(screen.queryByRole("dialog", { name: "工作区文件" })).not.toBeInTheDocument();
+      expect(trigger).toHaveFocus();
+    } finally {
+      cleanup(); clientWidth.mockRestore(); vi.unstubAllGlobals();
+    }
   });
 
   it("intercepts project file links in assistant messages and opens the workspace file drawer", async () => {
@@ -1012,7 +1047,11 @@ describe("V2Conversation", () => {
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent("无法确认此执行的工作区");
     expect(client.get).toHaveBeenCalledWith("/threads/thread-a/review", {}, expect.any(AbortSignal));
-    expect(screen.getByText("执行：run-old")).toBeInTheDocument();
+    const executionInfo = screen.getByText("执行信息");
+    expect(executionInfo.closest("details")).not.toHaveAttribute("open");
+    await userEvent.setup().click(executionInfo);
+    expect(executionInfo.closest("details")).toHaveAttribute("open");
+    expect(screen.getByText("run-old")).toBeVisible();
   });
 
   it("opens a historical Run's exact review workspace when its change set is unavailable", async () => {
