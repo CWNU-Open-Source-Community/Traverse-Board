@@ -32,7 +32,9 @@ export function V2ComposerAddMenu({ actions, disabled, triggerRef }: {
     const items = Array.from(menuRef.current?.querySelectorAll<HTMLButtonElement>('button:not(:disabled)') ?? []);
     (items[focusLastRef.current ? items.length - 1 : 0] ?? menuRef.current)?.focus();
     const outside = (event: PointerEvent) => {
-      if (!shellRef.current?.contains(event.target as Node)) setOpen(false);
+      if (!shellRef.current?.contains(event.target as Node)) {
+        setTimeout(() => setOpen(false), 0);
+      }
     };
     window.addEventListener("pointerdown", outside);
     return () => window.removeEventListener("pointerdown", outside);

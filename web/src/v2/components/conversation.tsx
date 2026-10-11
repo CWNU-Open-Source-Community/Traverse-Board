@@ -302,7 +302,7 @@ export function V2TerminalDrawer({
           ) : (
             <div className="v2-terminal-disabled-notice" role="status">
               <SquareTerminal aria-hidden="true" size={24} />
-              <p>当前运行环境未启用桌面终端。仅在 Universal Code 桌面端运行时支持本机 Debug 终端。</p>
+              <p>当前运行环境未启用桌面终端。仅在 Universal-Code 桌面端运行时支持本机 Debug 终端。</p>
             </div>
           )}
         </div>
@@ -690,7 +690,7 @@ export function V2Conversation({ client, threadID, workspaces, onArchive, onMana
       const target = event.target;
       if (!(target instanceof Node) || menuRef.current?.contains(target) ||
         menuTriggerRef.current?.contains(target)) return;
-      setMenuOpen(false);
+      setTimeout(() => setMenuOpen(false), 0);
     };
     const closeForEscape = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;

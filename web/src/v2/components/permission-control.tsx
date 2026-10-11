@@ -53,7 +53,9 @@ function ThreadPermissionControl({ client, threadID, variant = "menu", onOpenMod
     if (!networkOpen || variant !== "menu") return;
     networkPanelRef.current?.focus();
     const outside = (event: PointerEvent) => {
-      if (!networkConfirmationOpenRef.current && !networkRef.current?.contains(event.target as Node)) setNetworkOpen(false);
+      if (!networkConfirmationOpenRef.current && !networkRef.current?.contains(event.target as Node)) {
+        setTimeout(() => setNetworkOpen(false), 0);
+      }
     };
     const escape = (event: KeyboardEvent) => {
       if (event.key !== "Escape" || event.defaultPrevented || networkConfirmationOpenRef.current) return;

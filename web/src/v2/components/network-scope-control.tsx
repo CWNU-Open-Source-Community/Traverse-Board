@@ -39,9 +39,11 @@ export function V2NetworkScopeControl({ mode, targets, disabled = false, onChang
     ? canonicalizeExactNetworkTargets(rawTargets) : [], [invalid.length, rawTargets]);
 
   useEffect(() => {
-    if (!open) return;
+    if (!open || confirmOpen) return;
     const closeOutside = (event: PointerEvent) => {
-      if (!shellRef.current?.contains(event.target as Node)) setOpen(false);
+      if (!shellRef.current?.contains(event.target as Node)) {
+        setTimeout(() => setOpen(false), 0);
+      }
     };
     const closeOnEscape = (event: KeyboardEvent) => {
       if (event.key === "Escape") setOpen(false);
@@ -52,7 +54,7 @@ export function V2NetworkScopeControl({ mode, targets, disabled = false, onChang
       window.removeEventListener("pointerdown", closeOutside);
       window.removeEventListener("keydown", closeOnEscape);
     };
-  }, [open]);
+  }, [open, confirmOpen]);
 
   const disableNetwork = () => {
     onChange("disabled", []);

@@ -4,8 +4,9 @@
 .v2-settings-toolbar { background: color-mix(in srgb, var(--v2-control) 28%, transparent); border-bottom: 1px solid color-mix(in srgb, var(--v2-border) 72%, transparent); }
 .v2-settings-scroll { min-height: 0; overflow: auto; }
 .v2-settings-content { margin: 0 auto; max-width: var(--v2-content-width); padding: 66px 0 78px; width: calc(100% - 40px); }
-.v2-settings-content > h1 { font-size: 24px; font-weight: 600; letter-spacing: -.01em; margin: 0 0 39px; }
-.v2-settings-lead { color: var(--v2-muted); margin: -28px 0 31px; }
+.v2-settings-content > h1 { font-size: 24px; font-weight: 600; letter-spacing: -.01em; margin: 0 0 11px; }
+.v2-settings-content > h1:not(:has(+ .v2-settings-lead)) { margin-bottom: 31px; }
+.v2-settings-lead { color: var(--v2-muted); margin: 0 0 31px; }
 .v2-settings-section + .v2-settings-section { margin-top: 49px; }
 .v2-settings-section > h2 { font-size: 16px; font-weight: 600; letter-spacing: -.01em; margin: 0 0 17px; }
 .v2-execution-settings > .permission-control-card { margin-top: 16px; min-width: 0; }

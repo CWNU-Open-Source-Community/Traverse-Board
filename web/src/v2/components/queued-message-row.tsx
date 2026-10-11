@@ -120,7 +120,9 @@ function QueueMessageMenu({ trigger, message, editDisabled, onClose, onEdit, onD
   }, [message.prepared, editDisabled]);
   useEffect(() => {
     const outside = (event: PointerEvent) => {
-      if (!ref.current?.contains(event.target as Node) && !trigger.current?.contains(event.target as Node)) closeRef.current();
+      if (!ref.current?.contains(event.target as Node) && !trigger.current?.contains(event.target as Node)) {
+        setTimeout(() => closeRef.current(), 0);
+      }
     };
     const move = (event: Event) => {
       if (!ref.current?.contains(event.target as Node)) { trigger.current?.focus({ preventScroll: true }); closeRef.current(); }

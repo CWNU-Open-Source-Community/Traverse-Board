@@ -255,6 +255,7 @@
   display: inline-flex;
   font-size: 11px;
   gap: 5px;
+  margin-left: auto;
   padding: 2px 7px;
   transition: background 120ms ease, color 120ms ease;
 }
@@ -580,6 +581,7 @@
   height: 26px;
   justify-content: center;
   opacity: 0;
+  pointer-events: none;
   padding: 0;
   position: absolute;
   right: 4px;
@@ -587,7 +589,7 @@
   width: 26px;
 }
 .v2-thread-row-shell:hover .v2-thread-more,
-.v2-thread-more:focus-visible { opacity: 1; }
+.v2-thread-more:focus-visible { opacity: 1; pointer-events: auto; }
 .v2-thread-more:hover { background: var(--v2-control-hover); }
 .v2-thread-menu {
   backdrop-filter: blur(30px) saturate(100%);
@@ -1097,12 +1099,15 @@
 .v2-composer-actions { align-items: center; display: flex; flex: 0 1 auto; gap: 8px; margin-left: auto; min-width: 0; max-width: 100%; }
 .v2-composer-actions > .v2-model-route-control { min-width: 0; }
 .v2-composer-footer :is(.v2-phase-toggle, .v2-plan-trigger, .v2-composer-chip, .v2-workspace-picker select, .v2-model-route-trigger) {
+  align-items: center;
   border-radius: 9px;
+  box-sizing: border-box;
+  display: inline-flex;
   font: 500 13px/20px var(--prayu-font-ui);
   gap: 8px;
-  height: auto;
+  height: 34px;
   min-height: 34px;
-  padding: 7px 8px;
+  padding: 0 8px;
 }
 .v2-composer-footer .v2-thread-plan-controls { gap: 8px; }
 .v2-composer-surface > .v2-file-references { padding: 12px 16px 0; }

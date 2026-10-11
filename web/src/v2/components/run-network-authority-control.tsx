@@ -151,7 +151,9 @@ export function V2RunNetworkAuthorityControl({ client, threadID = "", runID,
   useEffect(() => {
     if (!open || confirmOpen) return;
     const closeOutside = (event: PointerEvent) => {
-      if (!shellRef.current?.contains(event.target as Node)) setOpen(false);
+      if (!shellRef.current?.contains(event.target as Node)) {
+        setTimeout(() => setOpen(false), 0);
+      }
     };
     const closeOnEscape = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
@@ -245,13 +247,13 @@ export function V2RunNetworkAuthorityControl({ client, threadID = "", runID,
         className="v2-run-network-popover v2-run-network-authority"
         role="dialog">{body}</section>}
     </> : <section className="v2-run-network-authority">{body}</section>}
-    {confirmOpen && createPortal(<V2ConfirmDialog busy={mutation.isPending} confirmLabel="允许这些主机" danger
+    {confirmOpen && <V2ConfirmDialog busy={mutation.isPending} confirmLabel="允许这些主机" danger
       description={`当前任务及其后续执行将能访问 ${additions.length} 个新增公网 HTTPS 主机。后端仍会拒绝私网、元数据地址、DNS 重绑定、未授权重定向和非 HTTPS 请求；网页内容始终作为不可信证据。`}
       onCancel={() => {
         setConfirmOpen(false);
         // Backdrop mousedown may move focus after the dialog cleanup runs.
         requestAnimationFrame(() => confirmTriggerRef.current?.focus());
       }} onConfirm={() => mutation.mutate()}
-      open returnFocusRef={confirmTriggerRef} title="追加网页访问范围？" />, document.body)}
+      open returnFocusRef={confirmTriggerRef} title="追加网页访问范围？" />}
   </div>;
 }
