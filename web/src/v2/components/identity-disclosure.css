@@ -1,0 +1,19 @@
+.v2-identity-disclosure { color: var(--v2-muted); font-size: 12px; min-width: 0; }
+.v2-identity-disclosure > summary { border-radius: 6px; cursor: pointer; padding: 4px 6px; }
+.v2-identity-disclosure > summary:hover { background: var(--v2-control-hover); color: var(--v2-ink); }
+.v2-identity-disclosure > summary:focus-visible,
+.v2-identity-disclosure-content > button:focus-visible { outline: 2px solid var(--prayu-focus); outline-offset: 2px; }
+.v2-identity-disclosure-content { border-left: 1px solid var(--v2-border); margin: 8px 0 0 6px; padding: 2px 0 2px 12px; }
+.v2-identity-disclosure-content dl { margin: 0 0 10px; }
+.v2-identity-disclosure-content dt { font-weight: 500; margin-bottom: 4px; }
+.v2-identity-disclosure-content dd { color: var(--v2-ink); line-height: 1.55; margin: 0; overflow-wrap: anywhere; user-select: text; }
+.v2-identity-disclosure-content code { font-family: var(--prayu-font-mono); font-size: inherit; }
+.v2-identity-disclosure-content > button { background: var(--v2-control); border: 1px solid var(--v2-border); border-radius: 6px; color: var(--v2-ink); cursor: pointer; font: inherit; min-height: 30px; padding: 4px 9px; }
+.v2-identity-disclosure-content > button:hover:not(:disabled):not([aria-disabled="true"]) { background: var(--v2-control-hover); }
+.v2-identity-disclosure-content > button:disabled,
+.v2-identity-disclosure-content > button[aria-disabled="true"] { cursor: wait; opacity: .65; }
+.v2-identity-copy-status { line-height: 1.5; margin: 8px 0 0; }
+.v2-identity-copy-status:empty { margin: 0; }
+.v2-file-drawer-context { align-items: start; border-bottom: 1px solid var(--v2-border); display: grid; flex-shrink: 0; gap: 4px; grid-template-columns: minmax(0, 1fr); padding: 10px 18px; }
+.v2-file-drawer-context > p { color: var(--v2-muted); font-size: 12px; line-height: 1.6; margin: 4px 0; }
+.v2-file-drawer-context > .v2-identity-disclosure { width: 100%; }

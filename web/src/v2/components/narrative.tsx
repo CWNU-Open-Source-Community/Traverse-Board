@@ -1,4 +1,4 @@
-import { memo, useMemo, useState } from "react";
+import { Children, isValidElement, memo, useMemo, useState } from "react";
 import { replaceEqualDeep } from "@tanstack/react-query";
 import ReactMarkdown, { defaultUrlTransform } from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -64,6 +64,10 @@ function extractTextFromNode(node: React.ReactNode): string {
 function MarkdownCodeBlock({ children, ...props }: React.HTMLAttributes<HTMLPreElement>) {
   const [copied, setCopied] = useState<"idle" | "success" | "error">("idle");
   const codeText = useMemo(() => extractTextFromNode(children), [children]);
+  const codeElement = Children.toArray(children).find((child) =>
+    isValidElement<{ className?: string }>(child) && child.type === "code");
+  const language = isValidElement<{ className?: string }>(codeElement)
+    ? codeElement.props.className?.match(/(?:^|\s)language-(\S+)/u)?.[1] : undefined;
 
   const handleCopy = async () => {
     try {
@@ -81,6 +85,7 @@ function MarkdownCodeBlock({ children, ...props }: React.HTMLAttributes<HTMLPreE
 
   return <div className="v2-markdown-code-block">
     <div className="v2-markdown-code-header">
+      <span className="v2-markdown-code-lang">{language || "代码"}</span>
       <button
         aria-label={copied === "success" ? "已复制代码" : copied === "error" ? "复制失败" : "复制代码"}
         className={`v2-copy-code-button${copied === "success" ? " is-copied" : copied === "error" ? " is-error" : ""}`}

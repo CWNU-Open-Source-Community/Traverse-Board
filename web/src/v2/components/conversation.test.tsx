@@ -923,7 +923,9 @@ describe("V2Conversation", () => {
     await user.click(fileTrigger);
 
     expect(await screen.findByRole("dialog", { name: "工作区文件" })).toBeInTheDocument();
-    expect(screen.getByText("执行：run-thread-a")).toBeInTheDocument();
+    expect(screen.getByText("run-thread-a")).not.toBeVisible();
+    await user.click(screen.getByText("执行信息"));
+    expect(screen.getByText("run-thread-a")).toBeVisible();
 
     const closeBtn = screen.getByRole("button", { name: "关闭文件面板" });
     await user.click(closeBtn);
@@ -1012,7 +1014,11 @@ describe("V2Conversation", () => {
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent("无法确认此执行的工作区");
     expect(client.get).toHaveBeenCalledWith("/threads/thread-a/review", {}, expect.any(AbortSignal));
-    expect(screen.getByText("执行：run-old")).toBeInTheDocument();
+    const executionInfo = screen.getByText("执行信息");
+    expect(executionInfo.closest("details")).not.toHaveAttribute("open");
+    await userEvent.setup().click(executionInfo);
+    expect(executionInfo.closest("details")).toHaveAttribute("open");
+    expect(screen.getByText("run-old")).toBeVisible();
   });
 
   it("opens a historical Run's exact review workspace when its change set is unavailable", async () => {
